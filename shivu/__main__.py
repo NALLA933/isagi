@@ -16,6 +16,7 @@ from shivu import (
     LOGGER
 )
 from shivu.modules import ALL_MODULES
+from shivu.modules import test
 
 # ==================== DATABASE COLLECTIONS ====================
 collection = db['anime_characters_lol']
