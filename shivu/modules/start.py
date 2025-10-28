@@ -1,12 +1,11 @@
 import random
-import re
 from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 
 from shivu import (
-    application, SUPPORT_CHAT, BOT_USERNAME, db, GROUP_ID, LOGGER,
+    application, SUPPORT_CHAT, BOT_USERNAME, GROUP_ID, LOGGER,
     user_collection, user_totals_collection
 )
 
@@ -19,9 +18,9 @@ REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
 
 
-def to_small_caps(text):
-    """Convert text to small caps"""
-    small_caps_map = {
+def sc(text):
+    """Convert to small caps"""
+    m = {
         'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 
         'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 
         'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ', 
@@ -31,10 +30,10 @@ def to_small_caps(text):
         'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 
         'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
     }
-    return ''.join(small_caps_map.get(c, c) for c in text)
+    return ''.join(m.get(c, c) for c in text)
 
 
-async def process_referral(user_id: int, first_name: str, referring_user_id: int, context: CallbackContext):
+async def process_referral(user_id, first_name, referring_user_id, context):
     """Process referral rewards"""
     try:
         referring_user = await user_collection.find_one({"id": referring_user_id})
@@ -66,32 +65,25 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
             }
         )
 
-        referrer_message = (
-            f"╔═══════════════╗\n"
-            f"  {to_small_caps('referral success')}\n"
-            f"╚═══════════════╝\n\n"
-            f"<b>{escape(first_name)}</b> {to_small_caps('joined via your link')}\n\n"
-            f"💰 <code>{REFERRER_REWARD:,}</code> {to_small_caps('gold')}\n"
-            f"✅ {to_small_caps('invite task')} +1"
+        msg = (
+            f"<b>{sc('referral success')}</b>\n\n"
+            f"<b>{escape(first_name)}</b> {sc('joined via your link')}\n\n"
+            f"{sc('gold')}: <code>{REFERRER_REWARD:,}</code>\n"
+            f"{sc('invite task')}: +1"
         )
 
         try:
-            await context.bot.send_message(
-                chat_id=referring_user_id,
-                text=referrer_message,
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            LOGGER.error(f"Failed to notify referrer: {e}")
+            await context.bot.send_message(chat_id=referring_user_id, text=msg, parse_mode='HTML')
+        except:
+            pass
 
         return True
-
     except Exception as e:
         LOGGER.error(f"Referral error: {e}")
         return False
 
 
-async def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     first_name = update.effective_user.first_name
     username = update.effective_user.username
@@ -101,7 +93,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     if args and args[0].startswith('r_'):
         try:
             referring_user_id = int(args[0][2:])
-        except ValueError:
+        except:
             pass
 
     user_data = await user_collection.find_one({"id": user_id})
@@ -137,37 +129,33 @@ async def start(update: Update, context: CallbackContext) -> None:
         user_data = new_user
 
         if referring_user_id:
-            referral_success = await process_referral(user_id, first_name, referring_user_id, context)
-            if referral_success:
+            success = await process_referral(user_id, first_name, referring_user_id, context)
+            if success:
                 user_data['balance'] = NEW_USER_BONUS
                 user_data['referred_by'] = referring_user_id
 
         try:
-            total_users = await user_collection.count_documents({})
+            total = await user_collection.count_documents({})
             await context.bot.send_message(
                 chat_id=GROUP_ID,
                 text=(
-                    f"╔═══════════════╗\n"
-                    f"  {to_small_caps('new player')}\n"
-                    f"╚═══════════════╝\n\n"
-                    f"{to_small_caps('user')}: <a href='tg://user?id={user_id}'>{escape(first_name)}</a>\n"
-                    f"{to_small_caps('id')}: <code>{user_id}</code>\n"
-                    f"{to_small_caps('total')}: <b>{total_users}</b>"
+                    f"<b>{sc('new player')}</b>\n\n"
+                    f"{sc('user')}: <a href='tg://user?id={user_id}'>{escape(first_name)}</a>\n"
+                    f"{sc('id')}: <code>{user_id}</code>\n"
+                    f"{sc('total')}: {total}"
                 ),
                 parse_mode='HTML'
             )
-        except Exception as e:
-            LOGGER.error(f"Group notify failed: {e}")
-
+        except:
+            pass
     else:
-        update_fields = {}
+        updates = {}
         if user_data.get('first_name') != first_name:
-            update_fields['first_name'] = first_name
+            updates['first_name'] = first_name
         if user_data.get('username') != username:
-            update_fields['username'] = username
-
+            updates['username'] = username
         if 'pass_data' not in user_data:
-            update_fields['pass_data'] = {
+            updates['pass_data'] = {
                 "tier": "free",
                 "weekly_claims": 0,
                 "last_weekly_claim": None,
@@ -181,76 +169,69 @@ async def start(update: Update, context: CallbackContext) -> None:
                 "invited_users": [],
                 "total_invite_earnings": 0
             }
-
-        if update_fields:
-            await user_collection.update_one({"id": user_id}, {"$set": update_fields})
+        if updates:
+            await user_collection.update_one({"id": user_id}, {"$set": updates})
             user_data = await user_collection.find_one({"id": user_id})
 
-    user_balance = user_data.get('balance', 0)
-    user_totals = await user_totals_collection.find_one({'id': user_id})
-    total_characters = user_totals.get('count', 0) if user_totals else 0
-    referred_count = user_data.get('referred_users', 0)
+    balance = user_data.get('balance', 0)
+    totals = await user_totals_collection.find_one({'id': user_id})
+    chars = totals.get('count', 0) if totals else 0
+    refs = user_data.get('referred_users', 0)
 
     if update.effective_chat.type == "private":
-        welcome = to_small_caps('welcome back') if not is_new_user else to_small_caps('welcome')
-        bonus_msg = ""
-
-        if is_new_user and referring_user_id:
-            bonus_msg = f"\n🎁 <b>+{NEW_USER_BONUS}</b> {to_small_caps('gold bonus')}"
+        welcome = sc('welcome back') if not is_new_user else sc('welcome')
+        bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> {sc('gold bonus')}" if (is_new_user and referring_user_id) else ""
 
         caption = (
             f"<b>{welcome}</b>\n\n"
-            f"{to_small_caps('collect anime characters in groups')}\n"
-            f"{to_small_caps('add me to your group to start')}{bonus_msg}\n\n"
-            f"━━━━━━━━━━━━\n"
-            f"💰 {to_small_caps('gold')}: <b>{user_balance:,}</b>\n"
-            f"🎴 {to_small_caps('characters')}: <b>{total_characters}</b>\n"
-            f"👥 {to_small_caps('referrals')}: <b>{referred_count}</b>"
+            f"{sc('collect anime characters in groups')}\n"
+            f"{sc('add me to start')}{bonus}\n\n"
+            f"<b>{sc('your stats')}</b>\n"
+            f"{sc('gold')}: <b>{balance:,}</b>\n"
+            f"{sc('characters')}: <b>{chars}</b>\n"
+            f"{sc('referrals')}: <b>{refs}</b>"
         )
 
         keyboard = [
-            [InlineKeyboardButton(to_small_caps("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
-                InlineKeyboardButton(to_small_caps("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(to_small_caps("updates"), url=f'https://t.me/PICK_X_UPDATE')
+                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
+                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
             ],
             [
-                InlineKeyboardButton(to_small_caps("help"), callback_data='help'),
-                InlineKeyboardButton(to_small_caps("invite"), callback_data='referral')
+                InlineKeyboardButton(sc("help"), callback_data='help'),
+                InlineKeyboardButton(sc("invite"), callback_data='referral')
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await context.bot.send_photo(
             chat_id=update.effective_chat.id,
             photo=random.choice(PHOTO_URL),
             caption=caption,
-            reply_markup=reply_markup,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
-
     else:
-        caption = f"<b>{to_small_caps('alive')}</b>\n{to_small_caps('pm me for details')}"
+        caption = f"<b>{sc('alive')}</b>\n{sc('pm me for details')}"
 
         keyboard = [
-            [InlineKeyboardButton(to_small_caps("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
-                InlineKeyboardButton(to_small_caps("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(to_small_caps("updates"), url=f'https://t.me/PICK_X_UPDATE')
+                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
+                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await context.bot.send_photo(
             chat_id=update.effective_chat.id,
             photo=random.choice(PHOTO_URL),
             caption=caption,
-            reply_markup=reply_markup,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
 
 
-async def button_callback(update: Update, context: CallbackContext) -> None:
+async def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
@@ -258,98 +239,92 @@ async def button_callback(update: Update, context: CallbackContext) -> None:
     user_data = await user_collection.find_one({"id": user_id})
 
     if not user_data:
-        await query.answer(to_small_caps("start bot first"), show_alert=True)
+        await query.answer(sc("start bot first"), show_alert=True)
         return
 
     if query.data == 'help':
-        help_text = (
-            f"╔═══════════════╗\n"
-            f"  {to_small_caps('commands')}\n"
-            f"╚═══════════════╝\n\n"
-            f"<b>{to_small_caps('gameplay')}</b>\n"
-            f"/grab - {to_small_caps('guess character')}\n"
-            f"/fav - {to_small_caps('set favorite')}\n"
-            f"/harem - {to_small_caps('view collection')}\n\n"
-            f"<b>{to_small_caps('trading')}</b>\n"
-            f"/trade - {to_small_caps('trade characters')}\n"
-            f"/gift - {to_small_caps('gift character')}\n\n"
-            f"<b>{to_small_caps('leaderboard')}</b>\n"
-            f"/gstop - {to_small_caps('top groups')}\n"
-            f"/tophunters - {to_small_caps('top users')}\n\n"
-            f"<b>{to_small_caps('economy')}</b>\n"
-            f"/bal - {to_small_caps('check wallet')}\n"
-            f"/pay - {to_small_caps('send gold')}\n"
-            f"/claim - {to_small_caps('daily reward')}\n"
-            f"/roll - {to_small_caps('gamble gold')}\n\n"
-            f"<b>{to_small_caps('pass system')}</b>\n"
-            f"/pass - {to_small_caps('pass status')}\n"
-            f"/pclaim - {to_small_caps('weekly rewards')}\n"
-            f"/tasks - {to_small_caps('task progress')}"
+        text = (
+            f"<b>{sc('commands')}</b>\n\n"
+            f"<b>{sc('gameplay')}</b>\n"
+            f"/grab {sc('guess character')}\n"
+            f"/fav {sc('set favorite')}\n"
+            f"/harem {sc('view collection')}\n\n"
+            f"<b>{sc('trading')}</b>\n"
+            f"/trade {sc('trade characters')}\n"
+            f"/gift {sc('gift character')}\n\n"
+            f"<b>{sc('leaderboard')}</b>\n"
+            f"/gstop {sc('top groups')}\n"
+            f"/tophunters {sc('top users')}\n\n"
+            f"<b>{sc('economy')}</b>\n"
+            f"/bal {sc('check wallet')}\n"
+            f"/pay {sc('send gold')}\n"
+            f"/claim {sc('daily reward')}\n"
+            f"/roll {sc('gamble gold')}\n\n"
+            f"<b>{sc('pass system')}</b>\n"
+            f"/pass {sc('pass status')}\n"
+            f"/pclaim {sc('weekly rewards')}\n"
+            f"/tasks {sc('task progress')}"
         )
 
-        keyboard = [[InlineKeyboardButton(to_small_caps("back"), callback_data='back')]]
+        keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
         await query.edit_message_caption(
-            caption=help_text,
+            caption=text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
 
     elif query.data == 'referral':
-        referral_link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
-        referred_count = user_data.get('referred_users', 0)
-        total_earnings = referred_count * REFERRER_REWARD
+        link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
+        count = user_data.get('referred_users', 0)
+        earned = count * REFERRER_REWARD
 
-        referral_text = (
-            f"╔═══════════════╗\n"
-            f"  {to_small_caps('invite & earn')}\n"
-            f"╚═══════════════╝\n\n"
-            f"👥 {to_small_caps('invited')}: <b>{referred_count}</b>\n"
-            f"💰 {to_small_caps('earned')}: <b>{total_earnings:,}</b>\n\n"
-            f"━━━━━━━━━━━━\n"
-            f"<b>{to_small_caps('rewards')}</b>\n"
-            f"━━━━━━━━━━━━\n"
-            f"💎 {to_small_caps('you')}: <b>{REFERRER_REWARD:,}</b> {to_small_caps('gold')}\n"
-            f"🎁 {to_small_caps('friend')}: <b>{NEW_USER_BONUS:,}</b> {to_small_caps('gold')}\n"
-            f"✅ {to_small_caps('counts for pass tasks')}\n\n"
-            f"<b>{to_small_caps('your link')}</b>\n"
-            f"<code>{referral_link}</code>"
+        text = (
+            f"<b>{sc('invite and earn')}</b>\n\n"
+            f"{sc('invited')}: <b>{count}</b>\n"
+            f"{sc('earned')}: <b>{earned:,}</b>\n\n"
+            f"<b>{sc('rewards')}</b>\n"
+            f"{sc('you')}: <b>{REFERRER_REWARD:,}</b> {sc('gold')}\n"
+            f"{sc('friend')}: <b>{NEW_USER_BONUS:,}</b> {sc('gold')}\n"
+            f"{sc('counts for pass tasks')}\n\n"
+            f"<b>{sc('your link')}</b>\n"
+            f"<code>{link}</code>"
         )
 
         keyboard = [
-            [InlineKeyboardButton(to_small_caps("share"), url=f"https://t.me/share/url?url={referral_link}")],
-            [InlineKeyboardButton(to_small_caps("back"), callback_data='back')]
+            [InlineKeyboardButton(sc("share"), url=f"https://t.me/share/url?url={link}")],
+            [InlineKeyboardButton(sc("back"), callback_data='back')]
         ]
         await query.edit_message_caption(
-            caption=referral_text,
+            caption=text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
 
     elif query.data == 'back':
-        user_balance = user_data.get('balance', 0)
-        user_totals = await user_totals_collection.find_one({'id': user_id})
-        total_characters = user_totals.get('count', 0) if user_totals else 0
-        referred_count = user_data.get('referred_users', 0)
+        balance = user_data.get('balance', 0)
+        totals = await user_totals_collection.find_one({'id': user_id})
+        chars = totals.get('count', 0) if totals else 0
+        refs = user_data.get('referred_users', 0)
 
         caption = (
-            f"<b>{to_small_caps('welcome back')}</b>\n\n"
-            f"{to_small_caps('collect anime characters in groups')}\n"
-            f"{to_small_caps('add me to your group to start')}\n\n"
-            f"━━━━━━━━━━━━\n"
-            f"💰 {to_small_caps('gold')}: <b>{user_balance:,}</b>\n"
-            f"🎴 {to_small_caps('characters')}: <b>{total_characters}</b>\n"
-            f"👥 {to_small_caps('referrals')}: <b>{referred_count}</b>"
+            f"<b>{sc('welcome back')}</b>\n\n"
+            f"{sc('collect anime characters in groups')}\n"
+            f"{sc('add me to start')}\n\n"
+            f"<b>{sc('your stats')}</b>\n"
+            f"{sc('gold')}: <b>{balance:,}</b>\n"
+            f"{sc('characters')}: <b>{chars}</b>\n"
+            f"{sc('referrals')}: <b>{refs}</b>"
         )
 
         keyboard = [
-            [InlineKeyboardButton(to_small_caps("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
-                InlineKeyboardButton(to_small_caps("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(to_small_caps("updates"), url=f'https://t.me/PICK_X_UPDATE')
+                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
+                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
             ],
             [
-                InlineKeyboardButton(to_small_caps("help"), callback_data='help'),
-                InlineKeyboardButton(to_small_caps("invite"), callback_data='referral')
+                InlineKeyboardButton(sc("help"), callback_data='help'),
+                InlineKeyboardButton(sc("invite"), callback_data='referral')
             ]
         ]
         await query.edit_message_caption(
