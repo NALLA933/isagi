@@ -6,7 +6,7 @@ class Config(object):
     sudo_users = ["8297659126", "8420981179", "5147822244", "7843303499", "7435049371", "6863917190", "1201153141", "7410843798"]
     GROUP_ID = "-1003150808065"
     TOKEN = "7891572866:AAEKgMqTNK0vQ_mAw63YFKdL6bD2oEiss14"
-    mongo_url = "mongodb+srv://thorfinn00006_db_user:hmQ6sln4mHOWkGax@thorfinn.tnlzhnw.mongodb.net/?retryWrites=true&w=majority"
+    mongo_url = "mongodb+srv://teamdaxx123:teamdaxx123@cluster0.ysbpgcp.mongodb.net/?retryWrites=true&w=majority"
     PHOTO_URL = ["https://files.catbox.moe/8722ku.jpeg", "https://files.catbox.moe/kgcrnb.jpeg"]
     SUPPORT_CHAT = "PICK_X_SUPPORT"
     UPDATE_CHAT = "PICK_X_UPDATE"
