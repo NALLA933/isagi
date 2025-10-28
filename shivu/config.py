@@ -7,7 +7,7 @@ class Config(object):
     GROUP_ID = "-1002191083108"
     TOKEN = "7891572866:AAEKgMqTNK0vQ_mAw63YFKdL6bD2oEiss14"
     mongo_url = "mongodb+srv://Epic2:w85NP8dEHmQxA5s7@cluster0.tttvsf9.mongodb.net/?retryWrites=true&w=majority"
-    PHOTO_URL = ["https://telegra.ph/SMDBOTZ-10-25-2", "https://telegra.ph/SMDBOTZ-10-25-3"]
+    PHOTO_URL = ["https://files.catbox.moe/8722ku.jpeg", "https://files.catbox.moe/kgcrnb.jpeg"]
     SUPPORT_CHAT = "PICK_X_SUPPORT"
     UPDATE_CHAT = "PICK_X_UPDATE"
     BOT_USERNAME = "waifukunbot"
