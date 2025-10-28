@@ -6,7 +6,7 @@ from html import escape
 import traceback
 
 # Log chat ID
-LOG_CHAT_ID = -1003071132623
+LOG_CHAT_ID = -1002900862232
 
 # Store pending gifts
 pending_gifts = {}
