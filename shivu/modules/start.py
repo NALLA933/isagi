@@ -3,6 +3,7 @@ from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
+from telegram.error import BadRequest
 
 from shivu import (
     application, SUPPORT_CHAT, BOT_USERNAME, GROUP_ID, LOGGER,
@@ -204,13 +205,22 @@ async def start(update: Update, context: CallbackContext):
             ]
         ]
 
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=random.choice(PHOTO_URL),
-            caption=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=random.choice(PHOTO_URL),
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            LOGGER.error(f"Photo send failed: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
     else:
         caption = f"<b>{sc('alive')}</b>\n{sc('pm me for details')}"
 
@@ -222,13 +232,22 @@ async def start(update: Update, context: CallbackContext):
             ]
         ]
 
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=random.choice(PHOTO_URL),
-            caption=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=random.choice(PHOTO_URL),
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            LOGGER.error(f"Photo send failed: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
 
 
 async def button_callback(update: Update, context: CallbackContext):
@@ -267,11 +286,19 @@ async def button_callback(update: Update, context: CallbackContext):
         )
 
         keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
-        await query.edit_message_caption(
-            caption=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        
+        try:
+            await query.edit_message_caption(
+                caption=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except BadRequest:
+            await query.message.edit_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
 
     elif query.data == 'referral':
         link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
@@ -294,11 +321,19 @@ async def button_callback(update: Update, context: CallbackContext):
             [InlineKeyboardButton(sc("share"), url=f"https://t.me/share/url?url={link}")],
             [InlineKeyboardButton(sc("back"), callback_data='back')]
         ]
-        await query.edit_message_caption(
-            caption=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        
+        try:
+            await query.edit_message_caption(
+                caption=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except BadRequest:
+            await query.message.edit_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
 
     elif query.data == 'back':
         balance = user_data.get('balance', 0)
@@ -327,11 +362,19 @@ async def button_callback(update: Update, context: CallbackContext):
                 InlineKeyboardButton(sc("invite"), callback_data='referral')
             ]
         ]
-        await query.edit_message_caption(
-            caption=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        
+        try:
+            await query.edit_message_caption(
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except BadRequest:
+            await query.message.edit_text(
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
 
 
 application.add_handler(CommandHandler('start', start, block=False))
