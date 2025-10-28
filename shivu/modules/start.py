@@ -203,16 +203,45 @@ async def button_callback(update: Update, context: CallbackContext):
 
     if query.data == 'credits':
         text = "<b>🩵 " + sc("bot credits") + "</b>\n\n"
-        text += f"<b>{sc('owner')}</b>\n"
-        for o in OWNERS:
-            text += f"• {escape(o['name'])} (<a href='https://t.me/{o['username']}'>@{o['username']}</a>) — <code>{o['id']}</code>\n"
+        text += f"{sc('special thanks to everyone who made this possible')}\n"
 
-        text += f"\n<b>{sc('sudo users')}</b>\n"
-        for s in SUDO_USERS:
-            text += f"• {escape(s['name'])} (<a href='https://t.me/{s['username']}'>@{s['username']}</a>) — <code>{s['id']}</code>\n"
+        # Create button rows for owners and sudo users
+        buttons = []
 
-        keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
-        await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        # Owner buttons
+        if OWNERS:
+            text += f"\n<b>{sc('owners')}</b>\n"
+            owner_row = []
+            for o in OWNERS:
+                owner_row.append(
+                    InlineKeyboardButton(
+                        text=f"👑 {o['name']}",
+                        url=f"https://t.me/{o['username']}"
+                    )
+                )
+            buttons.append(owner_row)
+
+        # Sudo buttons
+        if SUDO_USERS:
+            text += f"\n<b>{sc('sudo users')}</b>\n"
+            sudo_row = []
+            for s in SUDO_USERS:
+                sudo_row.append(
+                    InlineKeyboardButton(
+                        text=f"⚡ {s['name']}",
+                        url=f"https://t.me/{s['username']}"
+                    )
+                )
+            buttons.append(sudo_row)
+
+        # Back button
+        buttons.append([InlineKeyboardButton(sc("back"), callback_data='back')])
+
+        await query.edit_message_caption(
+            caption=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode='HTML'
+        )
 
     elif query.data == 'help':
         text = (
