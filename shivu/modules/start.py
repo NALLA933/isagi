@@ -1,12 +1,16 @@
 import random
 from html import escape 
+import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 
-from shivu import application, PHOTO_URL, SUPPORT_CHAT, UPDATE_CHAT, BOT_USERNAME, db, GROUP_ID, LOGGER
+from shivu import application, SUPPORT_CHAT, UPDATE_CHAT, BOT_USERNAME, db, GROUP_ID, LOGGER
 from shivu import user_collection, user_totals_collection
 
+
+# Photo/Video URLs - can be direct URLs or Telegraph pages
+PHOTO_URL = ["https://telegra.ph/SMDBOTZ-10-25-2", "https://telegra.ph/SMDBOTZ-10-25-3"]
 
 # Referral rewards configuration
 REFERRER_REWARD = 1000  # Gold for person who invited
@@ -26,19 +30,56 @@ def to_small_caps(text):
     return ''.join(small_caps_map.get(c, c) for c in text)
 
 
-def is_video_url(url):
-    """Check if URL is a video based on extension"""
-    video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v')
-    return any(url.lower().endswith(ext) for ext in video_extensions)
+async def get_media_from_url(url):
+    """Extract direct media URL from Telegraph or return direct URL"""
+    try:
+        # If it's a Telegraph URL, fetch the page and extract media
+        if 'telegra.ph' in url:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        
+                        # Try to find video first
+                        video_match = re.search(r'<video[^>]*src=["\']([^"\']+)["\']', html)
+                        if video_match:
+                            video_url = video_match.group(1)
+                            if not video_url.startswith('http'):
+                                video_url = 'https://telegra.ph' + video_url
+                            return video_url, 'video'
+                        
+                        # Try to find image
+                        img_match = re.search(r'<img[^>]*src=["\']([^"\']+)["\']', html)
+                        if img_match:
+                            img_url = img_match.group(1)
+                            if not img_url.startswith('http'):
+                                img_url = 'https://telegra.ph' + img_url
+                            return img_url, 'photo'
+        else:
+            # Direct URL - determine type by extension
+            video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v')
+            if any(url.lower().endswith(ext) for ext in video_extensions):
+                return url, 'video'
+            else:
+                return url, 'photo'
+    except Exception as e:
+        LOGGER.error(f"[MEDIA FETCH ERROR] {e}")
+    
+    # Default fallback
+    return url, 'photo'
 
 
 async def send_media_with_caption(context, chat_id, media_url, caption, reply_markup):
     """Send photo or video based on URL type"""
     try:
-        if is_video_url(media_url):
+        # Get actual media URL and type
+        actual_url, media_type = await get_media_from_url(media_url)
+        
+        if media_type == 'video':
             await context.bot.send_video(
                 chat_id=chat_id,
-                video=media_url,
+                video=actual_url,
                 caption=caption,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
@@ -46,7 +87,7 @@ async def send_media_with_caption(context, chat_id, media_url, caption, reply_ma
         else:
             await context.bot.send_photo(
                 chat_id=chat_id,
-                photo=media_url,
+                photo=actual_url,
                 caption=caption,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
