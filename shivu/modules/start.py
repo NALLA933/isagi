@@ -16,6 +16,14 @@ PHOTO_URL = [
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
 
+# OWNER & SUDO DATA
+OWNERS = [
+    {"name": "Thorfinn", "username": "ll_Thorfinn_ll", "id": 8420981179},
+]
+SUDO_USERS = [
+    {"name": "Shadwoo", "username": "I_shadwoo", "id": 5147822244},
+]
+
 # ------------------ UTILITIES ------------------
 def sc(text):
     """Convert to small caps"""
@@ -104,7 +112,7 @@ async def start(update: Update, context: CallbackContext):
     user_data = await user_collection.find_one({"id": user_id})
     is_new_user = user_data is None
 
-    # ------------------ NEW USER REGISTRATION ------------------
+    # Register new user
     if is_new_user:
         LOGGER.info(f"[START] Registering new user {user_id}")
         new_user = {
@@ -131,121 +139,55 @@ async def start(update: Update, context: CallbackContext):
                 "total_invite_earnings": 0
             }
         }
-
         await user_collection.insert_one(new_user)
         user_data = new_user
 
         if referring_user_id:
-            success = await process_referral(user_id, first_name, referring_user_id, context)
-            if success:
-                user_data['balance'] = NEW_USER_BONUS
-                user_data['referred_by'] = referring_user_id
+            await process_referral(user_id, first_name, referring_user_id, context)
 
-        try:
-            total = await user_collection.count_documents({})
-            await context.bot.send_message(
-                chat_id=GROUP_ID,
-                text=(
-                    f"<b>{sc('new player')}</b>\n\n"
-                    f"{sc('user')}: <a href='tg://user?id={user_id}'>{escape(first_name)}</a>\n"
-                    f"{sc('id')}: <code>{user_id}</code>\n"
-                    f"{sc('total')}: {total}"
-                ),
-                parse_mode='HTML'
-            )
-        except Exception:
-            pass
-
-    else:
-        LOGGER.info(f"[START] Existing user {user_id} found")
-        updates = {}
-        if user_data.get('first_name') != first_name:
-            updates['first_name'] = first_name
-        if user_data.get('username') != username:
-            updates['username'] = username
-        if 'pass_data' not in user_data:
-            updates['pass_data'] = {
-                "tier": "free",
-                "weekly_claims": 0,
-                "last_weekly_claim": None,
-                "streak_count": 0,
-                "last_streak_claim": None,
-                "tasks": {"invites": 0, "weekly_claims": 0, "grabs": 0},
-                "mythic_unlocked": False,
-                "premium_expires": None,
-                "elite_expires": None,
-                "pending_elite_payment": None,
-                "invited_users": [],
-                "total_invite_earnings": 0
-            }
-        if updates:
-            await user_collection.update_one({"id": user_id}, {"$set": updates})
-            user_data = await user_collection.find_one({"id": user_id})
-
-    # ------------------ MESSAGE & STATS ------------------
+    # Message caption
     balance = user_data.get('balance', 0)
     totals = await user_totals_collection.find_one({'id': user_id})
     chars = totals.get('count', 0) if totals else 0
     refs = user_data.get('referred_users', 0)
 
-    if update.effective_chat.type == "private":
-        welcome = sc('welcome back') if not is_new_user else sc('welcome')
-        bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> {sc('gold bonus')}" if (is_new_user and referring_user_id) else ""
+    welcome = sc('welcome back') if not is_new_user else sc('welcome')
+    bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> {sc('gold bonus')}" if (is_new_user and referring_user_id) else ""
 
-        caption = (
-            f"<b>{welcome}</b>\n\n"
-            f"{sc('collect anime characters in groups')}\n"
-            f"{sc('add me to start')}{bonus}\n\n"
-            f"<b>{sc('your stats')}</b>\n"
-            f"{sc('gold')}: <b>{balance:,}</b>\n"
-            f"{sc('characters')}: <b>{chars}</b>\n"
-            f"{sc('referrals')}: <b>{refs}</b>"
+    caption = (
+        f"<b>{welcome}</b>\n\n"
+        f"{sc('collect anime characters in groups')}\n"
+        f"{sc('add me to start')}{bonus}\n\n"
+        f"<b>{sc('your stats')}</b>\n"
+        f"{sc('gold')}: <b>{balance:,}</b>\n"
+        f"{sc('characters')}: <b>{chars}</b>\n"
+        f"{sc('referrals')}: <b>{refs}</b>"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+        [
+            InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
+            InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
+        ],
+        [
+            InlineKeyboardButton(sc("help"), callback_data='help'),
+            InlineKeyboardButton(sc("invite"), callback_data='referral')
+        ],
+        [InlineKeyboardButton(sc("credits"), callback_data='credits')]
+    ]
+
+    try:
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=random.choice(PHOTO_URL),
+            caption=caption,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
         )
-
-        keyboard = [
-            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
-            [
-                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
-            ],
-            [
-                InlineKeyboardButton(sc("help"), callback_data='help'),
-                InlineKeyboardButton(sc("invite"), callback_data='referral')
-            ]
-        ]
-
-        try:
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=random.choice(PHOTO_URL),
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            LOGGER.error(f"[START ERROR] Failed to send photo: {e}")
-            await update.message.reply_text(caption, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-
-    else:
-        caption = f"<b>{sc('alive')}</b>\n{sc('pm me for details')}"
-        keyboard = [
-            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
-            [
-                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
-            ]
-        ]
-        try:
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=random.choice(PHOTO_URL),
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            LOGGER.error(f"[START ERROR] Group message failed: {e}")
-            await update.message.reply_text(caption, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+        LOGGER.error(f"[START ERROR] Failed to send photo: {e}")
+        await update.message.reply_text(caption, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # ------------------ BUTTON HANDLER ------------------
@@ -259,28 +201,31 @@ async def button_callback(update: Update, context: CallbackContext):
         await query.answer(sc("start bot first"), show_alert=True)
         return
 
-    if query.data == 'help':
+    if query.data == 'credits':
+        text = "<b>🩵 " + sc("bot credits") + "</b>\n\n"
+        text += f"<b>{sc('owner')}</b>\n"
+        for o in OWNERS:
+            text += f"• {escape(o['name'])} (<a href='https://t.me/{o['username']}'>@{o['username']}</a>) — <code>{o['id']}</code>\n"
+
+        text += f"\n<b>{sc('sudo users')}</b>\n"
+        for s in SUDO_USERS:
+            text += f"• {escape(s['name'])} (<a href='https://t.me/{s['username']}'>@{s['username']}</a>) — <code>{s['id']}</code>\n"
+
+        keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
+        await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+
+    elif query.data == 'help':
         text = (
             f"<b>{sc('commands')}</b>\n\n"
-            f"<b>{sc('gameplay')}</b>\n"
             f"/grab {sc('guess character')}\n"
             f"/fav {sc('set favorite')}\n"
-            f"/harem {sc('view collection')}\n\n"
-            f"<b>{sc('trading')}</b>\n"
+            f"/harem {sc('view collection')}\n"
             f"/trade {sc('trade characters')}\n"
-            f"/gift {sc('gift character')}\n\n"
-            f"<b>{sc('leaderboard')}</b>\n"
-            f"/gstop {sc('top groups')}\n"
-            f"/tophunters {sc('top users')}\n\n"
-            f"<b>{sc('economy')}</b>\n"
+            f"/gift {sc('gift character')}\n"
             f"/bal {sc('check wallet')}\n"
             f"/pay {sc('send gold')}\n"
             f"/claim {sc('daily reward')}\n"
-            f"/roll {sc('gamble gold')}\n\n"
-            f"<b>{sc('pass system')}</b>\n"
-            f"/pass {sc('pass status')}\n"
-            f"/pclaim {sc('weekly rewards')}\n"
-            f"/tasks {sc('task progress')}"
+            f"/roll {sc('gamble gold')}\n"
         )
         keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
         await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
@@ -293,10 +238,6 @@ async def button_callback(update: Update, context: CallbackContext):
             f"<b>{sc('invite and earn')}</b>\n\n"
             f"{sc('invited')}: <b>{count}</b>\n"
             f"{sc('earned')}: <b>{earned:,}</b>\n\n"
-            f"<b>{sc('rewards')}</b>\n"
-            f"{sc('you')}: <b>{REFERRER_REWARD:,}</b> {sc('gold')}\n"
-            f"{sc('friend')}: <b>{NEW_USER_BONUS:,}</b> {sc('gold')}\n\n"
-            f"<b>{sc('your link')}</b>\n"
             f"<code>{link}</code>"
         )
         keyboard = [
@@ -306,14 +247,14 @@ async def button_callback(update: Update, context: CallbackContext):
         await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
     elif query.data == 'back':
+        # Go back to main panel
         balance = user_data.get('balance', 0)
         totals = await user_totals_collection.find_one({'id': user_id})
         chars = totals.get('count', 0) if totals else 0
         refs = user_data.get('referred_users', 0)
         caption = (
             f"<b>{sc('welcome back')}</b>\n\n"
-            f"{sc('collect anime characters in groups')}\n"
-            f"{sc('add me to start')}\n\n"
+            f"{sc('collect anime characters in groups')}\n\n"
             f"<b>{sc('your stats')}</b>\n"
             f"{sc('gold')}: <b>{balance:,}</b>\n"
             f"{sc('characters')}: <b>{chars}</b>\n"
@@ -328,7 +269,8 @@ async def button_callback(update: Update, context: CallbackContext):
             [
                 InlineKeyboardButton(sc("help"), callback_data='help'),
                 InlineKeyboardButton(sc("invite"), callback_data='referral')
-            ]
+            ],
+            [InlineKeyboardButton(sc("credits"), callback_data='credits')]
         ]
         await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
