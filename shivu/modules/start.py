@@ -26,27 +26,63 @@ def to_small_caps(text):
     return ''.join(small_caps_map.get(c, c) for c in text)
 
 
+def is_video_url(url):
+    """Check if URL is a video based on extension"""
+    video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v')
+    return any(url.lower().endswith(ext) for ext in video_extensions)
+
+
+async def send_media_with_caption(context, chat_id, media_url, caption, reply_markup):
+    """Send photo or video based on URL type"""
+    try:
+        if is_video_url(media_url):
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+        else:
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+    except Exception as e:
+        LOGGER.error(f"[MEDIA ERROR] Failed to send media: {e}")
+        # Fallback to text message if media fails
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=caption,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+
 async def process_referral(user_id: int, first_name: str, referring_user_id: int, context: CallbackContext):
     """Process referral rewards for both users"""
     try:
         # Check if referring user exists
         referring_user = await user_collection.find_one({"id": referring_user_id})
-        
+
         if not referring_user:
             LOGGER.warning(f"[REFERRAL] Referring user {referring_user_id} not found")
             return False
-        
+
         # Check if user hasn't already been referred by someone
         new_user = await user_collection.find_one({"id": user_id})
         if new_user and new_user.get('referred_by'):
             LOGGER.info(f"[REFERRAL] User {user_id} already referred by someone")
             return False
-        
+
         # Don't allow self-referral
         if user_id == referring_user_id:
             LOGGER.warning(f"[REFERRAL] Self-referral attempt by {user_id}")
             return False
-        
+
         # Update new user - mark who referred them
         await user_collection.update_one(
             {"id": user_id},
@@ -55,7 +91,7 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
                 "$inc": {"balance": NEW_USER_BONUS}
             }
         )
-        
+
         # Update referring user - add to their referral list and rewards
         await user_collection.update_one(
             {"id": referring_user_id},
@@ -63,13 +99,13 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
                 "$inc": {
                     "balance": REFERRER_REWARD,
                     "referred_users": 1,
-                    "pass_data.tasks.invites": 1,  # Update pass system task
+                    "pass_data.tasks.invites": 1,
                     "pass_data.total_invite_earnings": REFERRER_REWARD
                 },
                 "$push": {"invited_user_ids": user_id}
             }
         )
-        
+
         # Send notification to referrer
         referrer_first_name = referring_user.get('first_name', 'User')
         referrer_message = (
@@ -82,7 +118,7 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
             f"✅ {to_small_caps('invite task progress')} +1\n\n"
             f"{to_small_caps('keep inviting to unlock more rewards')}"
         )
-        
+
         try:
             await context.bot.send_message(
                 chat_id=referring_user_id,
@@ -91,10 +127,10 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
             )
         except Exception as e:
             LOGGER.error(f"[REFERRAL] Failed to notify referrer {referring_user_id}: {e}")
-        
+
         LOGGER.info(f"[REFERRAL] User {user_id} referred by {referring_user_id}")
         return True
-        
+
     except Exception as e:
         LOGGER.error(f"[REFERRAL ERROR] {e}")
         return False
@@ -105,7 +141,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     first_name = update.effective_user.first_name
     username = update.effective_user.username
     args = context.args
-    
+
     # Check for referral parameter
     referring_user_id = None
     if args and len(args) > 0 and args[0].startswith('r_'):
@@ -150,14 +186,14 @@ async def start(update: Update, context: CallbackContext) -> None:
                 "total_invite_earnings": 0
             }
         }
-        
+
         await user_collection.insert_one(new_user)
         user_data = new_user
-        
+
         # Process referral if valid
         if referring_user_id:
             referral_success = await process_referral(user_id, first_name, referring_user_id, context)
-            
+
             if referral_success:
                 # Update the new user data to reflect referral bonus
                 user_data['balance'] = NEW_USER_BONUS
@@ -179,7 +215,7 @@ async def start(update: Update, context: CallbackContext) -> None:
             )
         except Exception as e:
             LOGGER.error(f"[START] Failed to notify group: {e}")
-            
+
     else:
         # Update existing user info if changed
         update_fields = {}
@@ -187,7 +223,7 @@ async def start(update: Update, context: CallbackContext) -> None:
             update_fields['first_name'] = first_name
         if user_data.get('username') != username:
             update_fields['username'] = username
-            
+
         # Ensure pass_data exists for old users
         if 'pass_data' not in user_data:
             update_fields['pass_data'] = {
@@ -208,7 +244,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 "invited_users": [],
                 "total_invite_earnings": 0
             }
-        
+
         if update_fields:
             await user_collection.update_one(
                 {"id": user_id},
@@ -230,10 +266,10 @@ async def start(update: Update, context: CallbackContext) -> None:
     if update.effective_chat.type == "private":
         welcome_msg = to_small_caps('welcome back') if not is_new_user else to_small_caps('welcome')
         bonus_msg = ""
-        
+
         if is_new_user and referring_user_id:
             bonus_msg = f"\n\n🎁 {to_small_caps('bonus')}: <b>+{NEW_USER_BONUS}</b> {to_small_caps('gold for joining via referral')}"
-        
+
         caption = f"""<b>{welcome_msg}</b>
 
 {to_small_caps('hey pick catcher')}
@@ -265,19 +301,19 @@ async def start(update: Update, context: CallbackContext) -> None:
             [InlineKeyboardButton(to_small_caps("credits"), callback_data='credits')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        photo_url = random.choice(PHOTO_URL)
+        media_url = random.choice(PHOTO_URL)
 
-        await context.bot.send_photo(
+        await send_media_with_caption(
+            context=context,
             chat_id=update.effective_chat.id,
-            photo=photo_url,
+            media_url=media_url,
             caption=caption,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+            reply_markup=reply_markup
         )
 
     else:
         # Group message
-        photo_url = random.choice(PHOTO_URL)
+        media_url = random.choice(PHOTO_URL)
         caption = f"<b>{to_small_caps('alive')}</b>\n\n{to_small_caps('connect to me in pm for more information')}"
 
         keyboard = [
@@ -291,12 +327,13 @@ async def start(update: Update, context: CallbackContext) -> None:
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await context.bot.send_photo(
+        
+        await send_media_with_caption(
+            context=context,
             chat_id=update.effective_chat.id,
-            photo=photo,
+            media_url=media_url,
             caption=caption,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+            reply_markup=reply_markup
         )
 
 
