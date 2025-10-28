@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters
 import re
-from shivu import application, shivuu
+from shivu import application, shivuu, LOGGER
 
 # Database
 db = shivuu['Character_catcher']
@@ -39,9 +39,13 @@ RARITIES = {
 async def add_command(update: Update, context: CallbackContext):
     """Add characters: add 10 1 (reply) or add 10 1 @user"""
     
+    user_id = update.effective_user.id
+    
     # Owner check
-    if update.effective_user.id not in OWNERS:
+    if user_id not in OWNERS:
         return
+    
+    LOGGER.info(f"[ADD] Command called by {user_id}")
     
     # Parse input
     text = update.message.text.strip()
@@ -66,19 +70,26 @@ async def add_command(update: Update, context: CallbackContext):
     # Get target user
     target_id = None
     target_name = None
+    target_first_name = None
     
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
         target_id = user.id
-        target_name = user.username or user.first_name
+        target_name = user.username
+        target_first_name = user.first_name
+        LOGGER.info(f"[ADD] Target from reply: {target_id}")
     else:
         words = text.split()
         if len(words) >= 3:
             arg = words[2].lstrip('@')
-            target_id = int(arg) if arg.isdigit() else None
-            target_name = arg if not arg.isdigit() else None
+            if arg.isdigit():
+                target_id = int(arg)
+                LOGGER.info(f"[ADD] Target from ID: {target_id}")
+            else:
+                target_name = arg
+                LOGGER.info(f"[ADD] Target from username: {target_name}")
     
-    if not target_id:
+    if not target_id and not target_name:
         await update.message.reply_text("❌ Reply to user or use: add 10 1 @username")
         return
     
@@ -86,13 +97,21 @@ async def add_command(update: Update, context: CallbackContext):
     rarity_key, rarity_display = RARITIES[rarity_num]
     
     # Fetch random characters
-    chars = await collection.aggregate([
-        {"$match": {"rarity": rarity_key}},
-        {"$sample": {"size": qty}}
-    ]).to_list(qty)
-    
-    if not chars:
-        await update.message.reply_text(f"❌ No {rarity_display} characters found")
+    try:
+        chars = await collection.aggregate([
+            {"$match": {"rarity": rarity_key}},
+            {"$sample": {"size": qty}}
+        ]).to_list(qty)
+        
+        if not chars:
+            await update.message.reply_text(f"❌ No {rarity_display} characters found")
+            return
+        
+        LOGGER.info(f"[ADD] Found {len(chars)} characters")
+        
+    except Exception as e:
+        LOGGER.error(f"[ADD ERROR] Failed to fetch characters: {e}")
+        await update.message.reply_text("❌ Database error")
         return
     
     # Prepare data
@@ -105,35 +124,71 @@ async def add_command(update: Update, context: CallbackContext):
     } for c in chars]
     
     # Bulk insert
-    await user_collection.update_one(
-        {'id': target_id},
-        {
-            '$push': {'characters': {'$each': char_list}},
-            '$set': {'username': target_name}
-        },
-        upsert=True
-    )
-    
-    await user_totals_collection.update_one(
-        {'id': target_id},
-        {'$inc': {'count': qty}},
-        upsert=True
-    )
+    try:
+        # Find user by ID or username
+        query = {'id': target_id} if target_id else {'username': target_name}
+        
+        await user_collection.update_one(
+            query,
+            {
+                '$push': {'characters': {'$each': char_list}},
+                '$set': {
+                    'username': target_name,
+                    'first_name': target_first_name
+                }
+            },
+            upsert=True
+        )
+        
+        await user_totals_collection.update_one(
+            query,
+            {
+                '$inc': {'count': qty},
+                '$set': {
+                    'username': target_name,
+                    'first_name': target_first_name
+                }
+            },
+            upsert=True
+        )
+        
+        LOGGER.info(f"[ADD] Successfully added {qty} characters to {target_id or target_name}")
+        
+    except Exception as e:
+        LOGGER.error(f"[ADD ERROR] Failed to insert characters: {e}")
+        await update.message.reply_text("❌ Failed to add characters")
+        return
     
     # Response
     names = '\n'.join([f"• {c['name']}" for c in chars[:5]])
     if len(chars) > 5:
         names += f"\n... +{len(chars)-5} more"
     
+    display_name = f"@{target_name}" if target_name else target_first_name or target_id
+    
     await update.message.reply_text(
         f"✅ Added {qty}x {rarity_display}\n"
-        f"👤 {target_name or target_id}\n\n{names}"
+        f"👤 {display_name}\n\n{names}"
     )
 
-# Register handlers
-application.add_handler(CommandHandler("add", add_command, block=False))
-application.add_handler(MessageHandler(
-    filters.TEXT & filters.Regex(r'^add\s+\d+\s+\d+', re.IGNORECASE) & ~filters.COMMAND,
-    add_command,
-    block=False
-))
+# ------------------ HANDLER REGISTRATION ------------------
+def register_add_handler():
+    """Register /add command and text handlers"""
+    
+    # /add command handler
+    add_cmd_handler = CommandHandler('add', add_command, block=False)
+    
+    # Plain text "add" handler (without /)
+    add_text_handler = MessageHandler(
+        filters.TEXT & filters.Regex(r'^add\s+\d+\s+\d+', re.IGNORECASE) & ~filters.COMMAND,
+        add_command,
+        block=False
+    )
+    
+    application.add_handler(add_cmd_handler)
+    application.add_handler(add_text_handler)
+    
+    LOGGER.info("[ADD] Handlers registered successfully")
+
+# Initialize on import
+register_add_handler()
