@@ -2,7 +2,7 @@ from pymongo import MongoClient
 import os
 
 
-MONGO_URI = os.getenv("mongodb+srv://Epic2:w85NP8dEHmQxA5s7@cluster0.tttvsf9.mongodb.net/?retryWrites=true&w=majority")
+MONGO_URI = os.getenv("mongodb+srv://thorfinn00006_db_user:hmQ6sln4mHOWkGax@thorfinn.tnlzhnw.mongodb.net/?retryWrites=true&w=majority")
 DB_NAME = os.getenv("DB_NAME", "GRABBING_YOUR_WAIFU")
 COLLECTION_NAME = "users"
 
