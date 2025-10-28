@@ -11,7 +11,7 @@ class Config(object):
     SUPPORT_CHAT = "PICK_X_SUPPORT"
     UPDATE_CHAT = "PICK_X_UPDATE"
     BOT_USERNAME = "waifukunbot"
-    CHARA_CHANNEL_ID = "-1002621325936"
+    CHARA_CHANNEL_ID = "-3154253941"
     api_id = "21705508"
     api_hash = "1d590f4c3d2029a7ef7df087707d7441"
 
