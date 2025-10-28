@@ -115,7 +115,8 @@ async def start(update: Update, context: CallbackContext):
                 "weekly_claims": 0,
                 "last_weekly_claim": None,
                 "streak_count": 0,
-                "last_streak_claim": None,
+
+"last_streak_claim": None,
                 "tasks": {"invites": 0, "weekly_claims": 0, "grabs": 0},
                 "mythic_unlocked": False,
                 "premium_expires": None,
@@ -211,7 +212,8 @@ async def start(update: Update, context: CallbackContext):
                 photo=random.choice(PHOTO_URL),
                 caption=caption,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
+
+parse_mode='HTML'
             )
         except Exception as e:
             LOGGER.error(f"Photo send failed: {e}")
@@ -317,7 +319,7 @@ async def button_callback(update: Update, context: CallbackContext):
             f"<code>{link}</code>"
         )
 
-        keyboard = [
+keyboard = [
             [InlineKeyboardButton(sc("share"), url=f"https://t.me/share/url?url={link}")],
             [InlineKeyboardButton(sc("back"), callback_data='back')]
         ]
