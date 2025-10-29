@@ -228,10 +228,10 @@ async def check_character(update: Update, context: CallbackContext) -> None:
                 parse_mode='HTML'
             )
             return
-        
+
         character_id = args[0]
         character = await get_character_by_id(character_id)
-        
+
         if not character:
             await update.message.reply_text(
                 f"<b>❌ {to_small_caps('character not found')}</b>\n\n"
@@ -239,10 +239,10 @@ async def check_character(update: Update, context: CallbackContext) -> None:
                 parse_mode='HTML'
             )
             return
-        
+
         global_count = await get_global_count(character_id)
         caption = format_character_card(character, global_count)
-        
+
         # Create inline keyboard
         keyboard = [
             [
@@ -262,15 +262,32 @@ async def check_character(update: Update, context: CallbackContext) -> None:
                 )
             ]
         ]
-        
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=character['img_url'],
-            caption=caption,
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
+
+        # ===== KEY CHANGE: Check if video or image =====
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        if is_video:
+            # Send as video for MP4/AMV characters
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=media_url,
+                caption=caption,
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                read_timeout=120,
+                write_timeout=120
+            )
+        else:
+            # Send as photo for image characters
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=media_url,
+                caption=caption,
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
     except Exception as e:
         print(f"Error in check_character: {e}")
         await update.message.reply_text(
@@ -412,7 +429,7 @@ async def find_users_with_character(_, message: t.Message):
             return
 
         character_id = message.command[1]
-        
+
         # Get character info
         character = await get_character_by_id(character_id)
         if not character:
@@ -421,7 +438,7 @@ async def find_users_with_character(_, message: t.Message):
                 quote=True
             )
             return
-        
+
         users = await get_users_by_character(character_id)
 
         if not users:
@@ -430,22 +447,36 @@ async def find_users_with_character(_, message: t.Message):
                 quote=True
             )
             return
-        
+
         # Sort by count
         users.sort(key=lambda x: x['count'], reverse=True)
-        
+
         global_count = await get_global_count(character_id)
-        
+
         # Format with image
         caption = format_character_card(character, global_count, show_owners=True, owners_list=users)
-        
-        await bot.send_photo(
-            chat_id=message.chat.id,
-            photo=character['img_url'],
-            caption=caption,
-            reply_to_message_id=message.id
-        )
-        
+
+        # ===== KEY CHANGE: Check if video or image =====
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        if is_video:
+            # Send as video for MP4/AMV characters
+            await bot.send_video(
+                chat_id=message.chat.id,
+                video=media_url,
+                caption=caption,
+                reply_to_message_id=message.id
+            )
+        else:
+            # Send as photo for image characters
+            await bot.send_photo(
+                chat_id=message.chat.id,
+                photo=media_url,
+                caption=caption,
+                reply_to_message_id=message.id
+            )
+
     except Exception as e:
         print(f"Error in find_users_with_character: {e}")
         await message.reply_text(
