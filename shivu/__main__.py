@@ -4,7 +4,9 @@ import random
 import re
 import asyncio
 import traceback
+import os
 from html import escape
+from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters, CallbackQueryHandler
 from telegram.error import BadRequest, Forbidden
@@ -13,7 +15,8 @@ from shivu import (
     db,
     shivuu,
     application,
-    LOGGER
+    LOGGER,
+    JOINLOGS
 )
 from shivu.modules import ALL_MODULES
 
@@ -128,6 +131,86 @@ async def update_grab_task(user_id: int):
             )
     except:
         pass
+
+
+async def send_startup_notification():
+    """Send notification when bot starts"""
+    try:
+        startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Check if this is a restart
+        is_restart = False
+        restart_info = None
+        
+        if os.path.exists('/tmp/restart_info.txt'):
+            is_restart = True
+            try:
+                with open('/tmp/restart_info.txt', 'r') as f:
+                    restart_data = f.read().strip()
+                    parts = restart_data.split('|')
+                    if len(parts) == 3:
+                        restart_info = {
+                            'chat_id': int(parts[0]),
+                            'message_id': int(parts[1]),
+                            'user_id': int(parts[2])
+                        }
+                # Remove the file
+                os.remove('/tmp/restart_info.txt')
+            except Exception as e:
+                LOGGER.error(f"Error reading restart info: {e}")
+        
+        if is_restart and restart_info:
+            # This is a restart - notify the original chat
+            try:
+                await application.bot.edit_message_text(
+                    chat_id=restart_info['chat_id'],
+                    message_id=restart_info['message_id'],
+                    text=(
+                        "✅ <b>Bot Restarted Successfully!</b>\n\n"
+                        f"⏰ <b>Time:</b> <code>{startup_time}</code>\n"
+                        f"🔄 <b>Status:</b> Online and Ready\n\n"
+                        "🎯 All systems operational!"
+                    ),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                LOGGER.error(f"Failed to edit restart message: {e}")
+            
+            # Notify log channel about restart completion
+            try:
+                await application.bot.send_message(
+                    chat_id=JOINLOGS,
+                    text=(
+                        "✅ <b>Bot Restarted Successfully!</b>\n\n"
+                        f"⏰ <b>Time:</b> <code>{startup_time}</code>\n"
+                        f"👤 <b>Initiated By:</b> User ID: <code>{restart_info['user_id']}</code>\n"
+                        f"🔄 <b>Status:</b> Online\n\n"
+                        "🎯 All systems operational!"
+                    ),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                LOGGER.error(f"Failed to send restart notification to log channel: {e}")
+        else:
+            # Fresh startup
+            try:
+                await application.bot.send_message(
+                    chat_id=JOINLOGS,
+                    text=(
+                        "🚀 <b>Bot Started Successfully!</b>\n\n"
+                        f"⏰ <b>Start Time:</b> <code>{startup_time}</code>\n"
+                        f"🤖 <b>Status:</b> Online\n"
+                        f"🐍 <b>Python:</b> <code>{os.sys.version.split()[0]}</code>\n\n"
+                        "✅ All systems ready!"
+                    ),
+                    parse_mode='HTML'
+                )
+                LOGGER.info("✅ Startup notification sent to log channel")
+            except Exception as e:
+                LOGGER.error(f"❌ Failed to send startup notification: {e}")
+    
+    except Exception as e:
+        LOGGER.error(f"Error in send_startup_notification: {e}")
 
 
 # ==================== MESSAGE COUNTER ====================
@@ -435,6 +518,10 @@ async def guess(update: Update, context: CallbackContext) -> None:
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
+    
+    # Send startup notification after bot is ready
+    asyncio.get_event_loop().run_until_complete(send_startup_notification())
+    
     application.run_polling(drop_pending_updates=True)
 
 
