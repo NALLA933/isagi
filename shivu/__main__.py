@@ -25,7 +25,7 @@ group_user_totals_collection = db['group_user_totalsssssss']
 top_global_groups_collection = db['top_global_groups']
 
 # ==================== CONFIGURATION ====================
-DEFAULT_MESSAGE_FREQUENCY = 70
+DEFAULT_MESSAGE_FREQUENCY = 50
 
 # ==================== GLOBAL STATE ====================
 locks = {}
