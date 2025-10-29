@@ -162,7 +162,7 @@ async def force_spawn(update: Update, context: CallbackContext) -> None:
             return
 
         # Import the send_image function from main
-        from shivu.main import send_image
+        from shivu.__main__ import send_image
         
         # Force spawn character
         await send_image(update, context)
