@@ -1,6 +1,6 @@
 """
-Character Upload Bot Module
-Handles character uploads, updates, and deletions with media support
+Character Upload Bot Module - FIXED FOR VIDEO SUPPORT
+Handles character uploads with proper MP4 support (no GIF conversion)
 """
 
 import io
@@ -74,26 +74,27 @@ async def get_next_sequence_number(sequence_name: str) -> int:
         {'$inc': {'sequence_value': 1}},
         return_document=ReturnDocument.AFTER
     )
-    
+
     if not sequence_document:
         await sequence_collection.insert_one({
             '_id': sequence_name,
             'sequence_value': 0
         })
         return 0
-    
+
     return sequence_document['sequence_value']
 
 
 async def download_file(url: str) -> Optional[bytes]:
-    """Download file from URL."""
+    """Download file from URL with extended timeout."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0',
             'Accept': '*/*'
         }
-        timeout = aiohttp.ClientTimeout(total=60)
-        
+        # INCREASED TIMEOUT FOR LARGE VIDEOS
+        timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes
+
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
@@ -107,12 +108,13 @@ async def download_file(url: str) -> Optional[bytes]:
 async def upload_to_catbox(file_bytes: bytes, filename: str) -> Optional[str]:
     """Upload file to Catbox and return the URL."""
     try:
-        timeout = aiohttp.ClientTimeout(total=60)
+        # INCREASED TIMEOUT FOR LARGE VIDEOS
+        timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes
         async with aiohttp.ClientSession(timeout=timeout) as session:
             data = aiohttp.FormData()
             data.add_field('reqtype', 'fileupload')
             data.add_field('fileToUpload', file_bytes, filename=filename)
-            
+
             async with session.post("https://catbox.moe/user/api.php", data=data) as response:
                 if response.status == 200:
                     result = (await response.text()).strip()
@@ -165,7 +167,7 @@ async def create_character_entry(
 ) -> Tuple[bool, str]:
     """Create a new character entry in the database and channel."""
     char_id = str(await get_next_sequence_number('character_id')).zfill(2)
-    
+
     character = {
         'img_url': media_url,
         'id': char_id,
@@ -174,7 +176,7 @@ async def create_character_entry(
         'rarity': rarity,
         'is_video': is_video_file
     }
-    
+
     media_type = "🎥 Video" if is_video_file else "🖼 Image"
     caption = (
         f'<b>{char_id}:</b> {character_name}\n'
@@ -183,16 +185,20 @@ async def create_character_entry(
         f'<b>Type:</b> {media_type}\n\n'
         f'𝑴𝒂𝒅𝒆 𝑩𝒚 ➥ <a href="tg://user?id={user_id}">{user_name}</a>'
     )
-    
+
     try:
         if is_video_file:
+            # CRITICAL FIX: Add supports_streaming=True to prevent GIF conversion
             message = await context.bot.send_video(
                 chat_id=CHARA_CHANNEL_ID,
                 video=media_url,
                 caption=caption,
                 parse_mode='HTML',
-                read_timeout=120,
-                write_timeout=120
+                supports_streaming=True,  # ← PREVENTS GIF CONVERSION!
+                read_timeout=300,  # 5 minutes
+                write_timeout=300,  # 5 minutes
+                connect_timeout=60,
+                pool_timeout=60
             )
             character['file_id'] = message.video.file_id
             character['file_unique_id'] = message.video.file_unique_id
@@ -202,15 +208,15 @@ async def create_character_entry(
                 photo=media_url,
                 caption=caption,
                 parse_mode='HTML',
-                read_timeout=60,
-                write_timeout=60
+                read_timeout=180,
+                write_timeout=180
             )
             character['file_id'] = message.photo[-1].file_id
             character['file_unique_id'] = message.photo[-1].file_unique_id
-        
+
         character['message_id'] = message.message_id
         await collection.insert_one(character)
-        
+
         return True, (
             f'✅ Character added successfully!\n'
             f'🆔 ID: {char_id}\n'
@@ -233,17 +239,17 @@ async def handle_reply_upload(
 ) -> None:
     """Handle upload from replied message."""
     reply_msg = update.message.reply_to_message
-    
+
     if not (reply_msg.photo or reply_msg.video or reply_msg.document):
         await update.message.reply_text('❌ Please reply to a photo, video, or document!')
         return
-    
+
     if len(context.args) != 3:
         await update.message.reply_text(REPLY_UPLOAD_TEXT)
         return
-    
+
     processing_msg = await update.message.reply_text('⏳ Downloading file...')
-    
+
     # Determine file type and get file
     is_video_file = False
     if reply_msg.photo:
@@ -258,31 +264,31 @@ async def handle_reply_upload(
         filename = reply_msg.document.file_name or f"char_{update.effective_user.id}"
         if reply_msg.document.mime_type and 'video' in reply_msg.document.mime_type:
             is_video_file = True
-    
+
     # Download file
     file_bytes = await file.download_as_bytearray()
-    
+
     # Upload to Catbox
-    await processing_msg.edit_text('⏳ Uploading to Catbox...')
+    await processing_msg.edit_text('⏳ Uploading to Catbox... (This may take a while for videos)')
     media_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
-    
+
     if not media_url:
         await processing_msg.edit_text('❌ Failed to upload to Catbox. Please try again.')
         return
-    
+
     await processing_msg.edit_text(
         f'✅ Uploaded to Catbox!\n🔗 {media_url}\n\n⏳ Adding to database...'
     )
-    
+
     # Parse arguments
     character_name = format_name(context.args[0])
     anime = format_name(context.args[1])
     rarity = parse_rarity(context.args[2])
-    
+
     if not rarity:
         await processing_msg.edit_text('❌ Invalid rarity number. Check format guide.')
         return
-    
+
     # Create character entry
     success, message = await create_character_entry(
         media_url,
@@ -305,43 +311,43 @@ async def handle_url_upload(
     if len(context.args) != 4:
         await update.message.reply_text(WRONG_FORMAT_TEXT)
         return
-    
+
     media_url = context.args[0]
     if not validate_url(media_url):
         await update.message.reply_text('❌ Invalid URL format.')
         return
-    
-    processing_msg = await update.message.reply_text('⏳ Downloading from URL...')
-    
+
+    processing_msg = await update.message.reply_text('⏳ Downloading from URL... (This may take a while)')
+
     # Download file
     file_bytes = await download_file(media_url)
     if not file_bytes:
-        await processing_msg.edit_text('❌ Failed to download file from URL.')
+        await processing_msg.edit_text('❌ Failed to download file from URL. Check if URL is accessible.')
         return
-    
+
     # Determine file type
     is_video_file = is_video(media_url)
     filename = media_url.split('/')[-1] or ('video.mp4' if is_video_file else 'image.jpg')
-    
+
     # Upload to Catbox
-    await processing_msg.edit_text('⏳ Uploading to Catbox...')
+    await processing_msg.edit_text('⏳ Uploading to Catbox... (This may take a while for large files)')
     new_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
-    
+
     if not new_url:
-        await processing_msg.edit_text('❌ Failed to upload to Catbox. Please try again.')
+        await processing_msg.edit_text('❌ Failed to upload to Catbox. File might be too large or invalid.')
         return
-    
-    await processing_msg.edit_text('✅ Uploaded to Catbox!\n⏳ Adding to database...')
-    
+
+    await processing_msg.edit_text('✅ Uploaded to Catbox!\n⏳ Adding to database and channel...')
+
     # Parse arguments
     character_name = format_name(context.args[1])
     anime = format_name(context.args[2])
     rarity = parse_rarity(context.args[3])
-    
+
     if not rarity:
         await processing_msg.edit_text('❌ Invalid rarity number. Check format guide.')
         return
-    
+
     # Create character entry
     success, message = await create_character_entry(
         new_url,
@@ -360,11 +366,11 @@ async def handle_url_upload(
 async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /upload command for adding new characters."""
     user_id = str(update.effective_user.id)
-    
+
     if user_id not in sudo_users:
         await update.message.reply_text('❌ You need sudo access to use this command.')
         return
-    
+
     try:
         if update.message.reply_to_message:
             await handle_reply_upload(update, context)
@@ -382,21 +388,21 @@ async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /delete command for removing characters."""
     user_id = str(update.effective_user.id)
-    
+
     if user_id not in sudo_users:
         await update.message.reply_text('❌ You need sudo access to use this command.')
         return
-    
+
     if len(context.args) != 1:
         await update.message.reply_text('❌ Incorrect format.\n\nUse: `/delete ID`')
         return
-    
+
     character = await collection.find_one_and_delete({'id': context.args[0]})
-    
+
     if not character:
         await update.message.reply_text('❌ Character not found in database.')
         return
-    
+
     # Try to delete from channel
     try:
         await context.bot.delete_message(
@@ -405,18 +411,18 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     except Exception:
         pass  # Ignore if message doesn't exist
-    
+
     await update.message.reply_text('✅ Character deleted successfully.')
 
 
 async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /update command for modifying character details."""
     user_id = str(update.effective_user.id)
-    
+
     if user_id not in sudo_users:
         await update.message.reply_text('❌ You need sudo access to use this command.')
         return
-    
+
     if len(context.args) != 3:
         await update.message.reply_text(
             '❌ Incorrect format.\n\n'
@@ -424,15 +430,15 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             'Valid fields: img_url, name, anime, rarity'
         )
         return
-    
+
     char_id, field, new_value = context.args
-    
+
     # Find character
     character = await collection.find_one({'id': char_id})
     if not character:
         await update.message.reply_text('❌ Character not found.')
         return
-    
+
     # Validate field
     valid_fields = ['img_url', 'name', 'anime', 'rarity']
     if field not in valid_fields:
@@ -440,10 +446,10 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f'❌ Invalid field.\n\nChoose from: {", ".join(valid_fields)}'
         )
         return
-    
+
     # Process field-specific updates
     processing_msg = None
-    
+
     if field in ['name', 'anime']:
         new_value = format_name(new_value)
     elif field == 'rarity':
@@ -455,45 +461,45 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not validate_url(new_value):
             await update.message.reply_text('❌ Invalid URL format.')
             return
-        
+
         processing_msg = await update.message.reply_text('⏳ Processing new media...')
-        
+
         # Download and re-upload to Catbox
         file_bytes = await download_file(new_value)
         if not file_bytes:
             await processing_msg.edit_text('❌ Failed to download file from URL.')
             return
-        
+
         is_video_file = is_video(new_value)
         filename = new_value.split('/')[-1] or ('video.mp4' if is_video_file else 'image.jpg')
-        
+
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
         new_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
-        
+
         if not new_url:
             await processing_msg.edit_text('❌ Failed to upload to Catbox.')
             return
-        
+
         new_value = new_url
         await processing_msg.edit_text('✅ Re-uploaded to Catbox!')
-    
+
     # Update database
     update_data = {field: new_value}
     if field == 'img_url':
         update_data['is_video'] = is_video(new_value)
-    
+
     await collection.find_one_and_update(
         {'id': char_id},
         {'$set': update_data}
     )
-    
+
     # Refresh character data
     character = await collection.find_one({'id': char_id})
-    
+
     # Update channel message
     is_video_file = character.get('is_video', False)
     media_type = "🎥 Video" if is_video_file else "🖼 Image"
-    
+
     caption = (
         f'<b>{character["id"]}:</b> {character["name"]}\n'
         f'<b>{character["anime"]}</b>\n'
@@ -501,7 +507,7 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f'<b>Type:</b> {media_type}\n\n'
         f'𝑼𝒑𝒅𝒂𝒕𝒆𝒅 𝑩𝒚 ➥ <a href="tg://user?id={user_id}">{update.effective_user.first_name}</a>'
     )
-    
+
     try:
         if field == 'img_url':
             # Delete old message and send new one
@@ -509,15 +515,16 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 chat_id=CHARA_CHANNEL_ID,
                 message_id=character['message_id']
             )
-            
+
             if is_video_file:
                 message = await context.bot.send_video(
                     chat_id=CHARA_CHANNEL_ID,
                     video=new_value,
                     caption=caption,
                     parse_mode='HTML',
-                    read_timeout=120,
-                    write_timeout=120
+                    supports_streaming=True,  # ← PREVENTS GIF CONVERSION!
+                    read_timeout=300,
+                    write_timeout=300
                 )
                 await collection.find_one_and_update(
                     {'id': char_id},
@@ -533,8 +540,8 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     photo=new_value,
                     caption=caption,
                     parse_mode='HTML',
-                    read_timeout=60,
-                    write_timeout=60
+                    read_timeout=180,
+                    write_timeout=180
                 )
                 await collection.find_one_and_update(
                     {'id': char_id},
@@ -552,7 +559,7 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 caption=caption,
                 parse_mode='HTML'
             )
-        
+
         success_msg = '✅ Character updated successfully.'
         if processing_msg:
             await processing_msg.edit_text(success_msg)
