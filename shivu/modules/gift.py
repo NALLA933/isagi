@@ -123,12 +123,33 @@ async def handle_gift_command(update: Update, context: CallbackContext):
             ]
         ]
 
-        await message.reply_photo(
-            photo=character.get('img_url', 'https://i.imgur.com/placeholder.png'),
-            caption=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        # ===== VIDEO SUPPORT: Check if character is video or image =====
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
+
+        if is_video:
+            # Send as video for MP4/AMV characters
+            LOGGER.info(f"[GIFT] Sending VIDEO confirmation for character {character_id}")
+            await message.reply_video(
+                video=media_url,
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML',
+                supports_streaming=True,  # CRITICAL: Prevents GIF conversion
+                read_timeout=300,
+                write_timeout=300,
+                connect_timeout=60,
+                pool_timeout=60
+            )
+        else:
+            # Send as photo for image characters
+            LOGGER.info(f"[GIFT] Sending IMAGE confirmation for character {character_id}")
+            await message.reply_photo(
+                photo=media_url,
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
 
         LOGGER.info(f"[GIFT] Confirmation message sent for user {sender_id}")
 
@@ -237,7 +258,7 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                     rarity_emoji = '🟢'
                     rarity_text = 'Common'
 
-                # Send log to log chat
+                # Send log to log chat with VIDEO support
                 try:
                     log_caption = (
                         f"<b>🎁 Gift Transaction Log</b>\n"
@@ -258,12 +279,27 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                         f"✅ <i>Gift successfully transferred!</i>"
                     )
 
-                    await context.bot.send_photo(
-                        chat_id=LOG_CHAT_ID,
-                        photo=character.get('img_url', 'https://i.imgur.com/placeholder.png'),
-                        caption=log_caption,
-                        parse_mode='HTML'
-                    )
+                    # ===== VIDEO SUPPORT for log message =====
+                    is_video = character.get('is_video', False)
+                    media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
+
+                    if is_video:
+                        await context.bot.send_video(
+                            chat_id=LOG_CHAT_ID,
+                            video=media_url,
+                            caption=log_caption,
+                            parse_mode='HTML',
+                            supports_streaming=True,
+                            read_timeout=300,
+                            write_timeout=300
+                        )
+                    else:
+                        await context.bot.send_photo(
+                            chat_id=LOG_CHAT_ID,
+                            photo=media_url,
+                            caption=log_caption,
+                            parse_mode='HTML'
+                        )
                     LOGGER.info(f"[GIFT CALLBACK] Log sent to chat {LOG_CHAT_ID}")
                 except Exception as log_error:
                     LOGGER.error(f"[GIFT CALLBACK] Failed to send log: {log_error}")
@@ -326,7 +362,7 @@ def register_gift_handlers():
         )
     )
 
-    LOGGER.info("[GIFT] Handlers registered successfully")
+    LOGGER.info("[GIFT] Handlers registered successfully with VIDEO support")
     LOGGER.info(f"[GIFT] Total handlers: {len(application.handlers)}")
 
 # Register handlers
