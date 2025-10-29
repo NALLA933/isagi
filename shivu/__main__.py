@@ -198,7 +198,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-# ==================== SPAWN CHARACTER (UPDATED FOR VIDEO SUPPORT) ====================
+# ==================== SPAWN CHARACTER (FIXED FOR VIDEO SUPPORT) ====================
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
@@ -305,7 +305,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***"""
 
-        # ===== KEY CHANGE: Check if character is video or image =====
+        # ===== CRITICAL FIX: Check if character is video or image =====
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
@@ -317,8 +317,11 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 video=media_url,
                 caption=caption,
                 parse_mode='Markdown',
-                read_timeout=120,
-                write_timeout=120
+                supports_streaming=True,  # ← CRITICAL: PREVENTS GIF CONVERSION!
+                read_timeout=300,  # 5 minutes for large videos
+                write_timeout=300,  # 5 minutes for large videos
+                connect_timeout=60,
+                pool_timeout=60
             )
         else:
             # Send as photo for image characters
@@ -327,13 +330,15 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 chat_id=chat_id,
                 photo=media_url,
                 caption=caption,
-                parse_mode='Markdown'
+                parse_mode='Markdown',
+                read_timeout=180,
+                write_timeout=180
             )
 
-        LOGGER.info(f"Character spawned successfully in chat {chat_id}")
+        LOGGER.info(f"✅ Character spawned successfully in chat {chat_id}")
 
     except Exception as e:
-        LOGGER.error(f"Error in send_image for chat {chat_id}: {e}")
+        LOGGER.error(f"❌ Error in send_image for chat {chat_id}: {e}")
         LOGGER.error(traceback.format_exc())
 
 
@@ -516,5 +521,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     shivuu.start()
-    LOGGER.info("Bot started")
+    LOGGER.info("🎥 Bot started with VIDEO SUPPORT")
     main()
