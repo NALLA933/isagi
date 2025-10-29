@@ -47,17 +47,41 @@ async def fav(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        await update.message.reply_photo(
-            photo=character.get("img_url", ""),
-            caption=(
-                f"<b>💖 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴍᴀᴋᴇ ᴛʜɪs ᴡᴀɪғᴜ ʏᴏᴜʀ ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
-                f"✨ <b>ɴᴀᴍᴇ:</b> <code>{character.get('name', 'Unknown')}</code>\n"
-                f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{character.get('anime', 'Unknown')}</code>\n"
-                f"🆔 <b>ɪᴅ:</b> <code>{character.get('id', 'Unknown')}</code>"
-            ),
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+        # Caption for confirmation message
+        caption = (
+            f"<b>💖 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴍᴀᴋᴇ ᴛʜɪs ᴡᴀɪғᴜ ʏᴏᴜʀ ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
+            f"✨ <b>ɴᴀᴍᴇ:</b> <code>{character.get('name', 'Unknown')}</code>\n"
+            f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{character.get('anime', 'Unknown')}</code>\n"
+            f"🆔 <b>ɪᴅ:</b> <code>{character.get('id', 'Unknown')}</code>"
         )
+
+        # ===== VIDEO SUPPORT: Check if character is video or image =====
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        if is_video:
+            # Send as video for MP4/AMV characters
+            LOGGER.info(f"[FAV] Sending VIDEO confirmation for character {character_id}")
+            await update.message.reply_video(
+                video=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML',
+                supports_streaming=True,  # CRITICAL: Prevents GIF conversion
+                read_timeout=300,
+                write_timeout=300,
+                connect_timeout=60,
+                pool_timeout=60
+            )
+        else:
+            # Send as photo for image characters
+            LOGGER.info(f"[FAV] Sending IMAGE confirmation for character {character_id}")
+            await update.message.reply_photo(
+                photo=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
         LOGGER.info(f"[FAV] Confirmation message sent for user {user_id}, character {character_id}")
 
@@ -159,20 +183,22 @@ async def handle_fav_callback(update: Update, context: CallbackContext) -> None:
                 rarity_emoji = '🟢'
                 rarity_text = 'Common'
 
-            # Edit message
+            # Edit message caption
+            success_caption = (
+                f"<b>✅ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇᴛ ᴀs ғᴀᴠᴏʀɪᴛᴇ!</b>\n\n"
+                f"💖 <b>ɴᴀᴍᴇ:</b> <code>{character.get('name', 'Unknown')}</code>\n"
+                f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{character.get('anime', 'Unknown')}</code>\n"
+                f"{rarity_emoji} <b>ʀᴀʀɪᴛʏ:</b> <code>{rarity_text}</code>\n"
+                f"🆔 <b>ɪᴅ:</b> <code>{character.get('id', 'Unknown')}</code>\n\n"
+                f"<i>💖 ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪʟʟ ᴀᴘᴘᴇᴀʀ ғɪʀsᴛ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ!</i>"
+            )
+
             await query.edit_message_caption(
-                caption=(
-                    f"<b>✅ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇᴛ ᴀs ғᴀᴠᴏʀɪᴛᴇ!</b>\n\n"
-                    f"💖 <b>ɴᴀᴍᴇ:</b> <code>{character.get('name', 'Unknown')}</code>\n"
-                    f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{character.get('anime', 'Unknown')}</code>\n"
-                    f"{rarity_emoji} <b>ʀᴀʀɪᴛʏ:</b> <code>{rarity_text}</code>\n"
-                    f"🆔 <b>ɪᴅ:</b> <code>{character.get('id', 'Unknown')}</code>\n\n"
-                    f"<i>💖 ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪʟʟ ᴀᴘᴘᴇᴀʀ ғɪʀsᴛ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ!</i>"
-                ),
+                caption=success_caption,
                 parse_mode='HTML'
             )
 
-            # Send log
+            # Send log with VIDEO support
             try:
                 log_message = (
                     f"<b>💖 ғᴀᴠᴏʀɪᴛᴇ sᴇᴛ ʟᴏɢ</b>\n"
@@ -189,12 +215,27 @@ async def handle_fav_callback(update: Update, context: CallbackContext) -> None:
                     f"✅ <i>ғᴀᴠᴏʀɪᴛᴇ sᴇᴛ sᴜᴄᴄᴇssғᴜʟʟʏ!</i>"
                 )
 
-                await context.bot.send_photo(
-                    chat_id=LOG_CHAT_ID,
-                    photo=character.get('img_url', 'https://i.imgur.com/placeholder.png'),
-                    caption=log_message,
-                    parse_mode='HTML'
-                )
+                # Send log with VIDEO support
+                is_video = character.get('is_video', False)
+                media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
+
+                if is_video:
+                    await context.bot.send_video(
+                        chat_id=LOG_CHAT_ID,
+                        video=media_url,
+                        caption=log_message,
+                        parse_mode='HTML',
+                        supports_streaming=True,
+                        read_timeout=300,
+                        write_timeout=300
+                    )
+                else:
+                    await context.bot.send_photo(
+                        chat_id=LOG_CHAT_ID,
+                        photo=media_url,
+                        caption=log_message,
+                        parse_mode='HTML'
+                    )
                 LOGGER.info(f"[FAV CALLBACK] Log sent to {LOG_CHAT_ID}")
             except Exception as log_error:
                 LOGGER.error(f"[FAV CALLBACK] Log failed: {log_error}")
