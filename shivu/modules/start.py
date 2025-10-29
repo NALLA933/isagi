@@ -2,50 +2,22 @@ import random
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
-from telegram.error import BadRequest
-from shivu import (
-    application, SUPPORT_CHAT, BOT_USERNAME, GROUP_ID, LOGGER,
-    user_collection, user_totals_collection
-)
+from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, user_totals_collection
 
-# ------------------ CONFIG ------------------
-PHOTO_URL = [
+# Config
+PHOTOS = [
     "https://files.catbox.moe/8722ku.jpeg",
     "https://files.catbox.moe/kgcrnb.jpeg"
 ]
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
 
-# OWNER & SUDO DATA
-OWNERS = [
-    {"name": "Thorfinn", "username": "ll_Thorfinn_ll", "id": 8420981179},
-]
-SUDO_USERS = [
-    {"name": "Shadwoo", "username": "I_shadwoo", "id": 5147822244},
-]
+OWNERS = [{"name": "Thorfinn", "username": "ll_Thorfinn_ll"}]
+SUDO_USERS = [{"name": "Shadwoo", "username": "I_shadwoo"}]
 
-# ------------------ UTILITIES ------------------
-def sc(text):
-    """Convert to small caps"""
-    m = {
-        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ',
-        'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ',
-        'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ',
-        'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
-        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ',
-        'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ',
-        'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ',
-        'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
-    }
-    return ''.join(m.get(c, c) for c in text)
-
-
-# ------------------ REFERRAL PROCESS ------------------
+# Referral Process
 async def process_referral(user_id, first_name, referring_user_id, context):
-    """Handle referral rewards."""
     try:
-        LOGGER.info(f"[START] Processing referral: {user_id} referred by {referring_user_id}")
-
         if user_id == referring_user_id:
             return False
 
@@ -75,46 +47,41 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             }
         )
 
-        msg = (
-            f"<b>{sc('referral success')}</b>\n\n"
-            f"<b>{escape(first_name)}</b> {sc('joined via your link')}\n\n"
-            f"{sc('gold')}: <code>{REFERRER_REWARD:,}</code>\n"
-            f"{sc('invite task')}: +1"
-        )
+        msg = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
+
+<b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ
+
+ɢᴏʟᴅ: <code>{REFERRER_REWARD:,}</code>
+ɪɴᴠɪᴛᴇ ᴛᴀsᴋ: +1"""
 
         try:
             await context.bot.send_message(chat_id=referring_user_id, text=msg, parse_mode='HTML')
-        except Exception:
+        except:
             pass
 
         return True
     except Exception as e:
-        LOGGER.error(f"[START ERROR] Referral process failed: {e}")
+        LOGGER.error(f"Referral error: {e}")
         return False
 
-
-# ------------------ START COMMAND ------------------
+# Start Command
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     first_name = update.effective_user.first_name
     username = update.effective_user.username
     args = context.args
 
-    LOGGER.info(f"[START] Command called by {user_id} ({first_name})")
-
     referring_user_id = None
     if args and args[0].startswith('r_'):
         try:
             referring_user_id = int(args[0][2:])
-        except Exception:
+        except:
             pass
 
     user_data = await user_collection.find_one({"id": user_id})
     is_new_user = user_data is None
 
-    # Register new user
     if is_new_user:
-        LOGGER.info(f"[START] Registering new user {user_id}")
         new_user = {
             "id": user_id,
             "first_name": first_name,
@@ -145,176 +112,163 @@ async def start(update: Update, context: CallbackContext):
         if referring_user_id:
             await process_referral(user_id, first_name, referring_user_id, context)
 
-    # Message caption
     balance = user_data.get('balance', 0)
     totals = await user_totals_collection.find_one({'id': user_id})
     chars = totals.get('count', 0) if totals else 0
     refs = user_data.get('referred_users', 0)
 
-    welcome = sc('welcome back') if not is_new_user else sc('welcome')
-    bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> {sc('gold bonus')}" if (is_new_user and referring_user_id) else ""
+    welcome = "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ" if not is_new_user else "ᴡᴇʟᴄᴏᴍᴇ"
+    bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
-    caption = (
-        f"<b>{welcome}</b>\n\n"
-        f"{sc('collect anime characters in groups')}\n"
-        f"{sc('add me to start')}{bonus}\n\n"
-        f"<b>{sc('your stats')}</b>\n"
-        f"{sc('gold')}: <b>{balance:,}</b>\n"
-        f"{sc('characters')}: <b>{chars}</b>\n"
-        f"{sc('referrals')}: <b>{refs}</b>"
-    )
+    caption = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>{welcome}</b>
+
+ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
+ᴀᴅᴅ ᴍᴇ ᴛᴏ sᴛᴀʀᴛ{bonus}
+
+<b>ʏᴏᴜʀ sᴛᴀᴛs</b>
+ɢᴏʟᴅ: <b>{balance:,}</b>
+ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
+ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"""
 
     keyboard = [
-        [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+        [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
         [
-            InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-            InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
+            InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+            InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
         ],
         [
-            InlineKeyboardButton(sc("help"), callback_data='help'),
-            InlineKeyboardButton(sc("invite"), callback_data='referral')
+            InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'),
+            InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')
         ],
-        [InlineKeyboardButton(sc("credits"), callback_data='credits')]
+        [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
     ]
 
     try:
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=random.choice(PHOTO_URL),
-            caption=caption,
+        await update.message.reply_text(
+            text=caption,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            disable_web_page_preview=False
         )
     except Exception as e:
-        LOGGER.error(f"[START ERROR] Failed to send photo: {e}")
-        await update.message.reply_text(caption, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        LOGGER.error(f"Start error: {e}")
 
-
-# ------------------ BUTTON HANDLER ------------------
+# Button Callback Handler
 async def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
+    
     user_id = query.from_user.id
     user_data = await user_collection.find_one({"id": user_id})
 
     if not user_data:
-        await query.answer(sc("start bot first"), show_alert=True)
+        await query.answer("sᴛᴀʀᴛ ʙᴏᴛ ғɪʀsᴛ", show_alert=True)
         return
 
     if query.data == 'credits':
-        text = "<b>🩵 " + sc("bot credits") + "</b>\n\n"
-        text += f"{sc('special thanks to everyone who made this possible')}\n"
+        text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
-        # Create button rows for owners and sudo users
+sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
+
+<b>ᴏᴡɴᴇʀs</b>"""
+
         buttons = []
-
-        # Owner buttons
         if OWNERS:
-            text += f"\n<b>{sc('owners')}</b>\n"
-            owner_row = []
-            for o in OWNERS:
-                owner_row.append(
-                    InlineKeyboardButton(
-                        text=f"👑 {o['name']}",
-                        url=f"https://t.me/{o['username']}"
-                    )
-                )
+            owner_row = [InlineKeyboardButton(f"👑 {o['name']}", url=f"https://t.me/{o['username']}") for o in OWNERS]
             buttons.append(owner_row)
 
-        # Sudo buttons
         if SUDO_USERS:
-            text += f"\n<b>{sc('sudo users')}</b>\n"
-            sudo_row = []
-            for s in SUDO_USERS:
-                sudo_row.append(
-                    InlineKeyboardButton(
-                        text=f"⚡ {s['name']}",
-                        url=f"https://t.me/{s['username']}"
-                    )
-                )
+            text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
+            sudo_row = [InlineKeyboardButton(f"⚡ {s['name']}", url=f"https://t.me/{s['username']}") for s in SUDO_USERS]
             buttons.append(sudo_row)
 
-        # Back button
-        buttons.append([InlineKeyboardButton(sc("back"), callback_data='back')])
+        buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')])
 
-        await query.edit_message_caption(
-            caption=text,
+        await query.edit_message_text(
+            text=text,
             reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            disable_web_page_preview=False
         )
 
     elif query.data == 'help':
-        text = (
-            f"<b>{sc('commands')}</b>\n\n"
-            f"/grab {sc('guess character')}\n"
-            f"/fav {sc('set favorite')}\n"
-            f"/harem {sc('view collection')}\n"
-            f"/trade {sc('trade characters')}\n"
-            f"/gift {sc('gift character')}\n"
-            f"/bal {sc('check wallet')}\n"
-            f"/pay {sc('send gold')}\n"
-            f"/claim {sc('daily reward')}\n"
-            f"/roll {sc('gamble gold')}\n"
+        text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ᴄᴏᴍᴍᴀɴᴅs</b>
+
+/grab ɢᴜᴇss ᴄʜᴀʀᴀᴄᴛᴇʀ
+/fav sᴇᴛ ғᴀᴠᴏʀɪᴛᴇ
+/harem ᴠɪᴇᴡ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
+/trade ᴛʀᴀᴅᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs
+/gift ɢɪғᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ
+/bal ᴄʜᴇᴄᴋ ᴡᴀʟʟᴇᴛ
+/pay sᴇɴᴅ ɢᴏʟᴅ
+/claim ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅ
+/roll ɢᴀᴍʙʟᴇ ɢᴏʟᴅ"""
+
+        keyboard = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')]]
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML',
+            disable_web_page_preview=False
         )
-        keyboard = [[InlineKeyboardButton(sc("back"), callback_data='back')]]
-        await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
     elif query.data == 'referral':
         link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
         count = user_data.get('referred_users', 0)
         earned = count * REFERRER_REWARD
-        text = (
-            f"<b>{sc('invite and earn')}</b>\n\n"
-            f"{sc('invited')}: <b>{count}</b>\n"
-            f"{sc('earned')}: <b>{earned:,}</b>\n\n"
-            f"<code>{link}</code>"
-        )
+        
+        text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
+
+ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
+ᴇᴀʀɴᴇᴅ: <b>{earned:,}</b>
+
+<code>{link}</code>"""
+
         keyboard = [
-            [InlineKeyboardButton(sc("share"), url=f"https://t.me/share/url?url={link}")],
-            [InlineKeyboardButton(sc("back"), callback_data='back')]
+            [InlineKeyboardButton("sʜᴀʀᴇ", url=f"https://t.me/share/url?url={link}")],
+            [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')]
         ]
-        await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML',
+            disable_web_page_preview=False
+        )
 
     elif query.data == 'back':
-        # Go back to main panel
         balance = user_data.get('balance', 0)
         totals = await user_totals_collection.find_one({'id': user_id})
         chars = totals.get('count', 0) if totals else 0
         refs = user_data.get('referred_users', 0)
-        caption = (
-            f"<b>{sc('welcome back')}</b>\n\n"
-            f"{sc('collect anime characters in groups')}\n\n"
-            f"<b>{sc('your stats')}</b>\n"
-            f"{sc('gold')}: <b>{balance:,}</b>\n"
-            f"{sc('characters')}: <b>{chars}</b>\n"
-            f"{sc('referrals')}: <b>{refs}</b>"
-        )
+        
+        caption = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+
+ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
+
+<b>ʏᴏᴜʀ sᴛᴀᴛs</b>
+ɢᴏʟᴅ: <b>{balance:,}</b>
+ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
+ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"""
+
         keyboard = [
-            [InlineKeyboardButton(sc("add to group"), url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
-                InlineKeyboardButton(sc("support"), url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton(sc("updates"), url='https://t.me/PICK_X_UPDATE')
+                InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+                InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
             ],
             [
-                InlineKeyboardButton(sc("help"), callback_data='help'),
-                InlineKeyboardButton(sc("invite"), callback_data='referral')
+                InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'),
+                InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')
             ],
-            [InlineKeyboardButton(sc("credits"), callback_data='credits')]
+            [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
         ]
-        await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        await query.edit_message_text(
+            text=caption,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML',
+            disable_web_page_preview=False
+        )
 
-
-# ------------------ HANDLER REGISTRATION ------------------
-def register_start_handler():
-    """Register /start and callback handlers"""
-    start_handler = CommandHandler('start', start, block=False)
-    callback_handler = CallbackQueryHandler(button_callback, block=False)
-
-    application.add_handler(start_handler)
-    application.add_handler(callback_handler)
-
-    LOGGER.info("[START] Handlers registered successfully")
-
-
-# Initialize on import
-register_start_handler()
+# Register Handlers
+application.add_handler(CommandHandler('start', start, block=False))
+application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back)$', block=False))
