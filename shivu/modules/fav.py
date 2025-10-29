@@ -6,7 +6,7 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from shivu import application, user_collection, LOGGER
 
 # Log chat ID
-LOG_CHAT_ID = -1003071132623
+LOG_CHAT_ID = -1002900862232
 
 
 async def fav(update: Update, context: CallbackContext) -> None:
