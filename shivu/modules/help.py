@@ -4,6 +4,12 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from telegram.error import BadRequest
 from shivu import application, user_collection
 
+PHOTOS = [
+    "https://files.catbox.moe/z73gzs.jpg",
+    "https://files.catbox.moe/r6k5dg.jpg",
+    "https://files.catbox.moe/33yrky.jpg"
+]
+
 TIPS = [
     "ᴜsᴇ /ᴄʟᴀɪᴍ ᴅᴀɪʟʏ ғᴏʀ ғʀᴇᴇ ɢᴏʟᴅ",
     "ɪɴᴠɪᴛᴇ ғʀɪᴇɴᴅs ᴛᴏ ᴇᴀʀɴ ɢᴏʟᴅ",
@@ -36,7 +42,7 @@ def get_main_keyboard(user_id):
     ]
 
 def get_main_caption(first_name, balance):
-    return f"""<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ʜᴇʟᴘ ᴄᴇɴᴛᴇʀ</b>
+    return f"""<a href="{random.choice(PHOTOS)}">&#8203;</a>✦ <b>ʜᴇʟᴘ ᴄᴇɴᴛᴇʀ</b>
 
 ╰┈➤ ʜᴇʏ <b>{first_name}</b>
 ╰┈➤ ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ
@@ -46,8 +52,9 @@ def get_main_caption(first_name, balance):
 <i>{random.choice(TIPS)}</i>"""
 
 def get_category_caption(action):
+    photo = random.choice(PHOTOS)
     captions = {
-        'games': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ɢᴀᴍᴇ ᴢᴏɴᴇ</b>
+        'games': f"""<a href="{photo}">&#8203;</a>✦ <b>ɢᴀᴍᴇ ᴢᴏɴᴇ</b>
 
 ╰┈➤ <b>ɢᴀᴍʙʟɪɴɢ</b>
 <code>/sbet 10000 heads</code> ᴄᴏɪɴ ᴛᴏss
@@ -62,7 +69,7 @@ def get_category_caption(action):
 <code>/riddle</code> sᴏʟᴠᴇ ᴀɴᴅ ᴇᴀʀɴ
 <code>/stour</code> sʟᴀᴠᴇ ᴛᴏᴜʀɴᴀᴍᴇɴᴛs""",
 
-        'economy': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ᴇᴄᴏɴᴏᴍʏ</b>
+        'economy': f"""<a href="{photo}">&#8203;</a>✦ <b>ᴇᴄᴏɴᴏᴍʏ</b>
 
 ╰┈➤ <b>ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ</b>
 <code>/bal</code> ᴡᴀʟʟᴇᴛ ᴀɴᴅ ʙᴀɴᴋ
@@ -76,7 +83,7 @@ def get_category_caption(action):
 <code>/daily</code> ᴅᴀɪʟʏ ʙᴏɴᴜs
 <code>/weekly</code> ᴡᴇᴇᴋʟʏ ʙᴏɴᴜs""",
 
-        'slaves': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>
+        'slaves': f"""<a href="{photo}">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>
 
 ╰┈➤ <b>ᴄᴀᴛᴄʜɪɴɢ</b>
 <code>/grab name</code> ᴄᴀᴛᴄʜ sʟᴀᴠᴇ
@@ -91,7 +98,7 @@ sᴘᴀᴡɴs ᴇᴠᴇʀʏ 100 ᴍᴇssᴀɢᴇs
 <code>/trade</code> ᴛʀᴀᴅᴇ ᴡɪᴛʜ ᴏᴛʜᴇʀs
 <code>/sinfo id</code> sʟᴀᴠᴇ ᴅᴇᴛᴀɪʟs""",
 
-        'pass': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴘᴀss</b>
+        'pass': f"""<a href="{photo}">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴘᴀss</b>
 
 ╰┈➤ <b>ᴡᴇᴇᴋʟʏ ʀᴇᴡᴀʀᴅs</b>
 <code>/claim</code> ᴄʟᴀɪᴍ ᴡᴇᴇᴋʟʏ
@@ -105,7 +112,7 @@ sᴘᴇᴄɪᴀʟ ᴇᴠᴇɴᴛs
 
 ╰┈➤ <code>/pass</code> ᴠɪᴇᴡ sᴛᴀᴛᴜs""",
 
-        'top': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅs</b>
+        'top': f"""<a href="{photo}">&#8203;</a>✦ <b>ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅs</b>
 
 ╰┈➤ <b>ᴘʟᴀʏᴇʀ ʀᴀɴᴋɪɴɢs</b>
 <code>/tops</code> ʀɪᴄʜᴇsᴛ ʜᴜɴᴛᴇʀs
@@ -117,7 +124,7 @@ sᴘᴇᴄɪᴀʟ ᴇᴠᴇɴᴛs
 <code>/topchat</code> ᴀᴄᴛɪᴠᴇ ᴄʜᴀᴛs
 <code>/topgroups</code> ᴛᴏᴘ ɢʀᴏᴜᴘs""",
 
-        'rewards': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ʀᴇᴡᴀʀᴅs</b>
+        'rewards': f"""<a href="{photo}">&#8203;</a>✦ <b>ʀᴇᴡᴀʀᴅs</b>
 
 ╰┈➤ <b>ᴅᴀɪʟʏ</b>
 <code>/claim</code> 2000 ɢᴏʟᴅ ᴅᴀɪʟʏ
