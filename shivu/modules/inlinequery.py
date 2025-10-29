@@ -7,7 +7,8 @@ from pymongo import ASCENDING
 # Telegram imports
 from telegram import (
     Update, 
-    InlineQueryResultPhoto, 
+    InlineQueryResultPhoto,
+    InlineQueryResultVideo,  # NEW: For video support
     InlineKeyboardButton, 
     InlineKeyboardMarkup,
 )
@@ -87,7 +88,7 @@ async def get_anime_count(anime_name: str) -> int:
 
 # Inline query handler
 async def inlinequery(update: Update, context) -> None:
-    """Handle inline queries for character search"""
+    """Handle inline queries for character search with VIDEO SUPPORT"""
     query = update.inline_query.query
     offset = int(update.inline_query.offset) if update.inline_query.offset else 0
 
@@ -192,6 +193,9 @@ async def inlinequery(update: Update, context) -> None:
             char_anime = character.get('anime', 'Unknown')
             char_rarity = character.get('rarity', '🟢 Common')
             char_img = character.get('img_url', '')
+            
+            # 🎥 NEW: Check if character is a video
+            is_video = character.get('is_video', False)
 
             # Extract rarity emoji and text
             if isinstance(char_rarity, str):
@@ -223,13 +227,17 @@ async def inlinequery(update: Update, context) -> None:
 
                 # Add favorite indicator
                 fav_indicator = "💖 " if is_favorite else ""
+                
+                # 🎥 NEW: Add media type indicator
+                media_type = "🎥" if is_video else "🖼"
 
                 caption = (
                     f"<b>{fav_indicator}🔮 {to_small_caps('look at')} <a href='tg://user?id={user_id_int}'>{escape(user_first_name)}</a>{to_small_caps('s waifu')}</b>\n\n"
                     f"<b>🆔 {to_small_caps('id')}</b> <code>{char_id}</code>\n"
                     f"<b>🧬 {to_small_caps('name')}</b> <code>{escape(char_name)}</code> x{user_character_count}\n"
                     f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(char_anime)}</code> {user_anime_count}/{anime_total}\n"
-                    f"<b>{rarity_emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(rarity_text)}</code>"
+                    f"<b>{rarity_emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(rarity_text)}</code>\n"
+                    f"<b>{media_type} {to_small_caps('type')}</b> <code>{to_small_caps('video' if is_video else 'image')}</code>"
                 )
 
                 if is_favorite:
@@ -237,13 +245,17 @@ async def inlinequery(update: Update, context) -> None:
             else:
                 # Global search caption
                 global_count = await get_global_count(char_id)
+                
+                # 🎥 NEW: Add media type indicator
+                media_type = "🎥" if is_video else "🖼"
 
                 caption = (
                     f"<b>🔮 {to_small_caps('look at this waifu')}</b>\n\n"
                     f"<b>🆔 {to_small_caps('id')}</b> : <code>{char_id}</code>\n"
                     f"<b>🧬 {to_small_caps('name')}</b> : <code>{escape(char_name)}</code>\n"
                     f"<b>📺 {to_small_caps('anime')}</b> : <code>{escape(char_anime)}</code>\n"
-                    f"<b>{rarity_emoji} {to_small_caps('rarity')}</b> : <code>{to_small_caps(rarity_text)}</code>\n\n"
+                    f"<b>{rarity_emoji} {to_small_caps('rarity')}</b> : <code>{to_small_caps(rarity_text)}</code>\n"
+                    f"<b>{media_type} {to_small_caps('type')}</b> : <code>{to_small_caps('video' if is_video else 'image')}</code>\n\n"
                     f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
                 )
 
@@ -255,16 +267,31 @@ async def inlinequery(update: Update, context) -> None:
                 )]
             ])
 
-            results.append(
-                InlineQueryResultPhoto(
-                    id=f"{char_id}_{offset}_{time.time()}",
-                    photo_url=char_img,
-                    thumbnail_url=char_img,
-                    caption=caption,
-                    parse_mode='HTML',
-                    reply_markup=button
+            # 🎥 CRITICAL: Use InlineQueryResultVideo for videos!
+            if is_video:
+                results.append(
+                    InlineQueryResultVideo(
+                        id=f"{char_id}_{offset}_{time.time()}",
+                        video_url=char_img,
+                        mime_type="video/mp4",
+                        thumbnail_url=char_img,  # Some videos might not have thumbnail
+                        title=f"{char_name} ({char_anime})",
+                        caption=caption,
+                        parse_mode='HTML',
+                        reply_markup=button
+                    )
                 )
-            )
+            else:
+                results.append(
+                    InlineQueryResultPhoto(
+                        id=f"{char_id}_{offset}_{time.time()}",
+                        photo_url=char_img,
+                        thumbnail_url=char_img,
+                        caption=caption,
+                        parse_mode='HTML',
+                        reply_markup=button
+                    )
+                )
 
         await update.inline_query.answer(results, next_offset=next_offset, cache_time=5)
 
@@ -442,4 +469,4 @@ async def show_smashers_callback(update: Update, context) -> None:
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
 application.add_handler(CallbackQueryHandler(show_smashers_callback, pattern=r'^show_smashers_', block=False))
 
-LOGGER.info("[INLINE] Handlers registered successfully")
+LOGGER.info("[INLINE] Handlers registered successfully with VIDEO SUPPORT 🎥")
