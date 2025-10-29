@@ -521,5 +521,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     shivuu.start()
-    LOGGER.info("🎥 Bot started with VIDEO SUPPORT")
+    LOGGER.info("ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
     main()
