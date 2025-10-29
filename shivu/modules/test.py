@@ -36,70 +36,62 @@ RARITY_LIST = list(RARITY_MAP.values())
 
 
 async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add random characters to a user. Usage: /add <quantity> <rarity_number> or add <quantity> <rarity_number>"""
-    
+    """Add random characters to a user. Usage: /add <quantity> <rarity_number> or /add <quantity> (random rarity)"""
+
     user_id = update.effective_user.id
-    
+
     # Check if user is owner or sudo user
     if user_id not in OWNERS and str(user_id) not in sudo_users:
         await update.message.reply_text("❌ You don't have permission to use this command!")
         return
-    
+
     # Check if it's a reply to another user
     target_user = None
     target_user_id = None
     target_username = None
     target_first_name = None
-    
+
     if update.message.reply_to_message:
         target_user = update.message.reply_to_message.from_user
         target_user_id = target_user.id
         target_username = target_user.username
         target_first_name = target_user.first_name
-    
+
     # Parse command arguments
     args = context.args
-    text = update.message.text
-    
+
     quantity = None
     rarity_choice = None
-    
-    # Handle both /add and plain "add" format
-    if not args:
-        # Try to parse from plain text without command prefix
-        match = re.match(r'^(?:/)?add\s+(\d+)\s+(\d+)', text, re.IGNORECASE)
-        if match:
-            quantity = int(match.group(1))
-            rarity_choice = int(match.group(2))
-        else:
-            rarity_list_text = "\n".join([f"{num}. {rarity}" 
-                                          for num, rarity in RARITY_MAP.items()])
-            await update.message.reply_text(
-                "❌ <b>Invalid format!</b>\n\n"
-                "<b>Usage:</b> <code>/add &lt;quantity&gt; &lt;rarity&gt;</code> or <code>add &lt;quantity&gt; &lt;rarity&gt;</code>\n\n"
-                "<b>Rarity Options:</b>\n" + rarity_list_text,
-                parse_mode='HTML'
-            )
+
+    # Handle /add <quantity> format (random rarity)
+    if len(args) == 1:
+        try:
+            quantity = int(args[0])
+            rarity_choice = None  # Will select random rarity
+        except ValueError:
+            await update.message.reply_text("❌ Quantity must be a number!")
             return
-    else:
-        if len(args) < 2:
-            rarity_list_text = "\n".join([f"{num}. {rarity}" 
-                                          for num, rarity in RARITY_MAP.items()])
-            await update.message.reply_text(
-                "❌ <b>Invalid format!</b>\n\n"
-                "<b>Usage:</b> <code>/add &lt;quantity&gt; &lt;rarity&gt;</code> or <code>add &lt;quantity&gt; &lt;rarity&gt;</code>\n\n"
-                "<b>Rarity Options:</b>\n" + rarity_list_text,
-                parse_mode='HTML'
-            )
-            return
-        
+    # Handle /add <quantity> <rarity> format
+    elif len(args) >= 2:
         try:
             quantity = int(args[0])
             rarity_choice = int(args[1])
         except ValueError:
             await update.message.reply_text("❌ Quantity and rarity must be numbers!")
             return
-    
+    else:
+        rarity_list_text = "\n".join([f"{num}. {rarity}" 
+                                      for num, rarity in RARITY_MAP.items()])
+        await update.message.reply_text(
+            "❌ <b>Invalid format!</b>\n\n"
+            "<b>Usage:</b>\n"
+            "• <code>/add &lt;quantity&gt;</code> - Random rarity characters\n"
+            "• <code>/add &lt;quantity&gt; &lt;rarity&gt;</code> - Specific rarity\n\n"
+            "<b>Rarity Options:</b>\n" + rarity_list_text,
+            parse_mode='HTML'
+        )
+        return
+
     # Check for username in args (optional, for direct targeting)
     if args and len(args) >= 3 and not target_user_id:
         username_or_id = args[2]
@@ -109,26 +101,27 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             # Remove @ if present
             target_username = username_or_id.lstrip('@')
-    
+
     # Validate target user
     if not target_user_id and not target_username:
         await update.message.reply_text(
             "❌ <b>Please specify a user!</b>\n\n"
             "You can:\n"
             "• Reply to a user's message\n"
-            "• Use: <code>/add &lt;quantity&gt; &lt;rarity&gt; &lt;user_id&gt;</code>\n"
-            "• Use: <code>/add &lt;quantity&gt; &lt;rarity&gt; @username</code>",
+            "• Use: <code>/add &lt;quantity&gt; &lt;user_id&gt;</code>\n"
+            "• Use: <code>/add &lt;quantity&gt; @username</code>\n"
+            "• Use: <code>/add &lt;quantity&gt; &lt;rarity&gt; &lt;user_id&gt;</code>",
             parse_mode='HTML'
         )
         return
-    
+
     # Validate quantity
     if quantity < 1 or quantity > 100:
         await update.message.reply_text("❌ Quantity must be between 1 and 100!")
         return
-    
-    # Validate rarity choice
-    if rarity_choice not in RARITY_MAP:
+
+    # Validate rarity choice (if provided)
+    if rarity_choice is not None and rarity_choice not in RARITY_MAP:
         rarity_list_text = "\n".join([f"{num}. {rarity}" 
                                       for num, rarity in RARITY_MAP.items()])
         await update.message.reply_text(
@@ -137,34 +130,56 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='HTML'
         )
         return
-    
-    selected_rarity = RARITY_MAP[rarity_choice]
-    
+
+    # Determine rarity mode
+    if rarity_choice is None:
+        rarity_mode = "🎲 Random Rarity"
+        selected_rarity = None
+    else:
+        selected_rarity = RARITY_MAP[rarity_choice]
+        rarity_mode = selected_rarity
+
     # Show processing message
     processing_msg = await update.message.reply_text(
-        f"⏳ <b>Searching for {selected_rarity} characters...</b>",
+        f"⏳ <b>Searching for {rarity_mode} characters...</b>",
         parse_mode='HTML'
     )
-    
-    # Get random characters from database with selected rarity
+
+    # Get random characters from database
     try:
-        # First check if any characters exist with this rarity
-        count = await collection.count_documents({"rarity": selected_rarity})
-        
-        if count == 0:
-            await processing_msg.edit_text(
-                f"❌ No characters found with rarity: <b>{selected_rarity}</b>\n\n"
-                f"<i>💡 Tip: Check available rarities in the database.</i>",
-                parse_mode='HTML'
-            )
-            return
-        
-        # Fetch random characters
-        characters = await collection.aggregate([
-            {"$match": {"rarity": selected_rarity}},
-            {"$sample": {"size": min(quantity, count)}}
-        ]).to_list(length=quantity)
-        
+        if selected_rarity:
+            # Specific rarity
+            count = await collection.count_documents({"rarity": selected_rarity})
+
+            if count == 0:
+                await processing_msg.edit_text(
+                    f"❌ No characters found with rarity: <b>{selected_rarity}</b>\n\n"
+                    f"<i>💡 Tip: Check available rarities in the database.</i>",
+                    parse_mode='HTML'
+                )
+                return
+
+            # Fetch random characters
+            characters = await collection.aggregate([
+                {"$match": {"rarity": selected_rarity}},
+                {"$sample": {"size": min(quantity, count)}}
+            ]).to_list(length=quantity)
+        else:
+            # Random rarity - get random characters from all rarities
+            total_count = await collection.count_documents({})
+
+            if total_count == 0:
+                await processing_msg.edit_text(
+                    "❌ No characters found in database!",
+                    parse_mode='HTML'
+                )
+                return
+
+            # Fetch random characters (any rarity)
+            characters = await collection.aggregate([
+                {"$sample": {"size": min(quantity, total_count)}}
+            ]).to_list(length=quantity)
+
     except Exception as e:
         print(f"Error fetching characters: {e}")
         import traceback
@@ -175,23 +190,23 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='HTML'
         )
         return
-    
+
     if not characters:
         await processing_msg.edit_text(
-            f"❌ No characters found with rarity: <b>{selected_rarity}</b>",
+            f"❌ No characters found!",
             parse_mode='HTML'
         )
         return
-    
+
     await processing_msg.edit_text(
         f"⏳ <b>Adding {len(characters)} characters to user...</b>",
         parse_mode='HTML'
     )
-    
+
     # Add characters to user's collection
     added_characters = []
     failed_count = 0
-    
+
     for char in characters:
         character_data = {
             'id': char.get('id'),
@@ -200,11 +215,11 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             'img_url': char.get('img_url'),
             'rarity': char.get('rarity'),
         }
-        
+
         # Add optional fields if they exist
         if 'is_video' in char:
             character_data['is_video'] = char['is_video']
-        
+
         # Add to user collection
         try:
             if target_user_id:
@@ -235,11 +250,11 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             print(f"Error adding character {char.get('id')} to collection: {e}")
             failed_count += 1
             continue
-        
+
         added_characters.append(
-            f"• <b>{escape(char.get('name', 'Unknown'))}</b> (<i>{escape(char.get('anime', 'Unknown'))}</i>)"
+            f"• <b>{escape(char.get('name', 'Unknown'))}</b> (<i>{escape(char.get('anime', 'Unknown'))}</i>) - {char.get('rarity', 'Unknown')}"
         )
-    
+
     # Send success message
     if target_username:
         target_display = f"@{target_username}"
@@ -247,26 +262,26 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         target_display = escape(target_first_name)
     else:
         target_display = f"User ID: {target_user_id}"
-    
+
     success_msg = (
         f"✅ <b>Characters Added Successfully!</b>\n\n"
         f"👤 <b>Target:</b> {target_display}\n"
         f"📊 <b>Quantity:</b> {len(added_characters)}/{quantity}\n"
-        f"🎭 <b>Rarity:</b> {selected_rarity}\n\n"
+        f"🎭 <b>Mode:</b> {rarity_mode}\n\n"
         f"<b>Added Characters:</b>\n" + "\n".join(added_characters[:10])
     )
-    
+
     if len(added_characters) > 10:
         success_msg += f"\n<i>... and {len(added_characters) - 10} more!</i>"
-    
+
     if failed_count > 0:
         success_msg += f"\n\n⚠️ <b>Failed to add:</b> {failed_count} characters"
-    
+
     # Get random character image for display
     random_char = random.choice(characters)
     char_img = random_char.get('img_url')
     is_video = random_char.get('is_video', False)
-    
+
     try:
         if char_img and is_video:
             await processing_msg.delete()
@@ -291,20 +306,5 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await processing_msg.edit_text(success_msg, parse_mode='HTML')
 
 
-async def handle_add_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle both /add command and plain 'add' messages"""
-    text = update.message.text.strip()
-    
-    # Check if message starts with "add" (case insensitive)
-    if re.match(r'^add\s+\d+\s+\d+', text, re.IGNORECASE):
-        # Parse as add command
-        await add_characters(update, context)
-
-
 # Register handlers
 application.add_handler(CommandHandler("add", add_characters, block=False))
-application.add_handler(MessageHandler(
-    filters.TEXT & filters.Regex(r'^add\s+\d+\s+\d+', re.IGNORECASE), 
-    handle_add_message,
-    block=False
-))
