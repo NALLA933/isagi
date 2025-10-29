@@ -917,31 +917,81 @@ async def game_stats_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
 async def leaderboard_cmd(update: Update, context: CallbackContext):
-    """Show top players leaderboard: /leaderboard"""
+    """Show top players leaderboard with images: /leaderboard"""
     try:
         # Get top 10 players by balance
         top_players = await user_collection.find().sort('balance', -1).limit(10).to_list(length=10)
         
         if not top_players:
-            await update.message.reply_text("📊 No players found yet!")
+            await update.message.reply_text("No players found yet!")
             return
         
-        leaderboard_text = "🏆 **Top Players Leaderboard**\n\n"
+        # Header image using zero-width space trick for preview
+        header_image = "https://files.catbox.moe/i8x33x.jpg"
+        footer_image = "https://files.catbox.moe/33yrky.jpg"
         
-        medals = ["🥇", "🥈", "🥉"]
+        # Using HTML tricks to show image preview
+        leaderboard_text = f'<a href="{header_image}">&#8203;</a>'
+        
+        leaderboard_text += (
+            "<b>═══════════════════════</b>\n"
+            "<b>        🏆 TOP PLAYERS 🏆</b>\n"
+            "<b>═══════════════════════</b>\n\n"
+        )
+        
+        # Rank symbols
+        rank_symbols = {
+            1: "👑",
+            2: "🥈",
+            3: "🥉",
+        }
         
         for i, player in enumerate(top_players, 1):
-            medal = medals[i-1] if i <= 3 else f"{i}."
             name = player.get('first_name', 'Unknown')
+            username = player.get('username', None)
             balance = player.get('balance', 0)
             tokens = player.get('tokens', 0)
             
+            # Format rank
+            if i in rank_symbols:
+                rank_display = f"{rank_symbols[i]} <b>#{i}</b>"
+            else:
+                rank_display = f"   <b>#{i}</b>"
+            
+            # Create mention if username exists
+            if username:
+                user_display = f'<a href="https://t.me/{username}">@{username}</a>'
+            else:
+                user_display = f"<b>{name}</b>"
+            
+            # Format numbers with commas
+            balance_formatted = f"{balance:,}"
+            
+            # Build player entry
             leaderboard_text += (
-                f"{medal} **{name}**\n"
-                f"   💰 {balance:,} coins | 🎁 {tokens} tokens\n\n"
+                f"{rank_display} {user_display}\n"
+                f"      💎 <code>{balance_formatted}</code> Coins\n"
+                f"      🎫 <code>{tokens}</code> Tokens\n"
             )
+            
+            # Add separator except for last entry
+            if i < len(top_players):
+                leaderboard_text += "   ───────────────────\n"
+            else:
+                leaderboard_text += "\n"
         
-        await update.message.reply_text(leaderboard_text, parse_mode="Markdown")
+        # Footer with image
+        leaderboard_text += (
+            "<b>═══════════════════════</b>\n"
+            f'<a href="{footer_image}">&#8203;</a>\n'
+            "<i>Keep playing to climb the ranks!</i>"
+        )
+        
+        await update.message.reply_text(
+            leaderboard_text,
+            parse_mode="HTML",
+            disable_web_page_preview=False  # Enable preview to show images
+        )
         
     except Exception as e:
         logger.error(f"Error fetching leaderboard: {e}")
