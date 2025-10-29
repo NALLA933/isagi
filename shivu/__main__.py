@@ -58,7 +58,7 @@ def escape_markdown(text):
     if not text:
         return ""
     escape_chars = r'\*_`\\~>#+-=|{}.!'
-    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', str(text))
+    return re.sub(r'([%s])' % re.escape(escape_chars), str(text))
 
 
 async def is_character_allowed(character):
@@ -99,22 +99,24 @@ async def is_character_allowed(character):
                     return False
 
         return True
-    except:
+    except Exception as e:
+        LOGGER.error(f"Error in is_character_allowed: {e}")
         return True
 
 
 async def get_chat_message_frequency(chat_id):
     try:
-        chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
+        chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
         if chat_frequency:
             return chat_frequency.get('message_frequency', DEFAULT_MESSAGE_FREQUENCY)
         else:
             await user_totals_collection.insert_one({
-                'chat_id': chat_id,
+                'chat_id': str(chat_id),
                 'message_frequency': DEFAULT_MESSAGE_FREQUENCY
             })
             return DEFAULT_MESSAGE_FREQUENCY
-    except:
+    except Exception as e:
+        LOGGER.error(f"Error in get_chat_message_frequency: {e}")
         return DEFAULT_MESSAGE_FREQUENCY
 
 
@@ -126,32 +128,38 @@ async def update_grab_task(user_id: int):
                 {'id': user_id},
                 {'$inc': {'pass_data.tasks.grabs': 1}}
             )
-    except:
-        pass
+    except Exception as e:
+        LOGGER.error(f"Error in update_grab_task: {e}")
 
 
 # ==================== MESSAGE COUNTER ====================
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
+        # Only process group messages
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        if not update.message or not update.message.text:
+        # Check if message exists
+        if not update.message:
             return
 
-        if update.message.text.startswith('/'):
+        # Ignore bot messages
+        if update.effective_user.is_bot:
             return
 
         chat_id = str(update.effective_chat.id)
         user_id = update.effective_user.id
 
+        # Initialize lock for this chat
         if chat_id not in locks:
             locks[chat_id] = asyncio.Lock()
         lock = locks[chat_id]
 
         async with lock:
+            # Get message frequency for this chat
             message_frequency = await get_chat_message_frequency(chat_id)
 
+            # Spam detection
             if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
                 last_user[chat_id]['count'] += 1
                 if last_user[chat_id]['count'] >= 10:
@@ -170,17 +178,24 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             else:
                 last_user[chat_id] = {'user_id': user_id, 'count': 1}
 
+            # Initialize message counter for this chat
             if chat_id not in message_counts:
                 message_counts[chat_id] = 0
 
+            # Increment message count
             message_counts[chat_id] += 1
 
+            LOGGER.info(f"Chat {chat_id}: {message_counts[chat_id]}/{message_frequency} messages")
+
+            # Check if it's time to spawn
             if message_counts[chat_id] >= message_frequency:
+                LOGGER.info(f"Spawning character in chat {chat_id}")
                 await send_image(update, context)
                 message_counts[chat_id] = 0
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
+        LOGGER.error(traceback.format_exc())
 
 
 # ==================== SPAWN CHARACTER ====================
@@ -188,17 +203,27 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
     try:
+        LOGGER.info(f"Starting character spawn for chat {chat_id}")
+        
+        # Get all characters from database
         all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
+            LOGGER.warning("No characters found in database!")
             return
 
+        LOGGER.info(f"Found {len(all_characters)} total characters in database")
+
+        # Initialize sent characters list
         if chat_id not in sent_characters:
             sent_characters[chat_id] = []
 
+        # Reset if all characters have been sent
         if len(sent_characters[chat_id]) >= len(all_characters):
             sent_characters[chat_id] = []
+            LOGGER.info(f"Reset sent characters for chat {chat_id}")
 
+        # Get available characters
         available_characters = [
             c for c in all_characters
             if 'id' in c and c.get('id') not in sent_characters[chat_id]
@@ -208,14 +233,21 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             available_characters = all_characters
             sent_characters[chat_id] = []
 
+        LOGGER.info(f"Available characters: {len(available_characters)}")
+
+        # Filter allowed characters
         allowed_characters = []
         for char in available_characters:
             if await is_character_allowed(char):
                 allowed_characters.append(char)
 
         if not allowed_characters:
+            LOGGER.warning("No allowed characters to spawn!")
             return
 
+        LOGGER.info(f"Allowed characters: {len(allowed_characters)}")
+
+        # Select character with weighted randomness if settings exist
         character = None
         try:
             if spawn_settings_collection is not None:
@@ -245,24 +277,31 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
                     if weighted_chars:
                         character = random.choice(weighted_chars)
-        except:
-            pass
+        except Exception as e:
+            LOGGER.error(f"Error in weighted selection: {e}")
 
+        # Fallback to random selection
         if not character:
             character = random.choice(allowed_characters)
 
+        LOGGER.info(f"Selected character: {character.get('name', 'Unknown')}")
+
+        # Mark character as sent
         sent_characters[chat_id].append(character['id'])
         last_characters[chat_id] = character
 
+        # Reset first correct guesses
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
+        # Get rarity emoji
         rarity = character.get('rarity', 'Common')
         if isinstance(rarity, str) and ' ' in rarity:
             rarity_emoji = rarity.split(' ')[0]
         else:
-            rarity_emoji = ''
+            rarity_emoji = '🟢'
 
+        # Send the character image
         await context.bot.send_photo(
             chat_id=chat_id,
             photo=character['img_url'],
@@ -270,9 +309,12 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***""",
             parse_mode='Markdown'
         )
+        
+        LOGGER.info(f"Character spawned successfully in chat {chat_id}")
 
     except Exception as e:
-        LOGGER.error(f"Error in send_image: {e}")
+        LOGGER.error(f"Error in send_image for chat {chat_id}: {e}")
+        LOGGER.error(traceback.format_exc())
 
 
 # ==================== GUESS HANDLER ====================
@@ -281,30 +323,37 @@ async def guess(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
 
     try:
+        # Check if there's a character to guess
         if chat_id not in last_characters:
+            await update.message.reply_html('<b>ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs sᴘᴀᴡɴᴇᴅ ʏᴇᴛ!</b>')
             return
 
+        # Check if already grabbed
         if chat_id in first_correct_guesses:
             await update.message.reply_html(
                 '<b>🚫 ᴡᴀɪғᴜ ᴀʟʀᴇᴀᴅʏ ɢʀᴀʙʙᴇᴅ ʙʏ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ ⚡. ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ..!!</b>'
             )
             return
 
+        # Get guess text
         guess_text = ' '.join(context.args).lower() if context.args else ''
 
         if not guess_text:
             await update.message.reply_html('<b>ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ɴᴀᴍᴇ!</b>')
             return
 
+        # Check for invalid characters
         if "()" in guess_text or "&" in guess_text:
             await update.message.reply_html(
                 "<b>ɴᴀʜʜ ʏᴏᴜ ᴄᴀɴ'ᴛ ᴜsᴇ ᴛʜɪs ᴛʏᴘᴇs ᴏғ ᴡᴏʀᴅs...❌</b>"
             )
             return
 
+        # Get character name
         character_name = last_characters[chat_id].get('name', '').lower()
         name_parts = character_name.split()
 
+        # Check if guess is correct
         is_correct = (
             sorted(name_parts) == sorted(guess_text.split()) or
             any(part == guess_text for part in name_parts) or
@@ -312,8 +361,10 @@ async def guess(update: Update, context: CallbackContext) -> None:
         )
 
         if is_correct:
+            # Mark as grabbed
             first_correct_guesses[chat_id] = user_id
 
+            # Update or create user
             user = await user_collection.find_one({'id': user_id})
             if user:
                 update_fields = {}
@@ -338,8 +389,10 @@ async def guess(update: Update, context: CallbackContext) -> None:
                     'characters': [last_characters[chat_id]],
                 })
 
+            # Update grab task
             await update_grab_task(user_id)
 
+            # Update group user totals
             group_user_total = await group_user_totals_collection.find_one({
                 'user_id': user_id,
                 'group_id': chat_id
@@ -372,6 +425,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
                     'count': 1,
                 })
 
+            # Update global group totals
             group_info = await top_global_groups_collection.find_one({'group_id': chat_id})
             if group_info:
                 update_fields = {}
@@ -395,6 +449,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
                     'count': 1,
                 })
 
+            # Send success message
             character = last_characters[chat_id]
             keyboard = [[
                 InlineKeyboardButton(
@@ -429,6 +484,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
     except Exception as e:
         LOGGER.error(f"Error in guess: {e}")
+        LOGGER.error(traceback.format_exc())
 
 
 # ==================== MAIN ====================
