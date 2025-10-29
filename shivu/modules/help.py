@@ -45,25 +45,6 @@ def get_main_caption(first_name, balance):
 
 <i>{random.choice(TIPS)}</i>"""
 
-async def help_command(update: Update, context: CallbackContext):
-    try:
-        user = update.effective_user
-        balance = await get_user_balance(user.id)
-        
-        caption = get_main_caption(user.first_name, balance)
-        keyboard = get_main_keyboard(user.id)
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=caption,
-            reply_markup=reply_markup,
-            parse_mode="HTML",
-            disable_web_page_preview=False
-        )
-    except Exception as e:
-        print(f"Error: {e}")
-
 def get_category_caption(action):
     captions = {
         'games': """<a href="https://files.catbox.moe/33yrky.jpg">&#8203;</a>✦ <b>ɢᴀᴍᴇ ᴢᴏɴᴇ</b>
@@ -152,19 +133,33 @@ sᴘᴇᴄɪᴀʟ ᴇᴠᴇɴᴛs
     }
     return captions.get(action, "")
 
+async def help_command(update: Update, context: CallbackContext):
+    try:
+        user = update.effective_user
+        balance = await get_user_balance(user.id)
+        
+        caption = get_main_caption(user.first_name, balance)
+        keyboard = get_main_keyboard(user.id)
+        
+        await update.message.reply_text(
+            text=caption,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML",
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        print(f"Error in help_command: {e}")
+
 async def help_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     
     try:
         await query.answer()
-    except:
-        return
-
-    try:
+        
         data = query.data
         parts = data.split('_')
-        action = '_'.join(parts[1:-1])
-        expected_user_id = int(parts[-1])
+        action = parts[1]
+        expected_user_id = int(parts[2])
         user_id = query.from_user.id
 
         if user_id != expected_user_id:
@@ -175,34 +170,32 @@ async def help_callback(update: Update, context: CallbackContext):
             balance = await get_user_balance(user_id)
             caption = get_main_caption(query.from_user.first_name, balance)
             keyboard = get_main_keyboard(user_id)
+            
             await query.edit_message_text(
                 text=caption,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML',
                 disable_web_page_preview=False
             )
-            return
-
-        caption = get_category_caption(action)
-        if caption:
-            back_button = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f'help_back_{user_id}')]]
-            await query.edit_message_text(
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(back_button),
-                parse_mode='HTML',
-                disable_web_page_preview=False
-            )
         else:
-            await query.answer("ɪɴᴠᴀʟɪᴅ ᴄᴀᴛᴇɢᴏʀʏ", show_alert=True)
+            caption = get_category_caption(action)
+            if caption:
+                back_button = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f'help_back_{user_id}')]]
+                
+                await query.edit_message_text(
+                    text=caption,
+                    reply_markup=InlineKeyboardMarkup(back_button),
+                    parse_mode='HTML',
+                    disable_web_page_preview=False
+                )
+            else:
+                await query.answer("ɪɴᴠᴀʟɪᴅ ᴄᴀᴛᴇɢᴏʀʏ", show_alert=True)
 
     except BadRequest as e:
-        print(f"Error: {e}")
+        print(f"BadRequest in help_callback: {e}")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in help_callback: {e}")
 
-help_handler = CommandHandler(['help', 'menu', 'panel'], help_command, block=False)
-application.add_handler(help_handler)
-
-callback_pattern = r'help_(games|economy|slaves|pass|top|rewards|back)_\d+$'
-help_callback_handler = CallbackQueryHandler(help_callback, pattern=callback_pattern, block=False)
-application.add_handler(help_callback_handler)
+# Register handlers
+application.add_handler(CommandHandler(['help', 'menu', 'panel'], help_command, block=False))
+application.add_handler(CallbackQueryHandler(help_callback, pattern=r'^help_', block=False))
