@@ -198,13 +198,13 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-# ==================== SPAWN CHARACTER ====================
+# ==================== SPAWN CHARACTER (UPDATED FOR VIDEO SUPPORT) ====================
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
     try:
         LOGGER.info(f"Starting character spawn for chat {chat_id}")
-        
+
         # Get all characters from database
         all_characters = list(await collection.find({}).to_list(length=None))
 
@@ -301,15 +301,35 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         else:
             rarity_emoji = '🟢'
 
-        # Send the character image
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=character['img_url'],
-            caption=f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
-/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***""",
-            parse_mode='Markdown'
-        )
-        
+        # Caption for spawn message
+        caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
+/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***"""
+
+        # ===== KEY CHANGE: Check if character is video or image =====
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        if is_video:
+            # Send as video for MP4/AMV characters
+            LOGGER.info(f"Spawning VIDEO character: {character.get('name')}")
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=media_url,
+                caption=caption,
+                parse_mode='Markdown',
+                read_timeout=120,
+                write_timeout=120
+            )
+        else:
+            # Send as photo for image characters
+            LOGGER.info(f"Spawning IMAGE character: {character.get('name')}")
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=media_url,
+                caption=caption,
+                parse_mode='Markdown'
+            )
+
         LOGGER.info(f"Character spawned successfully in chat {chat_id}")
 
     except Exception as e:
