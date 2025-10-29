@@ -36,7 +36,7 @@ HAREM_MODE_MAPPING = {
 
 
 async def harem(update: Update, context: CallbackContext, page=0, edit=False) -> None:
-    """Display user's character collection (harem)"""
+    """Display user's character collection (harem) with VIDEO SUPPORT"""
     user_id = update.effective_user.id
 
     try:
@@ -52,7 +52,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             await message.reply_text("You don't have any characters yet! Use /grab to catch some.")
             return
 
-        # Get favorite character - FIXED: favorites is now a dict, not an ID
+        # Get favorite character
         fav_character = user.get('favorites', None)
 
         # Validate favorite character
@@ -199,33 +199,52 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
 
-        # FIXED: Determine which image to show - favorite always takes priority
-        display_img = None
+        # ===== KEY CHANGE: Determine which media to show and detect video =====
+        display_media = None
+        is_video_display = False
 
-        # Priority 1: Show favorite if it exists and has an image
+        # Priority 1: Show favorite if it exists
         if fav_character and fav_character.get('img_url'):
-            display_img = fav_character['img_url']
+            display_media = fav_character['img_url']
+            is_video_display = fav_character.get('is_video', False)
         # Priority 2: Show random character from filtered list
         elif filtered_chars:
             random_char = random.choice(filtered_chars)
-            display_img = random_char.get('img_url')
+            display_media = random_char.get('img_url')
+            is_video_display = random_char.get('is_video', False)
 
-        # Send or edit message
-        if display_img:
+        # Send or edit message with VIDEO SUPPORT
+        if display_media:
             if edit:
+                # Editing existing message - just update caption
                 await message.edit_caption(
                     caption=harem_message, 
                     reply_markup=reply_markup, 
                     parse_mode='HTML'
                 )
             else:
-                await message.reply_photo(
-                    photo=display_img,
-                    caption=harem_message,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
+                # New message - send photo or video
+                if is_video_display:
+                    # Send as VIDEO
+                    await message.reply_video(
+                        video=display_media,
+                        caption=harem_message,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML',
+                        supports_streaming=True,  # ← PREVENTS GIF CONVERSION!
+                        read_timeout=120,
+                        write_timeout=120
+                    )
+                else:
+                    # Send as PHOTO
+                    await message.reply_photo(
+                        photo=display_media,
+                        caption=harem_message,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
         else:
+            # Fallback to text-only
             if edit:
                 await message.edit_text(
                     text=harem_message,
@@ -286,7 +305,7 @@ async def unfav(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text('💔 𝙔𝙤𝙪 𝙙𝙤𝙣\'𝙩 𝙝𝙖𝙫𝙚 𝙖 𝙛𝙖𝙫𝙤𝙧𝙞𝙩𝙚 𝙘𝙝𝙖𝙧𝙖𝙘𝙩𝙚𝙧 𝙨𝙚𝙩!')
             return
 
-        # Create confirmation buttons with proper format
+        # Create confirmation buttons
         buttons = [
             [
                 InlineKeyboardButton("✅ ʏᴇs", callback_data=f"harem_unfav_yes:{user_id}"),
@@ -295,17 +314,32 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        await update.message.reply_photo(
-            photo=fav_character.get("img_url", ""),
-            caption=(
-                f"<b>💔 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜɪs ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
-                f"✨ <b>ɴᴀᴍᴇ:</b> <code>{fav_character.get('name', 'Unknown')}</code>\n"
-                f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{fav_character.get('anime', 'Unknown')}</code>\n"
-                f"🆔 <b>ɪᴅ:</b> <code>{fav_character.get('id', 'Unknown')}</code>"
-            ),
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+        # ===== KEY CHANGE: Check if favorite is video =====
+        is_video_fav = fav_character.get('is_video', False)
+        media_url = fav_character.get("img_url", "")
+
+        caption = (
+            f"<b>💔 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜɪs ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
+            f"✨ <b>ɴᴀᴍᴇ:</b> <code>{fav_character.get('name', 'Unknown')}</code>\n"
+            f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{fav_character.get('anime', 'Unknown')}</code>\n"
+            f"🆔 <b>ɪᴅ:</b> <code>{fav_character.get('id', 'Unknown')}</code>"
         )
+
+        if is_video_fav:
+            await update.message.reply_video(
+                video=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML',
+                supports_streaming=True
+            )
+        else:
+            await update.message.reply_photo(
+                photo=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
     except Exception as e:
         print(f"Error in unfav command: {e}")
