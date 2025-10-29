@@ -926,65 +926,47 @@ async def leaderboard_cmd(update: Update, context: CallbackContext):
             await update.message.reply_text("No players found yet!")
             return
         
-        # Header image using zero-width space trick for preview
+        # Header and footer images
         header_image = "https://files.catbox.moe/i8x33x.jpg"
         footer_image = "https://files.catbox.moe/33yrky.jpg"
         
         # Using HTML tricks to show image preview
         leaderboard_text = f'<a href="{header_image}">&#8203;</a>'
         
-        leaderboard_text += (
-            "<b>═══════════════════════</b>\n"
-            "<b>        🏆 TOP PLAYERS 🏆</b>\n"
-            "<b>═══════════════════════</b>\n\n"
-        )
+        leaderboard_text += "\n<b>⟡ ᴛᴏᴘ ᴘʟᴀʏᴇʀs ⟡</b>\n\n"
         
-        # Rank symbols
-        rank_symbols = {
-            1: "👑",
-            2: "🥈",
-            3: "🥉",
-        }
+        # Roman numerals for ranks
+        roman_numerals = ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ"]
         
-        for i, player in enumerate(top_players, 1):
-            name = player.get('first_name', 'Unknown')
+        for i, player in enumerate(top_players):
+            user_id = player.get('id')
+            first_name = player.get('first_name', 'Unknown')
             username = player.get('username', None)
             balance = player.get('balance', 0)
             tokens = player.get('tokens', 0)
             
-            # Format rank
-            if i in rank_symbols:
-                rank_display = f"{rank_symbols[i]} <b>#{i}</b>"
-            else:
-                rank_display = f"   <b>#{i}</b>"
+            # Format rank with roman numeral
+            rank = roman_numerals[i]
             
-            # Create mention if username exists
+            # Create user mention
             if username:
-                user_display = f'<a href="https://t.me/{username}">@{username}</a>'
+                user_mention = f'<a href="tg://user?id={user_id}">@{username}</a>'
             else:
-                user_display = f"<b>{name}</b>"
+                user_mention = f'<a href="tg://user?id={user_id}">{first_name}</a>'
             
             # Format numbers with commas
             balance_formatted = f"{balance:,}"
             
             # Build player entry
             leaderboard_text += (
-                f"{rank_display} {user_display}\n"
-                f"      💎 <code>{balance_formatted}</code> Coins\n"
-                f"      🎫 <code>{tokens}</code> Tokens\n"
+                f"<b>{rank}</b> ⌁ {user_mention}\n"
+                f"   ⤷ ◈ {balance_formatted} ᴄᴏɪɴs · ▣ {tokens} ᴛᴏᴋᴇɴs\n\n"
             )
-            
-            # Add separator except for last entry
-            if i < len(top_players):
-                leaderboard_text += "   ───────────────────\n"
-            else:
-                leaderboard_text += "\n"
         
         # Footer with image
         leaderboard_text += (
-            "<b>═══════════════════════</b>\n"
             f'<a href="{footer_image}">&#8203;</a>\n'
-            "<i>Keep playing to climb the ranks!</i>"
+            "<b>⟡ ᴋᴇᴇᴘ ᴘʟᴀʏɪɴɢ · ᴋᴇᴇᴘ ʀɪsɪɴɢ ⟡</b>"
         )
         
         await update.message.reply_text(
