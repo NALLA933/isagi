@@ -121,6 +121,65 @@ async def change_time_sudo(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text('Failed to change character spawn frequency. Please try again later.')
 
 
+async def check_frequency(update: Update, context: CallbackContext) -> None:
+    """Check current spawn frequency for this group"""
+    try:
+        chat_id = str(update.effective_chat.id)
+        
+        chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
+        
+        if chat_frequency:
+            freq = chat_frequency.get('message_frequency', 70)
+            await update.message.reply_text(
+                f'📊 Current spawn frequency: Every {freq} messages\n\n'
+                f'Use /changetime NUMBER to change it (admin only)'
+            )
+        else:
+            await update.message.reply_text(
+                f'📊 Current spawn frequency: Every 70 messages (default)\n\n'
+                f'Use /changetime NUMBER to set a custom frequency (admin only)'
+            )
+            
+    except Exception as e:
+        LOGGER.error(f"Error in check_frequency: {e}")
+        await update.message.reply_text('Failed to check frequency.')
+
+
+async def force_spawn(update: Update, context: CallbackContext) -> None:
+    """Force spawn a character immediately (sudo only)"""
+    sudo_user_ids = {8420981179}
+    user = update.effective_user
+    
+    try:
+        # Check sudo permission
+        if user.id not in sudo_user_ids:
+            await update.message.reply_text('⛔ You do not have permission to use this command.')
+            return
+
+        # Check if command is used in a group
+        if update.effective_chat.type not in ['group', 'supergroup']:
+            await update.message.reply_text('This command can only be used in groups.')
+            return
+
+        # Import the send_image function from main
+        from shivu.main import send_image
+        
+        # Force spawn character
+        await send_image(update, context)
+        LOGGER.info(f"[FORCE SPAWN] Character spawned by sudo user {user.id} in chat {update.effective_chat.id}")
+        
+    except ImportError:
+        LOGGER.error("Failed to import send_image function")
+        await update.message.reply_text('❌ Failed to spawn character. Module not found.')
+    except Exception as e:
+        LOGGER.error(f"Error in force_spawn: {e}")
+        await update.message.reply_text('❌ Failed to spawn character. Please try again.')
+
+
 # Register handlers
 application.add_handler(CommandHandler("ctime", change_time_sudo, block=False))
 application.add_handler(CommandHandler("changetime", change_time, block=False))
+application.add_handler(CommandHandler("frequency", check_frequency, block=False))
+application.add_handler(CommandHandler("freq", check_frequency, block=False))
+application.add_handler(CommandHandler("spawn", force_spawn, block=False))
+application.add_handler(CommandHandler("fspawn", force_spawn, block=False))
