@@ -8,7 +8,7 @@ from shivu import application, user_collection, collection
 
 pay_cooldown = {}
 pending_payments = {}
-loan_check_running = False
+loan_check_lock = asyncio.Lock()
 
 BANK_CFG = {
     'int_rate': 0.05,
@@ -60,57 +60,57 @@ async def calc_interest(uid):
     return interest
 
 async def check_loans():
-    global loan_check_running
-    if loan_check_running:
-        return
-    loan_check_running = True
-    while True:
-        try:
-            now = datetime.utcnow()
-            async for user in user_collection.find({'loan_amount': {'$gt': 0}, 'loan_due_date': {'$lt': now}}):
-                uid = user['id']
-                loan = user.get('loan_amount', 0)
-                penalty = int(loan * BANK_CFG['penalty'])
-                total = loan + penalty
-                bal = user.get('balance', 0)
-                bank = user.get('bank', 0)
-                funds = bal + bank
-                seized = []
-                
-                if bal >= total:
-                    await user_collection.update_one({'id': uid}, {'$inc': {'balance': -total}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
-                    seized.append(f"💰 {total} ɢᴏʟᴅ ғʀᴏᴍ ᴡᴀʟʟᴇᴛ")
-                elif funds >= total:
-                    await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': bank - (total - bal), 'loan_amount': 0, 'loan_due_date': None}})
-                    seized.append(f"💰 {bal} ɢᴏʟᴅ ғʀᴏᴍ ᴡᴀʟʟᴇᴛ")
-                    seized.append(f"🏦 {total - bal} ɢᴏʟᴅ ғʀᴏᴍ ʙᴀɴᴋ")
-                else:
-                    if funds > 0:
-                        await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': 0}})
-                        seized.append(f"💰 {funds} ɢᴏʟᴅ (ᴀʟʟ ғᴜɴᴅꜱ)")
-                    debt = total - funds
-                    chars_needed = math.ceil(debt / 10000)
-                    chars = user.get('characters', [])
-                    if chars:
-                        take = min(chars_needed, len(chars))
-                        taken = random.sample(chars, take)
-                        for cid in taken:
-                            cdata = await collection.find_one({'id': cid})
-                            cname = cdata.get('name', 'ᴜɴᴋɴᴏᴡɴ') if cdata else 'ᴜɴᴋɴᴏᴡɴ'
-                            seized.append(f"👤 {cname} (ɪᴅ: {cid})")
-                            chars.remove(cid)
-                        await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None}})
-                    else:
-                        await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None}, '$inc': {'permanent_debt': debt}})
-                        seized.append(f"⚠️ ᴀᴅᴅᴇᴅ {debt} ᴛᴏ ᴘᴇʀᴍᴀɴᴇɴᴛ ᴅᴇʙᴛ")
-                
-                msg = f"╭────────────────╮\n│   ⚠️ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n\n<b>ꜱᴇɪᴢᴇᴅ ɪᴛᴇᴍꜱ:</b>\n" + "\n".join(f"  • {i}" for i in seized)
-                await user_collection.update_one({'id': uid}, {'$push': {'notifications': {'type': 'loan_collection', 'message': msg, 'timestamp': now}}})
-        except Exception as e:
-            print(f"ʟᴏᴀɴ ᴇʀʀᴏʀ: {e}")
-        await asyncio.sleep(3600)
+    """Background task to check and collect overdue loans"""
+    async with loan_check_lock:
+        while True:
+            try:
+                now = datetime.utcnow()
+                async for user in user_collection.find({'loan_amount': {'$gt': 0}, 'loan_due_date': {'$lt': now}}):
+                    uid = user['id']
+                    loan = user.get('loan_amount', 0)
+                    penalty = int(loan * BANK_CFG['penalty'])
+                    total = loan + penalty
+                    bal = user.get('balance', 0)
+                    bank = user.get('bank', 0)
+                    funds = bal + bank
+                    seized = []
 
-asyncio.create_task(check_loans())
+                    if bal >= total:
+                        await user_collection.update_one({'id': uid}, {'$inc': {'balance': -total}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
+                        seized.append(f"💰 {total} ɢᴏʟᴅ ғʀᴏᴍ ᴡᴀʟʟᴇᴛ")
+                    elif funds >= total:
+                        await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': bank - (total - bal), 'loan_amount': 0, 'loan_due_date': None}})
+                        seized.append(f"💰 {bal} ɢᴏʟᴅ ғʀᴏᴍ ᴡᴀʟʟᴇᴛ")
+                        seized.append(f"🏦 {total - bal} ɢᴏʟᴅ ғʀᴏᴍ ʙᴀɴᴋ")
+                    else:
+                        if funds > 0:
+                            await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': 0}})
+                            seized.append(f"💰 {funds} ɢᴏʟᴅ (ᴀʟʟ ғᴜɴᴅꜱ)")
+                        debt = total - funds
+                        chars_needed = math.ceil(debt / 10000)
+                        chars = user.get('characters', [])
+                        if chars:
+                            take = min(chars_needed, len(chars))
+                            taken = random.sample(chars, take)
+                            for cid in taken:
+                                cdata = await collection.find_one({'id': cid})
+                                cname = cdata.get('name', 'ᴜɴᴋɴᴏᴡɴ') if cdata else 'ᴜɴᴋɴᴏᴡɴ'
+                                seized.append(f"👤 {cname} (ɪᴅ: {cid})")
+                                chars.remove(cid)
+                            await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None}})
+                        else:
+                            await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None}, '$inc': {'permanent_debt': debt}})
+                            seized.append(f"⚠️ ᴀᴅᴅᴇᴅ {debt} ᴛᴏ ᴘᴇʀᴍᴀɴᴇɴᴛ ᴅᴇʙᴛ")
+
+                    msg = f"╭────────────────╮\n│   ⚠️ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n\n<b>ꜱᴇɪᴢᴇᴅ ɪᴛᴇᴍꜱ:</b>\n" + "\n".join(f"  • {i}" for i in seized)
+                    await user_collection.update_one({'id': uid}, {'$push': {'notifications': {'type': 'loan_collection', 'message': msg, 'timestamp': now}}})
+            except Exception as e:
+                print(f"ʟᴏᴀɴ ᴇʀʀᴏʀ: {e}")
+            await asyncio.sleep(3600)
+
+async def post_init(app):
+    """Initialize background tasks after bot starts"""
+    asyncio.create_task(check_loans())
 
 async def balance(update: Update, context: CallbackContext):
     uid = update.effective_user.id
@@ -120,8 +120,8 @@ async def balance(update: Update, context: CallbackContext):
         user = await get_user(uid)
     interest = await calc_interest(uid)
     user = await get_user(uid)
-    wallet = math.floor(user.get('balance', 0))
-    bank = math.floor(user.get('bank', 0))
+    wallet = int(user.get('balance', 0))
+    bank = int(user.get('bank', 0))
     total = wallet + bank
     loan = user.get('loan_amount', 0)
     msg = f"╭────────────────╮\n│   ʙᴀʟᴀɴᴄᴇ ʀᴇᴘᴏʀᴛ   │\n╰────────────────╯\n\n⟡ ᴡᴀʟʟᴇᴛ: <code>{wallet}</code> ɢᴏʟᴅ\n⟡ ʙᴀɴᴋ: <code>{bank}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n"
@@ -146,7 +146,7 @@ async def deposit(update: Update, context: CallbackContext):
         amt = int(context.args[0])
         if amt <= 0:
             raise ValueError
-    except:
+    except (IndexError, ValueError):
         await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /deposit <amount>")
         return
     if user.get('balance', 0) < amt:
@@ -165,7 +165,7 @@ async def withdraw(update: Update, context: CallbackContext):
         amt = int(context.args[0])
         if amt <= 0:
             raise ValueError
-    except:
+    except (IndexError, ValueError):
         await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /withdraw <amount>")
         return
     if user.get('bank', 0) < amt:
@@ -192,7 +192,7 @@ async def loan_cmd(update: Update, context: CallbackContext):
         amt = int(context.args[0])
         if amt <= 0:
             raise ValueError
-    except:
+    except (IndexError, ValueError):
         await update.message.reply_text(f"⊗ ᴜꜱᴀɢᴇ: /loan <amount>\n\n⟡ ᴍᴀx: <code>{BANK_CFG['max_loan']}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{int(BANK_CFG['loan_int']*100)}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: <code>{BANK_CFG['loan_days']}</code> ᴅᴀʏꜱ", parse_mode="HTML")
         return
     if amt > BANK_CFG['max_loan']:
@@ -256,7 +256,7 @@ async def pay(update: Update, context: CallbackContext):
         amt = int(context.args[0])
         if amt <= 0:
             raise ValueError
-    except:
+    except (IndexError, ValueError):
         await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /pay <amount>")
         return
     if amt > 1000000:
@@ -299,7 +299,7 @@ async def roll(update: Update, context: CallbackContext):
         choice = context.args[1].upper()
         if choice not in ['ODD', 'EVEN'] or amt <= 0:
             raise ValueError
-    except:
+    except (IndexError, ValueError):
         await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /roll <amount> <odd/even>")
         return
     user = await get_user(uid)
@@ -333,7 +333,7 @@ async def callback_handler(update: Update, context: CallbackContext):
     await q.answer()
     data = q.data
     uid = q.from_user.id
-    
+
     if data.startswith("bal_"):
         target = int(data.split("_")[1])
         if uid != target:
@@ -341,8 +341,11 @@ async def callback_handler(update: Update, context: CallbackContext):
             return
         interest = await calc_interest(uid)
         user = await get_user(uid)
-        wallet = math.floor(user.get('balance', 0))
-        bank = math.floor(user.get('bank', 0))
+        if not user:
+            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            return
+        wallet = int(user.get('balance', 0))
+        bank = int(user.get('bank', 0))
         total = wallet + bank
         loan = user.get('loan_amount', 0)
         msg = f"╭────────────────╮\n│   ʙᴀʟᴀɴᴄᴇ ʀᴇᴘᴏʀᴛ   │\n╰────────────────╯\n\n⟡ ᴡᴀʟʟᴇᴛ: <code>{wallet}</code> ɢᴏʟᴅ\n⟡ ʙᴀɴᴋ: <code>{bank}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n"
@@ -357,24 +360,30 @@ async def callback_handler(update: Update, context: CallbackContext):
         btns = [[InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ", callback_data=f"bal_{uid}")], [InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"bank_{uid}"), InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"loan_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         await q.answer("✓ ʀᴇғʀᴇꜱʜᴇᴅ")
-    
+
     elif data.startswith("bank_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
         user = await get_user(uid)
+        if not user:
+            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            return
         bank = user.get('bank', 0)
         msg = f"╭────────────────╮\n│   🏦 ʙᴀɴᴋ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ʙᴀʟᴀɴᴄᴇ: <code>{bank}</code> ɢᴏʟᴅ\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>5%</code> ᴅᴀɪʟʏ\n\nᴜꜱᴇ /deposit <amount>\nᴜꜱᴇ /withdraw <amount>"
         btns = [[InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
-    
+
     elif data.startswith("loan_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
         user = await get_user(uid)
+        if not user:
+            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            return
         loan = user.get('loan_amount', 0)
         if loan > 0:
             due = user.get('loan_due_date')
@@ -384,13 +393,16 @@ async def callback_handler(update: Update, context: CallbackContext):
             msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ᴍᴀx: <code>{BANK_CFG['max_loan']}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{int(BANK_CFG['loan_int']*100)}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: <code>{BANK_CFG['loan_days']}</code> ᴅᴀʏꜱ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{int(BANK_CFG['penalty']*100)}%</code>\n\nᴜꜱᴇ /loan <amount>"
         btns = [[InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
-    
+
     elif data.startswith("repay_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
         user = await get_user(uid)
+        if not user:
+            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            return
         loan = user.get('loan_amount', 0)
         if loan <= 0:
             await q.answer("⊗ ɴᴏ ʟᴏᴀɴ", show_alert=True)
@@ -402,7 +414,7 @@ async def callback_handler(update: Update, context: CallbackContext):
         await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
         await q.edit_message_text(f"╭────────────────╮\n│   ✓ ʟᴏᴀɴ ʀᴇᴘᴀɪᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ɴᴇᴡ: <code>{bal - loan}</code>", parse_mode="HTML")
         await q.answer("✓ ʀᴇᴘᴀɪᴅ")
-    
+
     elif data.startswith("clr_"):
         target = int(data.split("_")[1])
         if uid != target:
@@ -411,7 +423,7 @@ async def callback_handler(update: Update, context: CallbackContext):
         await user_collection.update_one({'id': uid}, {'$set': {'notifications': []}})
         await q.edit_message_text("✓ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ ᴄʟᴇᴀʀᴇᴅ")
         await q.answer("✓ ᴄʟᴇᴀʀᴇᴅ")
-    
+
     elif data.startswith("pok_"):
         pid = data.split("_", 1)[1]
         if pid not in pending_payments:
@@ -422,24 +434,38 @@ async def callback_handler(update: Update, context: CallbackContext):
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
         sender = await get_user(payment['sender_id'])
-        if sender.get('balance', 0) < payment['amount']:
+        if not sender or sender.get('balance', 0) < payment['amount']:
             await q.edit_message_text("⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ")
             del pending_payments[pid]
             return
+        
+        # Ensure recipient exists
+        recipient = await get_user(payment['recipient_id'])
+        if not recipient:
+            await init_user(payment['recipient_id'])
+        
         await user_collection.update_one({'id': payment['sender_id']}, {'$inc': {'balance': -payment['amount']}})
         await user_collection.update_one({'id': payment['recipient_id']}, {'$inc': {'balance': payment['amount']}})
         pay_cooldown[payment['sender_id']] = datetime.utcnow()
         del pending_payments[pid]
         await q.edit_message_text(f"╭────────────────╮\n│   ✓ ᴘᴀʏᴍᴇɴᴛ ꜱᴇɴᴛ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{payment['amount']}</code> ɢᴏʟᴅ", parse_mode="HTML")
         await q.answer("✓ ᴘᴀɪᴅ")
-    
+
     elif data.startswith("pno_"):
         pid = data.split("_", 1)[1]
         if pid in pending_payments:
+            payment = pending_payments[pid]
+            if uid != payment['sender_id']:
+                await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
+                return
             del pending_payments[pid]
         await q.edit_message_text("⊗ ᴄᴀɴᴄᴇʟʟᴇᴅ")
         await q.answer("✗ ᴄᴀɴᴄᴇʟʟᴇᴅ")
 
+# Set the post_init callback
+application.post_init = post_init
+
+# Register command handlers
 application.add_handler(CommandHandler("bal", balance, block=False))
 application.add_handler(CommandHandler("deposit", deposit, block=False))
 application.add_handler(CommandHandler("withdraw", withdraw, block=False))
