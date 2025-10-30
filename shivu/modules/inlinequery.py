@@ -4,11 +4,10 @@ from html import escape
 from cachetools import TTLCache
 from pymongo import ASCENDING
 
-# Telegram imports
 from telegram import (
     Update, 
     InlineQueryResultPhoto,
-    InlineQueryResultVideo,  # NEW: For video support
+    InlineQueryResultVideo,
     InlineKeyboardButton, 
     InlineKeyboardMarkup,
 )
@@ -17,14 +16,13 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# Your own imports
 from shivu import application, db, LOGGER
 
 # Database collections
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 
-# Create indexes for better performance
+# Create indexes
 try:
     collection.create_index([('id', ASCENDING)])
     collection.create_index([('anime', ASCENDING)])
@@ -41,7 +39,7 @@ all_characters_cache = TTLCache(maxsize=10000, ttl=36000)
 user_collection_cache = TTLCache(maxsize=10000, ttl=60)
 character_count_cache = TTLCache(maxsize=10000, ttl=300)
 
-# Small caps conversion function
+
 def to_small_caps(text):
     """Convert text to small caps"""
     small_caps_map = {
@@ -86,13 +84,11 @@ async def get_anime_count(anime_name: str) -> int:
         return 0
 
 
-# Inline query handler
 async def inlinequery(update: Update, context) -> None:
-    """Handle inline queries for character search with VIDEO SUPPORT"""
+    """Handle inline queries for character search with VIDEO SUPPORT and FAVORITE VALIDATION"""
     query = update.inline_query.query
     offset = int(update.inline_query.offset) if update.inline_query.offset else 0
 
-    # Determine which characters to fetch
     all_characters = []
     user = None
     user_id = None
@@ -123,27 +119,42 @@ async def inlinequery(update: Update, context) -> None:
                             characters_dict[c.get('id')] = c
                     all_characters = list(characters_dict.values())
 
-                    # Get favorite character - handle both dict and string
+                    # ===== FIX: Validate favorite exists in collection =====
                     favorite_char_data = user.get('favorites')
                     favorite_char = None
 
                     if favorite_char_data:
                         if isinstance(favorite_char_data, dict):
-                            # Favorite is stored as character object
-                            favorite_char = favorite_char_data
-                            LOGGER.info(f"[INLINE] Favorite is dict: {favorite_char.get('name')}")
+                            fav_id = favorite_char_data.get('id')
+                            # Check if favorite still exists in collection
+                            if any(c.get('id') == fav_id for c in all_characters):
+                                favorite_char = favorite_char_data
+                                LOGGER.info(f"[INLINE] Valid favorite found: {favorite_char.get('name')}")
+                            else:
+                                # Favorite not in collection - remove from database
+                                LOGGER.info(f"[INLINE] Favorite {favorite_char_data.get('name')} not in collection - removing")
+                                await user_collection.update_one(
+                                    {'id': user_id_int},
+                                    {'$unset': {'favorites': ""}}
+                                )
                         elif isinstance(favorite_char_data, str):
-                            # Favorite is stored as character ID
+                            # Favorite stored as ID
                             favorite_char = next(
                                 (c for c in all_characters if c.get('id') == favorite_char_data),
                                 None
                             )
-                            LOGGER.info(f"[INLINE] Favorite is string ID, found: {favorite_char.get('name') if favorite_char else 'None'}")
+                            if not favorite_char:
+                                # Favorite not found - remove from database
+                                LOGGER.info(f"[INLINE] Favorite ID {favorite_char_data} not in collection - removing")
+                                await user_collection.update_one(
+                                    {'id': user_id_int},
+                                    {'$unset': {'favorites': ""}}
+                                )
 
-                    # If no search terms and user has favorite, show favorite FIRST
+                    # If no search terms and user has valid favorite, show favorite FIRST
                     if not search_terms and favorite_char:
-                        LOGGER.info(f"[INLINE] Moving favorite to first position: {favorite_char.get('name')}")
-                        # Remove favorite from list if it exists
+                        LOGGER.info(f"[INLINE] Moving favorite to first: {favorite_char.get('name')}")
+                        # Remove from list if exists
                         all_characters = [c for c in all_characters if c.get('id') != favorite_char.get('id')]
                         # Insert at beginning
                         all_characters.insert(0, favorite_char)
@@ -171,7 +182,6 @@ async def inlinequery(update: Update, context) -> None:
                     ]
                 }).to_list(length=200)
             else:
-                # Get all characters
                 if 'all_characters' in all_characters_cache:
                     all_characters = all_characters_cache['all_characters']
                 else:
@@ -193,8 +203,7 @@ async def inlinequery(update: Update, context) -> None:
             char_anime = character.get('anime', 'Unknown')
             char_rarity = character.get('rarity', '🟢 Common')
             char_img = character.get('img_url', '')
-            
-            # 🎥 NEW: Check if character is a video
+
             is_video = character.get('is_video', False)
 
             # Extract rarity emoji and text
@@ -206,7 +215,7 @@ async def inlinequery(update: Update, context) -> None:
                 rarity_emoji = '🟢'
                 rarity_text = 'Common'
 
-            # Check if this is user's favorite
+            # Check if this is user's favorite (only if they own it)
             is_favorite = False
             if user and user.get('favorites'):
                 fav = user.get('favorites')
@@ -215,9 +224,8 @@ async def inlinequery(update: Update, context) -> None:
                 elif isinstance(fav, str) and fav == char_id:
                     is_favorite = True
 
-            # Build caption based on query type
+            # Build caption
             if query.startswith('collection.') and user:
-                # User collection caption
                 user_character_count = sum(1 for c in user.get('characters', []) if c.get('id') == char_id)
                 user_anime_count = sum(1 for c in user.get('characters', []) if c.get('anime') == char_anime)
                 anime_total = await get_anime_count(char_anime)
@@ -225,10 +233,7 @@ async def inlinequery(update: Update, context) -> None:
                 user_first_name = user.get('first_name', 'User')
                 user_id_int = user.get('id')
 
-                # Add favorite indicator
                 fav_indicator = "💖 " if is_favorite else ""
-                
-                # 🎥 NEW: Add media type indicator
                 media_type = "🎥" if is_video else "🖼"
 
                 caption = (
@@ -243,10 +248,7 @@ async def inlinequery(update: Update, context) -> None:
                 if is_favorite:
                     caption += f"\n\n💖 <b>{to_small_caps('favorite character')}</b>"
             else:
-                # Global search caption
                 global_count = await get_global_count(char_id)
-                
-                # 🎥 NEW: Add media type indicator
                 media_type = "🎥" if is_video else "🖼"
 
                 caption = (
@@ -259,7 +261,6 @@ async def inlinequery(update: Update, context) -> None:
                     f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
                 )
 
-            # Inline button
             button = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
                     f"🏆 {to_small_caps('top grabbers')}", 
@@ -267,14 +268,14 @@ async def inlinequery(update: Update, context) -> None:
                 )]
             ])
 
-            # 🎥 CRITICAL: Use InlineQueryResultVideo for videos!
+            # Use video or photo result
             if is_video:
                 results.append(
                     InlineQueryResultVideo(
                         id=f"{char_id}_{offset}_{time.time()}",
                         video_url=char_img,
                         mime_type="video/mp4",
-                        thumbnail_url=char_img,  # Some videos might not have thumbnail
+                        thumbnail_url=char_img,
                         title=f"{char_name} ({char_anime})",
                         caption=caption,
                         parse_mode='HTML',
@@ -302,7 +303,6 @@ async def inlinequery(update: Update, context) -> None:
         await update.inline_query.answer([], next_offset="", cache_time=5)
 
 
-# Callback to show top grabbers
 async def show_smashers_callback(update: Update, context) -> None:
     """Show top 10 users who grabbed this character"""
     query = update.callback_query
@@ -310,20 +310,17 @@ async def show_smashers_callback(update: Update, context) -> None:
     try:
         await query.answer()
 
-        # Validate query data
         if not query.data or len(query.data.split('_')) < 3:
             await query.answer(to_small_caps("invalid data"), show_alert=True)
             return
 
         character_id = query.data.split('_')[2]
 
-        # Get character info first
         character = await collection.find_one({'id': character_id})
         if not character:
             await query.answer(to_small_caps("character not found"), show_alert=True)
             return
 
-        # Get all users who have this character
         users_with_char = await user_collection.find({
             'characters.id': character_id
         }).to_list(length=None)
@@ -332,14 +329,12 @@ async def show_smashers_callback(update: Update, context) -> None:
             await query.answer(to_small_caps("no one has grabbed this character yet"), show_alert=True)
             return
 
-        # Count characters for each user and sort
         user_counts = []
         for user in users_with_char:
             user_id = user.get('id')
             first_name = user.get('first_name', 'User')
             username = user.get('username')
 
-            # Count how many times this user has this character
             count = sum(1 for char in user.get('characters', []) if char.get('id') == character_id)
 
             if count > 0:
@@ -350,17 +345,13 @@ async def show_smashers_callback(update: Update, context) -> None:
                     'count': count
                 })
 
-        # Sort by count descending
         user_counts.sort(key=lambda x: x['count'], reverse=True)
-
-        # Get top 10
         top_users = user_counts[:10]
 
         if not top_users:
             await query.answer(to_small_caps("no grabbers found"), show_alert=True)
             return
 
-        # Build top grabbers list
         grabbers_list = []
         for i, user_data in enumerate(top_users, 1):
             user_id = user_data.get('id')
@@ -368,13 +359,11 @@ async def show_smashers_callback(update: Update, context) -> None:
             first_name = user_data.get('first_name', 'User')
             username = user_data.get('username')
 
-            # Build user link with mention
             if username:
                 user_link = f"<a href='tg://user?id={user_id}'>{escape(first_name)}</a> (@{escape(username)})"
             else:
                 user_link = f"<a href='tg://user?id={user_id}'>{escape(first_name)}</a>"
 
-            # Medal emojis for top 3
             if i == 1:
                 medal = "🥇"
             elif i == 2:
@@ -386,7 +375,6 @@ async def show_smashers_callback(update: Update, context) -> None:
 
             grabbers_list.append(f"{medal} {user_link} <b>x{count}</b>")
 
-        # Get total global count
         total_grabbed = sum(u['count'] for u in user_counts)
 
         smasher_text = (
@@ -395,27 +383,22 @@ async def show_smashers_callback(update: Update, context) -> None:
             + "\n".join(grabbers_list)
         )
 
-        # Check if message and caption exist
         if not query.message:
             await query.answer(to_small_caps("message not found"), show_alert=True)
             return
 
-        # Get original caption
         original_caption = query.message.caption if query.message.caption else query.message.text
 
         if not original_caption:
             await query.answer(to_small_caps("caption not found"), show_alert=True)
             return
 
-        # Remove old grabbers section if exists
         if '🏆' in original_caption:
             original_caption = original_caption.split('\n\n🏆')[0]
 
         new_caption = original_caption + smasher_text
 
-        # Truncate if too long (Telegram limit is 1024 for captions)
         if len(new_caption) > 1020:
-            # Keep top 5 only
             grabbers_list_short = grabbers_list[:5]
             smasher_text = (
                 f"\n\n<b>🏆 {to_small_caps('top 5 grabbers')}</b>\n"
@@ -424,7 +407,6 @@ async def show_smashers_callback(update: Update, context) -> None:
             )
             new_caption = original_caption + smasher_text
 
-        # Edit message caption
         try:
             if query.message.caption:
                 await query.edit_message_caption(
@@ -440,7 +422,6 @@ async def show_smashers_callback(update: Update, context) -> None:
                 )
         except Exception as edit_error:
             print(f"Error editing message: {edit_error}")
-            # Try without reply_markup
             try:
                 if query.message.caption:
                     await query.edit_message_caption(
@@ -469,4 +450,4 @@ async def show_smashers_callback(update: Update, context) -> None:
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
 application.add_handler(CallbackQueryHandler(show_smashers_callback, pattern=r'^show_smashers_', block=False))
 
-LOGGER.info("[INLINE] Handlers registered successfully with VIDEO SUPPORT 🎥")
+LOGGER.info("[INLINE] Handlers registered with VIDEO SUPPORT & FAVORITE VALIDATION 🎥✅")
