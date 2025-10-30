@@ -6,9 +6,7 @@ from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collecti
 
 # Config
 PHOTOS = [
-    "https://files.catbox.moe/8722ku.jpeg",
-    "https://files.catbox.moe/kgcrnb.jpeg",
-    "https://files.catbox.moe/udricf.jpg"
+    "https://files.catbox.moe/k3dhbe.mp4"
 ]
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
