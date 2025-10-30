@@ -203,12 +203,13 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         display_media = None
         is_video_display = False
 
-        # Priority 1: Show favorite if it exists
-        if fav_character and fav_character.get('img_url'):
+        # Priority 1: Show favorite if it exists and has valid img_url
+        if fav_character and isinstance(fav_character, dict) and fav_character.get('img_url'):
             display_media = fav_character['img_url']
             is_video_display = fav_character.get('is_video', False)
-        # Priority 2: Show random character from filtered list
+        # Priority 2: Show random character from filtered list if no favorite
         elif filtered_chars:
+            # Pick a random character from the filtered collection
             random_char = random.choice(filtered_chars)
             display_media = random_char.get('img_url')
             is_video_display = random_char.get('is_video', False)
