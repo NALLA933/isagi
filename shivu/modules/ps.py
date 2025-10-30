@@ -520,6 +520,32 @@ async def ps_reset(update: Update, context: CallbackContext):
     except:
         await update.message.reply_text("⊗ ɪɴᴠᴀʟɪᴅ ᴜɪᴅ")
 
+async def ps_rmrarity(update: Update, context: CallbackContext):
+    if str(update.effective_user.id) not in sudo_users:
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /psrmrarity <rarity_name>")
+        return
+    
+    try:
+        name = " ".join(context.args)
+        cfg = await get_config()
+        
+        if name not in cfg['rarities']:
+            await update.message.reply_text(f"⊗ ʀᴀʀɪᴛʏ '<b>{name}</b>' ɴᴏᴛ ꜰᴏᴜɴᴅ", parse_mode="HTML")
+            return
+        
+        if len(cfg['rarities']) <= 1:
+            await update.message.reply_text("⊗ ᴄᴀɴɴᴏᴛ ʀᴇᴍᴏᴠᴇ ʟᴀꜱᴛ ʀᴀʀɪᴛʏ!")
+            return
+        
+        del cfg['rarities'][name]
+        await ps_config_collection.update_one({"_id": "ps_config"}, {"$set": cfg}, upsert=True)
+        await update.message.reply_text(f"✓ ʀᴇᴍᴏᴠᴇᴅ '<b>{name}</b>'", parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"⊗ ᴇʀʀᴏʀ: {str(e)}")
+
 # Register handlers
 application.add_handler(CommandHandler("ps", ps, block=False))
 application.add_handler(CommandHandler("psstats", ps_stats, block=False))
@@ -527,5 +553,6 @@ application.add_handler(CommandHandler("pshelp", ps_help, block=False))
 application.add_handler(CommandHandler("psview", ps_view, block=False))
 application.add_handler(CommandHandler("psconfig", ps_config, block=False))
 application.add_handler(CommandHandler("psrarity", ps_rarity, block=False))
+application.add_handler(CommandHandler("psrmrarity", ps_rmrarity, block=False))
 application.add_handler(CommandHandler("psreset", ps_reset, block=False))
 application.add_handler(CallbackQueryHandler(ps_callback, pattern=r"^ps_", block=False))
