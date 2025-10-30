@@ -328,17 +328,210 @@ async def xp_cmd(update: Update, context: CallbackContext):
     needed = ((lvl) ** 2) * 100 - xp
     await update.message.reply_text(f"╭────────────────╮\n│   ʟᴇᴠᴇʟ & ʀᴀɴᴋ   │\n╰────────────────╯\n\n⟡ ʟᴇᴠᴇʟ: <code>{lvl}</code>\n⟡ ʀᴀɴᴋ: <code>{rank}</code>\n⟡ xᴘ: <code>{xp}</code>\n⟡ ɴᴇᴇᴅᴇᴅ: <code>{needed}</code>", parse_mode="HTML")
 
+async def bank_help(update: Update, context: CallbackContext):
+    """Comprehensive help command for the banking system"""
+    help_text = """╭─────────────────────╮
+│  💰 ʙᴀɴᴋɪɴɢ ꜱʏꜱᴛᴇᴍ ɢᴜɪᴅᴇ  │
+╰─────────────────────╯
+
+<b>📊 BASIC COMMANDS</b>
+
+⟡ <code>/bal</code> - ᴠɪᴇᴡ ʏᴏᴜʀ ᴡᴀʟʟᴇᴛ, ʙᴀɴᴋ & ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ
+⟡ <code>/cclaim</code> - ᴄʟᴀɪᴍ 2000 ɢᴏʟᴅ ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅ
+⟡ <code>/xp</code> - ᴄʜᴇᴄᴋ ʏᴏᴜʀ ʟᴇᴠᴇʟ & ʀᴀɴᴋ
+
+<b>🏦 BANK OPERATIONS</b>
+
+⟡ <code>/deposit [amount]</code>
+   ᴅᴇᴘᴏꜱɪᴛ ɢᴏʟᴅ ɪɴᴛᴏ ʙᴀɴᴋ
+   💡 ᴇᴀʀɴꜱ 5% ɪɴᴛᴇʀᴇꜱᴛ ᴅᴀɪʟʏ
+   
+⟡ <code>/withdraw [amount]</code>
+   ᴡɪᴛʜᴅʀᴀᴡ ɢᴏʟᴅ ғʀᴏᴍ ʙᴀɴᴋ
+
+<b>💳 LOAN SYSTEM</b>
+
+⟡ <code>/loan [amount]</code>
+   • ᴍᴀx: <code>{max_loan:,}</code> ɢᴏʟᴅ
+   • ɪɴᴛᴇʀᴇꜱᴛ: <code>{loan_int}%</code>
+   • ᴅᴜʀᴀᴛɪᴏɴ: <code>{loan_days}</code> ᴅᴀʏꜱ
+   • ᴘᴇɴᴀʟᴛʏ: <code>{penalty}%</code> ɪғ ᴏᴠᴇʀᴅᴜᴇ
+   
+⟡ <code>/repay</code>
+   ʀᴇᴘᴀʏ ʏᴏᴜʀ ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ
+
+<b>⚠️ LOAN PENALTIES</b>
+
+ɪғ ʏᴏᴜ ᴅᴏɴ'ᴛ ʀᴇᴘᴀʏ ᴏɴ ᴛɪᴍᴇ:
+1️⃣ <code>{penalty}%</code> ᴘᴇɴᴀʟᴛʏ ᴀᴅᴅᴇᴅ ᴛᴏ ʟᴏᴀɴ
+2️⃣ ɢᴏʟᴅ ꜱᴇɪᴢᴇᴅ ғʀᴏᴍ ᴡᴀʟʟᴇᴛ & ʙᴀɴᴋ
+3️⃣ ᴄʜᴀʀᴀᴄᴛᴇʀꜱ ꜱᴇɪᴢᴇᴅ (10k ɢᴏʟᴅ ᴇᴀᴄʜ)
+4️⃣ ʀᴇᴍᴀɪɴɪɴɢ ᴅᴇʙᴛ ʙᴇᴄᴏᴍᴇꜱ ᴘᴇʀᴍᴀɴᴇɴᴛ
+
+<b>💸 PAYMENTS</b>
+
+⟡ <code>/pay [amount]</code>
+   ʀᴇᴘʟʏ ᴛᴏ ᴜꜱᴇʀ'ꜱ ᴍᴇꜱꜱᴀɢᴇ
+   • ᴍᴀx: <code>1,000,000</code> ɢᴏʟᴅ
+   • ᴄᴏᴏʟᴅᴏᴡɴ: <code>10</code> ᴍɪɴᴜᴛᴇꜱ
+   • ᴇxᴘɪʀᴇꜱ: <code>30</code> ꜱᴇᴄᴏɴᴅꜱ
+
+<b>🎲 GAMBLING</b>
+
+⟡ <code>/roll [amount] [odd/even]</code>
+   ʙᴇᴛ ᴏɴ ᴅɪᴄᴇ ʀᴏʟʟ
+   • ᴡɪɴ: +ᴀᴍᴏᴜɴᴛ & +4 xᴘ
+   • ʟᴏꜱᴇ: -ᴀᴍᴏᴜɴᴛ & -2 xᴘ
+
+<b>📬 NOTIFICATIONS</b>
+
+⟡ <code>/notifications</code>
+   ᴠɪᴇᴡ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛɪᴏɴ ɴᴏᴛɪᴄᴇꜱ
+
+<b>🎯 RANK SYSTEM</b>
+
+ʟᴠʟ 1-10: ʀᴀɴᴋ ᴇ
+ʟᴠʟ 11-30: ʀᴀɴᴋ ᴅ
+ʟᴠʟ 31-50: ʀᴀɴᴋ ᴄ
+ʟᴠʟ 51-70: ʀᴀɴᴋ ʙ
+ʟᴠʟ 71-90: ʀᴀɴᴋ ᴀ
+ʟᴠʟ 91-100: ʀᴀɴᴋ ꜱ
+
+<b>💡 PRO TIPS</b>
+
+✓ ᴅᴇᴘᴏꜱɪᴛ ɪɴ ʙᴀɴᴋ ғᴏʀ ᴘᴀꜱꜱɪᴠᴇ ɪɴᴄᴏᴍᴇ
+✓ ʀᴇᴘᴀʏ ʟᴏᴀɴꜱ ᴇᴀʀʟʏ ᴛᴏ ᴀᴠᴏɪᴅ ᴘᴇɴᴀʟᴛɪᴇꜱ
+✓ ᴜꜱᴇ /bal ʙᴜᴛᴛᴏɴꜱ ғᴏʀ Qᴜɪᴄᴋ ᴀᴄᴄᴇꜱꜱ
+✓ ɢᴀᴍʙʟᴇ ʀᴇꜱᴘᴏɴꜱɪʙʟʏ!
+
+───────────────────"""
+    
+    help_text = help_text.format(
+        max_loan=BANK_CFG['max_loan'],
+        loan_int=int(BANK_CFG['loan_int'] * 100),
+        loan_days=BANK_CFG['loan_days'],
+        penalty=int(BANK_CFG['penalty'] * 100)
+    )
+    
+    btns = [
+        [InlineKeyboardButton("💰 ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{update.effective_user.id}")],
+        [
+            InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"bank_{update.effective_user.id}"),
+            InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"loan_{update.effective_user.id}")
+        ]
+    ]
+    
+    await update.message.reply_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+
+async def bank_example(update: Update, context: CallbackContext):
+    """Show practical examples of banking system usage"""
+    examples = """╭─────────────────────╮
+│  📚 ʙᴀɴᴋɪɴɢ ᴇxᴀᴍᴘʟᴇꜱ  │
+╰─────────────────────╯
+
+<b>💡 SCENARIO 1: EARNING INTEREST</b>
+
+1️⃣ <code>/bal</code> - ᴄʜᴇᴄᴋ ʏᴏᴜʀ ᴡᴀʟʟᴇᴛ
+2️⃣ <code>/deposit 10000</code> - ᴅᴇᴘᴏꜱɪᴛ 10k
+3️⃣ ᴡᴀɪᴛ 24 ʜᴏᴜʀꜱ
+4️⃣ <code>/bal</code> - ɢᴇᴛ +500 ɪɴᴛᴇʀᴇꜱᴛ!
+
+💰 <b>ʀᴇꜱᴜʟᴛ:</b> 10,000 → 10,500 ɢᴏʟᴅ
+
+<b>💳 SCENARIO 2: TAKING A LOAN</b>
+
+1️⃣ <code>/loan 50000</code> - ʙᴏʀʀᴏᴡ 50k
+2️⃣ ʀᴇᴄᴇɪᴠᴇ 50k ɪɴ ᴡᴀʟʟᴇᴛ
+3️⃣ ᴍᴜꜱᴛ ʀᴇᴘᴀʏ 55k (50k + 10%)
+4️⃣ <code>/repay</code> - ᴡɪᴛʜɪɴ 3 ᴅᴀʏꜱ
+
+⚠️ <b>ʟᴀᴛᴇ ʀᴇᴘᴀʏᴍᴇɴᴛ:</b>
+• ᴘᴇɴᴀʟᴛʏ: +11k (20% ᴏғ 55k)
+• ᴛᴏᴛᴀʟ ᴅᴜᴇ: 66k
+• ᴀꜱꜱᴇᴛꜱ ꜱᴇɪᴢᴇᴅ!
+
+<b>💸 SCENARIO 3: SENDING PAYMENT</b>
+
+1️⃣ ʀᴇᴘʟʏ ᴛᴏ ᴜꜱᴇʀ'ꜱ ᴍᴇꜱꜱᴀɢᴇ
+2️⃣ <code>/pay 5000</code>
+3️⃣ ᴄʟɪᴄᴋ "✓ ᴄᴏɴꜰɪʀᴍ" ʙᴜᴛᴛᴏɴ
+4️⃣ ᴡᴀɪᴛ 10 ᴍɪɴ ᴄᴏᴏʟᴅᴏᴡɴ
+
+<b>🎲 SCENARIO 4: GAMBLING</b>
+
+1️⃣ <code>/roll 1000 odd</code>
+2️⃣ ᴅɪᴄᴇ ʀᴏʟʟꜱ 3 (ᴏᴅᴅ)
+3️⃣ ʏᴏᴜ ᴡɪɴ!
+4️⃣ ɢᴇᴛ +1000 ɢᴏʟᴅ & +4 xᴘ
+
+❌ <b>ɪғ ʟᴏꜱᴛ:</b> -1000 ɢᴏʟᴅ & -2 xᴘ
+
+<b>📊 SCENARIO 5: SMART BANKING</b>
+
+ᴅᴀʏ 1: <code>/cclaim</code> → 2000 ɢᴏʟᴅ
+ᴅᴀʏ 1: <code>/deposit 2000</code>
+ᴅᴀʏ 2: <code>/cclaim</code> → 2000 ɢᴏʟᴅ
+ᴅᴀʏ 2: <code>/bal</code> → 2100 ɪɴ ʙᴀɴᴋ (+100)
+ᴅᴀʏ 2: <code>/deposit 2000</code> → 4100 ᴛᴏᴛᴀʟ
+ᴅᴀʏ 3: ɢᴇᴛ +205 ɪɴᴛᴇʀᴇꜱᴛ!
+
+💡 <b>ᴛɪᴘ:</b> ᴄᴏᴍᴘᴏᴜɴᴅ ɪɴᴛᴇʀᴇꜱᴛ = 📈
+
+───────────────────
+ᴜꜱᴇ /bankhelp ғᴏʀ ᴀʟʟ ᴄᴏᴍᴍᴀɴᴅꜱ"""
+    
+    btns = [[InlineKeyboardButton("📖 ғᴜʟʟ ɢᴜɪᴅᴇ", callback_data=f"help_guide_{update.effective_user.id}")]]
+    await update.message.reply_text(examples, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+
 async def callback_handler(update: Update, context: CallbackContext):
     q = update.callback_query
     data = q.data
     uid = q.from_user.id
     
     # Only handle banking-related callbacks
-    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clr_", "pok_", "pno_")
+    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clr_", "pok_", "pno_", "help_guide_")
     if not data.startswith(valid_prefixes):
         return  # Let other handlers process this callback
     
     await q.answer()
+    
+    # Handle help guide callback
+    if data.startswith("help_guide_"):
+        target = int(data.split("_")[2])
+        if uid != target:
+            await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
+            return
+        
+        help_text = """╭─────────────────────╮
+│  💰 ʙᴀɴᴋɪɴɢ ꜱʏꜱᴛᴇᴍ ɢᴜɪᴅᴇ  │
+╰─────────────────────╯
+
+<b>📊 BASIC COMMANDS</b>
+
+⟡ <code>/bal</code> - ᴠɪᴇᴡ ʙᴀʟᴀɴᴄᴇ
+⟡ <code>/cclaim</code> - ᴅᴀɪʟʏ 2000 ɢᴏʟᴅ
+⟡ <code>/xp</code> - ᴄʜᴇᴄᴋ ʟᴇᴠᴇʟ
+
+<b>🏦 BANK</b>
+⟡ <code>/deposit [amount]</code>
+⟡ <code>/withdraw [amount]</code>
+⟡ 5% ᴅᴀɪʟʹ ɪɴᴛᴇʀᴇꜱᴛ
+
+<b>💳 LOANS</b>
+⟡ <code>/loan [amount]</code> - ᴍᴀx 100k
+⟡ <code>/repay</code> - ᴘᴀʏ ʙᴀᴄᴋ
+⟡ 10% ɪɴᴛᴇʀᴇꜱᴛ, 3 ᴅᴀʏꜱ
+
+<b>💸 OTHER</b>
+⟡ <code>/pay [amount]</code> - ᴛʀᴀɴꜱғᴇʀ
+⟡ <code>/roll [amt] [odd/even]</code>
+⟡ <code>/notifications</code>
+
+ᴜꜱᴇ /bankexample ғᴏʀ ᴇxᴀᴍᴘʟᴇꜱ"""
+        
+        btns = [[InlineKeyboardButton("💰 ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{uid}")]]
+        await q.edit_message_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+        return
 
     if data.startswith("bal_"):
         target = int(data.split("_")[1])
@@ -482,6 +675,8 @@ application.add_handler(CommandHandler("pay", pay, block=False))
 application.add_handler(CommandHandler("cclaim", daily, block=False))
 application.add_handler(CommandHandler("roll", roll, block=False))
 application.add_handler(CommandHandler("xp", xp_cmd, block=False))
+application.add_handler(CommandHandler("bankhelp", bank_help, block=False))
+application.add_handler(CommandHandler("bankexample", bank_example, block=False))
 
 # Only handle banking-related callback queries using pattern matching
-application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clr_|pok_|pno_)", block=False))
+application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clr_|pok_|pno_|help_guide_)", block=False))
