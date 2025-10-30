@@ -330,9 +330,15 @@ async def xp_cmd(update: Update, context: CallbackContext):
 
 async def callback_handler(update: Update, context: CallbackContext):
     q = update.callback_query
-    await q.answer()
     data = q.data
     uid = q.from_user.id
+    
+    # Only handle banking-related callbacks
+    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clr_", "pok_", "pno_")
+    if not data.startswith(valid_prefixes):
+        return  # Let other handlers process this callback
+    
+    await q.answer()
 
     if data.startswith("bal_"):
         target = int(data.split("_")[1])
@@ -476,4 +482,6 @@ application.add_handler(CommandHandler("pay", pay, block=False))
 application.add_handler(CommandHandler("cclaim", daily, block=False))
 application.add_handler(CommandHandler("roll", roll, block=False))
 application.add_handler(CommandHandler("xp", xp_cmd, block=False))
-application.add_handler(CallbackQueryHandler(callback_handler, block=False))
+
+# Only handle banking-related callback queries using pattern matching
+application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clr_|pok_|pno_)", block=False))
