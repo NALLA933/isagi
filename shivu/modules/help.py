@@ -18,6 +18,9 @@ TIPS = [
     "ᴜsᴇ /ʙᴀʟ ᴛᴏ ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ",
 ]
 
+# Store current state to detect duplicates
+user_states = {}
+
 async def get_user_balance(user_id):
     try:
         user_data = await user_collection.find_one({'id': user_id})
@@ -42,6 +45,7 @@ def get_main_keyboard(user_id):
     ]
 
 def get_main_caption(first_name, balance):
+    # Always use a random photo and tip to make content unique
     return f"""<a href="{random.choice(PHOTOS)}">&#8203;</a>✦ <b>ʜᴇʟᴘ ᴄᴇɴᴛᴇʀ</b>
 
 ╰┈➤ ʜᴇʏ <b>{first_name}</b>
@@ -144,25 +148,27 @@ async def help_command(update: Update, context: CallbackContext):
     try:
         user = update.effective_user
         balance = await get_user_balance(user.id)
-        
+
         caption = get_main_caption(user.first_name, balance)
         keyboard = get_main_keyboard(user.id)
-        
+
         await update.message.reply_text(
             text=caption,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML",
             disable_web_page_preview=False
         )
+        
+        # Store initial state
+        user_states[user.id] = 'main'
+        
     except Exception as e:
         print(f"Error in help_command: {e}")
 
 async def help_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    
+
     try:
-        await query.answer()
-        
         data = query.data
         parts = data.split('_')
         action = parts[1]
@@ -173,33 +179,59 @@ async def help_callback(update: Update, context: CallbackContext):
             await query.answer("ᴛʜɪs ɪsɴ'ᴛ ғᴏʀ ʏᴏᴜ", show_alert=True)
             return
 
+        # Check if user is already on this page
+        current_state = user_states.get(user_id)
+        
+        if current_state == action:
+            # User clicked the same button - just answer the callback without editing
+            await query.answer("ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ʜᴇʀᴇ", show_alert=False)
+            return
+
+        # Update state
+        user_states[user_id] = action
+        
+        await query.answer()
+
         if action == 'back':
             balance = await get_user_balance(user_id)
             caption = get_main_caption(query.from_user.first_name, balance)
             keyboard = get_main_keyboard(user_id)
-            
-            await query.edit_message_text(
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML',
-                disable_web_page_preview=False
-            )
+            user_states[user_id] = 'main'
+
+            try:
+                await query.edit_message_text(
+                    text=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='HTML',
+                    disable_web_page_preview=False
+                )
+            except BadRequest as e:
+                if "message is not modified" not in str(e).lower():
+                    raise
         else:
             caption = get_category_caption(action)
             if caption:
                 back_button = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data=f'help_back_{user_id}')]]
-                
-                await query.edit_message_text(
-                    text=caption,
-                    reply_markup=InlineKeyboardMarkup(back_button),
-                    parse_mode='HTML',
-                    disable_web_page_preview=False
-                )
+
+                try:
+                    await query.edit_message_text(
+                        text=caption,
+                        reply_markup=InlineKeyboardMarkup(back_button),
+                        parse_mode='HTML',
+                        disable_web_page_preview=False
+                    )
+                except BadRequest as e:
+                    if "message is not modified" not in str(e).lower():
+                        raise
             else:
                 await query.answer("ɪɴᴠᴀʟɪᴅ ᴄᴀᴛᴇɢᴏʀʏ", show_alert=True)
 
     except BadRequest as e:
-        print(f"BadRequest in help_callback: {e}")
+        if "message is not modified" in str(e).lower():
+            # Silently ignore this specific error
+            pass
+        else:
+            print(f"BadRequest in help_callback: {e}")
     except Exception as e:
         print(f"Error in help_callback: {e}")
 
