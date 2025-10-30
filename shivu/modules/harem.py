@@ -55,8 +55,23 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         # Get favorite character
         fav_character = user.get('favorites', None)
 
-        # Validate favorite character
-        if fav_character and not isinstance(fav_character, dict):
+        # Validate favorite character exists in collection
+        if fav_character and isinstance(fav_character, dict):
+            fav_id = fav_character.get('id')
+            # Check if user still owns this character
+            still_owns_fav = any(
+                char.get('id') == fav_id 
+                for char in characters 
+                if isinstance(char, dict)
+            )
+            if not still_owns_fav:
+                # Remove invalid favorite from database
+                await user_collection.update_one(
+                    {'id': user_id},
+                    {'$unset': {'favorites': ""}}
+                )
+                fav_character = None
+        else:
             fav_character = None
 
         # Get harem mode
@@ -232,7 +247,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                         caption=harem_message,
                         reply_markup=reply_markup,
                         parse_mode='HTML',
-                        supports_streaming=True,  # ← PREVENTS GIF CONVERSION!
+                        supports_streaming=True,
                         read_timeout=120,
                         write_timeout=120
                     )
@@ -315,7 +330,6 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        # ===== KEY CHANGE: Check if favorite is video =====
         is_video_fav = fav_character.get('is_video', False)
         media_url = fav_character.get("img_url", "")
 
@@ -357,7 +371,6 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
         data = query.data
         await query.answer()
 
-        # Parse callback data
         if ':' not in data:
             await query.answer("❌ ɪɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ!", show_alert=True)
             return
@@ -365,12 +378,11 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
         action, user_id_str = data.split(':', 1)
         user_id = int(user_id_str)
 
-        # Verify user
         if query.from_user.id != user_id:
             await query.answer("⚠️ ᴛʜɪs ɪs ɴᴏᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ!", show_alert=True)
             return
 
-        if action == 'harem_unfav_yes':  # Confirm unfavorite
+        if action == 'harem_unfav_yes':
             user = await user_collection.find_one({'id': user_id})
             if not user:
                 await query.answer("❌ ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ!", show_alert=True)
@@ -378,7 +390,6 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
 
             fav_character = user.get('favorites', None)
 
-            # Remove favorite
             result = await user_collection.update_one(
                 {'id': user_id},
                 {'$unset': {'favorites': ""}}
@@ -398,7 +409,7 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
                 parse_mode='HTML'
             )
 
-        elif action == 'harem_unfav_no':  # Cancel
+        elif action == 'harem_unfav_no':
             await query.edit_message_caption(
                 caption="❌ ᴀᴄᴛɪᴏɴ ᴄᴀɴᴄᴇʟᴇᴅ. ғᴀᴠᴏʀɪᴛᴇ ᴋᴇᴘᴛ.",
                 parse_mode='HTML'
@@ -521,7 +532,6 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
             await query.answer()
 
         elif data.startswith("harem_mode_"):
-            # Extract mode name
             mode_name = data.replace("harem_mode_", "")
             rarity_display = HAREM_MODE_MAPPING.get(mode_name, "Unknown")
 
@@ -552,12 +562,11 @@ async def handle_char_count_info(update: Update, context: CallbackContext) -> No
     )
 
 
-# Register handlers - ORDER MATTERS! More specific patterns first
+# Register handlers
 application.add_handler(CommandHandler(["harem"], harem, block=False))
 application.add_handler(CommandHandler("smode", set_hmode, block=False))
 application.add_handler(CommandHandler("unfav", unfav, block=False))
 
-# Callback handlers with specific prefixes to avoid conflicts
 application.add_handler(CallbackQueryHandler(harem_callback, pattern='^harem_page:', block=False))
 application.add_handler(CallbackQueryHandler(mode_button, pattern='^harem_mode_', block=False))
 application.add_handler(CallbackQueryHandler(handle_unfav_callback, pattern="^harem_unfav_", block=False))
