@@ -187,12 +187,13 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
                 for i in range(0, len(sudo_users_db), 2):
                     sudo_row = []
                     for sudo in sudo_users_db[i:i+2]:
-                        sudo_title = sudo.get('sudo_title', sudo.get('username', 'Sudo'))
+                        # Use sudo_title as button text (their name)
+                        sudo_title = sudo.get('sudo_title', 'Sudo User')
                         sudo_username = sudo.get('username', '')
                         if sudo_username:
                             sudo_row.append(
                                 InlineKeyboardButton(
-                                    f"⚡ {sudo_title}", 
+                                    sudo_title,  # No emoji, just the name/title
                                     url=f"https://t.me/{sudo_username}"
                                 )
                             )
@@ -203,7 +204,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             # Fallback to static SUDO_USERS if database fetch fails
             if SUDO_USERS:
                 text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
-                sudo_row = [InlineKeyboardButton(f"⚡ {s['name']}", url=f"https://t.me/{s['username']}") for s in SUDO_USERS]
+                sudo_row = [InlineKeyboardButton(s['name'], url=f"https://t.me/{s['username']}") for s in SUDO_USERS]
                 buttons.append(sudo_row)
 
         buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')])
