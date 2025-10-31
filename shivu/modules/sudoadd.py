@@ -1,140 +1,181 @@
-from html import escape
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+import asyncio
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext
 from shivu import application, sudo_users_collection
-from shivu.modules.database.sudo import add_to_sudo_users, remove_from_sudo_users, fetch_sudo_users, get_user_username
 
-# ─────────────────────────────
-# CONFIGURATION
-# ─────────────────────────────
-CREDIT_VIDEO = "https://files.catbox.moe/f3slnj.mp4"
-AUTHORIZED_ADMINS = [8420981179, 5147822244]  # can add/remove sudo
+DEV_LIST = [8420981179, 5147822244]
+AUTHORIZED_USERS = DEV_LIST
+VIDEO_URL = "https://files.catbox.moe/u863uh.mp4"
 
-DEVELOPERS = [
-    {"id": 8420981179, "username": "dev_main", "title": "Project Lead"},
-]
+def smallcaps(text: str) -> str:
+    normal = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    small = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return text.translate(str.maketrans(normal, small))
 
-UPLOADERS = [
-    {"id": 5147822244, "username": "upload_master", "title": "Media Manager"},
-]
+async def is_sudo(user_id: int) -> bool:
+    return await sudo_users_collection.find_one({"id": user_id}) is not None
 
+async def add_sudo(user_id: int, username: str, title: str):
+    await sudo_users_collection.update_one(
+        {"id": user_id},
+        {"$set": {"id": user_id, "username": username, "sudo_title": title, "added_on": datetime.utcnow()}},
+        upsert=True
+    )
 
-# ─────────────────────────────
-# SUDO SYSTEM (REAL-TIME DB)
-# ─────────────────────────────
-async def is_user_sudo(user_id: int) -> bool:
-    return bool(await sudo_users_collection.find_one({"id": user_id}))
+async def remove_sudo(user_id: int):
+    await sudo_users_collection.delete_one({"id": user_id})
 
+async def fetch_sudo_users():
+    return await sudo_users_collection.find().to_list(length=None)
 
-async def addsudo_command(update: Update, context: CallbackContext):
-    sender = update.message.from_user
-    if sender.id not in AUTHORIZED_ADMINS:
-        await update.message.reply_text("You are not authorized to add sudo users.")
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Please reply to a user's message to make them sudo.")
-        return
-
-    target = update.message.reply_to_message.from_user
-    username = await get_user_username(target.id)
-    title = ' '.join(context.args) or "Sudo User"
-
-    await add_to_sudo_users(target.id, username, title)
-    await update.message.reply_text(f"Added @{username} as sudo with title: {title}")
-
-
-async def removesudo_command(update: Update, context: CallbackContext):
-    sender = update.message.from_user
-    if sender.id not in AUTHORIZED_ADMINS:
-        await update.message.reply_text("You are not authorized to remove sudo users.")
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Please reply to a user's message to remove them from sudo.")
-        return
-
-    target = update.message.reply_to_message.from_user
-    user = await sudo_users_collection.find_one({"id": target.id})
-    if not user:
-        await update.message.reply_text("User not found in sudo users.")
-        return
-
-    await remove_from_sudo_users(target.id)
-    await update.message.reply_text(f"Removed @{user.get('username')} from sudo users.")
-
-
-# ─────────────────────────────
-# UI GENERATOR
-# ─────────────────────────────
-def format_section(title, users):
+def format_sudo_list(users):
     if not users:
-        return f"<b>{title}</b>\n   No users listed.\n"
-    section = f"<b>{title}</b>\n"
-    for u in users:
-        uname = f"@{escape(u['username'])}" if u.get("username") else f"<code>{u['id']}</code>"
-        role = escape(u.get("title", u.get("sudo_title", '')))
-        section += f"   {uname} — {role}\n"
-    return section + "\n"
+        return smallcaps("no sudo users found.")
+    text = ""
+    for i, u in enumerate(users, start=1):
+        uname = f"@{u.get('username', 'unknown')}"
+        title = smallcaps(u.get('sudo_title', 'no title'))
+        text += f"{i}. {uname}  |  {title}\n"
+    return text.strip()
 
+async def addsudo_cmd(update: Update, context: CallbackContext):
+    msg, user = update.effective_message, update.effective_user
+    if user.id not in AUTHORIZED_USERS:
+        return await msg.reply_text(smallcaps("you are not authorized to add sudo users."))
+    if not msg.reply_to_message:
+        return await msg.reply_text(smallcaps("reply to a user’s message to add them as sudo."))
+    target = msg.reply_to_message.from_user
+    title = " ".join(context.args) if context.args else "sudo user"
+    await add_sudo(target.id, target.username or "unknown", title)
+    await msg.reply_html(f"<b>{smallcaps('added')}</b>: <a href='tg://user?id={target.id}'>{smallcaps(target.first_name)}</a>\n"
+                         f"<b>{smallcaps('title')}</b>: {smallcaps(title)}\n"
+                         f"<b>{smallcaps('status')}</b>: {smallcaps('successfully added to sudo users')}")
 
-async def generate_credits_text():
+async def removesudo_cmd(update: Update, context: CallbackContext):
+    msg, user = update.effective_message, update.effective_user
+    if user.id not in AUTHORIZED_USERS:
+        return await msg.reply_text(smallcaps("you are not authorized to remove sudo users."))
+    if not msg.reply_to_message:
+        return await msg.reply_text(smallcaps("reply to a sudo user’s message to remove them."))
+    target = msg.reply_to_message.from_user
+    if not await is_sudo(target.id):
+        return await msg.reply_text(smallcaps("this user is not in sudo list."))
+    await remove_sudo(target.id)
+    await msg.reply_html(f"<b>{smallcaps('removed')}</b>: <a href='tg://user?id={target.id}'>{smallcaps(target.first_name)}</a>\n"
+                         f"<b>{smallcaps('status')}</b>: {smallcaps('successfully removed from sudo list')}")
+
+async def sudolist_cmd(update: Update, context: CallbackContext):
+    msg, user = update.effective_message, update.effective_user
+    if user.id not in AUTHORIZED_USERS and not await is_sudo(user.id):
+        return await msg.reply_text(smallcaps("you are not authorized to view sudo list."))
     sudo_users = await fetch_sudo_users()
-    return (
-        f"<b>⎯⎯⎯⎯⎯  ᴘʀᴏᴊᴇᴄᴛ ᴄʀᴇᴅɪᴛꜱ  ⎯⎯⎯⎯⎯</b>\n\n"
-        f"{format_section('ᴅᴇᴠᴇʟᴏᴘᴇʀꜱ', DEVELOPERS)}"
-        f"{format_section('ᴜᴘʟᴏᴀᴅᴇʀꜱ', UPLOADERS)}"
-        f"{format_section('ꜱᴜᴅᴏ ᴜꜱᴇʀꜱ', sudo_users)}"
-        f"<b>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</b>\n"
-        f"<i>Dynamic credits interface powered by your system.</i>"
-    )
+    caption = f"<b>{smallcaps('current sudo users')}:</b>\n<blockquote>{format_sudo_list(sudo_users)}</blockquote>"
+    await msg.reply_html(caption)
 
-
-# ─────────────────────────────
-# MAIN /CREDITS COMMAND
-# ─────────────────────────────
 async def credits_command(update: Update, context: CallbackContext):
-    text = await generate_credits_text()
+    msg = update.effective_message
+    sudo_users = await fetch_sudo_users()
+    caption = f"""
+<b>⸻ {smallcaps('project credits')} ⸻</b>
 
-    keyboard = [
-        [
-            InlineKeyboardButton("⟲ Refresh", callback_data="refresh_credits"),
-            InlineKeyboardButton("✕ Close", callback_data="close_credits"),
-        ]
-    ]
+<b>{smallcaps('developers')}</b>
+<blockquote>
+{smallcaps('lead developer')} — <a href="tg://user?id=8420981179">{smallcaps('id 8420981179')}</a>  
+{smallcaps('co-developer')} — <a href="tg://user?id=5147822244">{smallcaps('id 5147822244')}</a>
+</blockquote>
 
-    await update.message.reply_html(
-        f'<a href="{CREDIT_VIDEO}">&#8203;</a>{text}',
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        disable_web_page_preview=False
-    )
+<b>{smallcaps('current sudo users')}</b>
+<blockquote>
+{format_sudo_list(sudo_users)}
+</blockquote>
 
+<b>{smallcaps('frameworks')}</b>
+<blockquote>
+{smallcaps('telegram api, mongodb, aiogram, pyrogram')}
+</blockquote>
 
-# ─────────────────────────────
-# CALLBACK HANDLER
-# ─────────────────────────────
+<b>⸻ {smallcaps('modular system')} ⸻</b>
+"""
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("ᴠɪᴇᴡ ᴅᴇᴠᴇʟᴏᴘᴇʀꜱ", callback_data="credits_devs"),
+         InlineKeyboardButton("ʀᴇғʀᴇꜱʜ ꜱᴜᴅᴏ ʟɪꜱᴛ", callback_data="credits_refresh")],
+        [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="credits_close")]
+    ])
+    await msg.reply_video(video=VIDEO_URL, caption=caption.strip(), parse_mode="HTML", reply_markup=buttons)
+
 async def credits_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "close_credits":
-        await query.delete_message()
-        return
+    if query.data == "credits_devs":
+        caption = f"""
+<b>{smallcaps('developers list')}</b>
 
-    elif query.data == "refresh_credits":
-        text = await generate_credits_text()
-        await query.edit_message_text(
-            f'<a href="{CREDIT_VIDEO}">&#8203;</a>{text}',
-            parse_mode="HTML",
-            reply_markup=query.message.reply_markup,
-            disable_web_page_preview=False
-        )
+<blockquote>
+{smallcaps('lead developer')} — <a href="tg://user?id=8420981179">{smallcaps('id 8420981179')}</a>  
+{smallcaps('co-developer')} — <a href="tg://user?id=5147822244">{smallcaps('id 5147822244')}</a>
+</blockquote>
 
+{smallcaps('these individuals built and maintain the project.')}
+"""
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="credits_back")],
+            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="credits_close")]
+        ])
+        await query.edit_message_caption(caption=caption.strip(), parse_mode="HTML", reply_markup=buttons)
 
-# ─────────────────────────────
-# COMMAND REGISTRATION
-# ─────────────────────────────
+    elif query.data == "credits_refresh":
+        sudo_users = await fetch_sudo_users()
+        caption = f"""
+<b>{smallcaps('updated sudo users list')}</b>
+<blockquote>
+{format_sudo_list(sudo_users)}
+</blockquote>
+<b>{smallcaps('list updated in real-time')}</b>
+"""
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ ᴀɢᴀɪɴ", callback_data="credits_refresh")],
+            [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="credits_back")],
+            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="credits_close")]
+        ])
+        await query.edit_message_caption(caption=caption.strip(), parse_mode="HTML", reply_markup=buttons)
+
+    elif query.data == "credits_back":
+        sudo_users = await fetch_sudo_users()
+        caption = f"""
+<b>⸻ {smallcaps('project credits')} ⸻</b>
+
+<b>{smallcaps('developers')}</b>
+<blockquote>
+{smallcaps('lead developer')} — <a href="tg://user?id=8420981179">{smallcaps('id 8420981179')}</a>  
+{smallcaps('co-developer')} — <a href="tg://user?id=5147822244">{smallcaps('id 5147822244')}</a>
+</blockquote>
+
+<b>{smallcaps('current sudo users')}</b>
+<blockquote>
+{format_sudo_list(sudo_users)}
+</blockquote>
+
+<b>{smallcaps('frameworks')}</b>
+<blockquote>
+{smallcaps('telegram api, mongodb, aiogram, pyrogram')}
+</blockquote>
+
+<b>⸻ {smallcaps('modular system')} ⸻</b>
+"""
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("ᴠɪᴇᴡ ᴅᴇᴠᴇʟᴏᴘᴇʀꜱ", callback_data="credits_devs"),
+             InlineKeyboardButton("ʀᴇғʀᴇꜱʜ ꜱᴜᴅᴏ ʟɪꜱᴛ", callback_data="credits_refresh")],
+            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="credits_close")]
+        ])
+        await query.edit_message_caption(caption=caption.strip(), parse_mode="HTML", reply_markup=buttons)
+
+    elif query.data == "credits_close":
+        await query.message.delete()
+
+application.add_handler(CommandHandler("addsudo", addsudo_cmd))
+application.add_handler(CommandHandler("sudoremove", removesudo_cmd))
+application.add_handler(CommandHandler("sudolist", sudolist_cmd))
 application.add_handler(CommandHandler("credits", credits_command))
-application.add_handler(CommandHandler("addsudo", addsudo_command))
-application.add_handler(CommandHandler("removesudo", removesudo_command))
-application.add_handler(CallbackQueryHandler(credits_callback, pattern="^(refresh_credits|close_credits)$"))
+application.add_handler(CallbackQueryHandler(credits_callback, pattern=r"^credits_"))
