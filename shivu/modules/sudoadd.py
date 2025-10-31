@@ -123,8 +123,8 @@ async def credits_command(update: Update, context: CallbackContext):
 
 <b>{smallcaps('developers')} :</b>  
 <blockquote>
-{smallcaps('lead developer')} — <a href="tg://user?id=8420981179">{smallcaps('Touhid')}</a>  
-{smallcaps('co-developer')} — <a href="tg://user?id=5147822244">{smallcaps('Siya')}</a>
+{smallcaps('lead developer')} — <a href="tg://user?id=8420981179">{smallcaps('isagi')}</a>  
+{smallcaps('co-developer')} — <a href="tg://user?id=5147822244">{smallcaps('Shadwo')}</a>
 </blockquote>
 
 <b>{smallcaps('current sudo users')} :</b>
@@ -142,11 +142,11 @@ async def credits_command(update: Update, context: CallbackContext):
 
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("View Developers", callback_data="credits_devs"),
-            InlineKeyboardButton("Refresh Sudo List", callback_data="credits_refresh"),
+            InlineKeyboardButton("ᴠɪᴇᴡ ᴅᴇᴠᴇʟᴏᴘᴇʀs", callback_data="credits_devs"),
+            InlineKeyboardButton("ʀᴇғʀᴇsʜ sᴜᴅᴏ ʟɪsᴛ", callback_data="credits_refresh"),
         ],
         [
-            InlineKeyboardButton("Close", callback_data="credits_close"),
+            InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="credits_close"),
         ]
     ])
 
@@ -179,8 +179,8 @@ async def credits_callback(update: Update, context: CallbackContext):
             caption=caption.strip(),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Back", callback_data="credits_back")],
-                [InlineKeyboardButton("Close", callback_data="credits_close")]
+                [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="credits_back")],
+                [InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="credits_close")]
             ]),
         )
 
@@ -198,9 +198,9 @@ async def credits_callback(update: Update, context: CallbackContext):
             caption=caption.strip(),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Refresh Again", callback_data="credits_refresh")],
-                [InlineKeyboardButton("Back", callback_data="credits_back")],
-                [InlineKeyboardButton("Close", callback_data="credits_close")]
+                [InlineKeyboardButton("ʀᴇғʀᴇsʜ ᴀɢᴀɪɴ", callback_data="credits_refresh")],
+                [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data="credits_back")],
+                [InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="credits_close")]
             ]),
         )
 
