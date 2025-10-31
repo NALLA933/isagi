@@ -157,7 +157,7 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
 async def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
-    
+
     user_id = query.from_user.id
     user_data = await user_collection.find_one({"id": user_id})
 
@@ -166,55 +166,54 @@ async def button_callback(update: Update, context: CallbackContext):
         return
 
     if query.data == 'credits':
-    text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
+        text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
 sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
 
 <b>ᴏᴡɴᴇʀs</b>"""
 
-    buttons = []
-    if OWNERS:
-        owner_row = [InlineKeyboardButton(f"👑 {o['name']}", url=f"https://t.me/{o['username']}") for o in OWNERS]
-        buttons.append(owner_row)
+        buttons = []
+        if OWNERS:
+            owner_row = [InlineKeyboardButton(f"👑 {o['name']}", url=f"https://t.me/{o['username']}") for o in OWNERS]
+            buttons.append(owner_row)
 
-    # ===== FETCH DYNAMIC SUDO USERS FROM DATABASE =====
-    try:
-        from shivu.modules.database.sudo import fetch_sudo_users
-        sudo_users_db = await fetch_sudo_users()
-        
-        if sudo_users_db:
-            text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
-            # Group sudo users in rows of 2
-            for i in range(0, len(sudo_users_db), 2):
-                sudo_row = []
-                for sudo in sudo_users_db[i:i+2]:
-                    sudo_title = sudo.get('sudo_title', sudo.get('username', 'Sudo'))
-                    sudo_username = sudo.get('username', '')
-                    if sudo_username:
-                        sudo_row.append(
-                            InlineKeyboardButton(
-                                f"⚡ {sudo_title}", 
-                                url=f"https://t.me/{sudo_username}"
+        # ===== FETCH DYNAMIC SUDO USERS FROM DATABASE =====
+        try:
+            sudo_users_db = await fetch_sudo_users()
+
+            if sudo_users_db:
+                text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
+                # Group sudo users in rows of 2
+                for i in range(0, len(sudo_users_db), 2):
+                    sudo_row = []
+                    for sudo in sudo_users_db[i:i+2]:
+                        sudo_title = sudo.get('sudo_title', sudo.get('username', 'Sudo'))
+                        sudo_username = sudo.get('username', '')
+                        if sudo_username:
+                            sudo_row.append(
+                                InlineKeyboardButton(
+                                    f"⚡ {sudo_title}", 
+                                    url=f"https://t.me/{sudo_username}"
+                                )
                             )
-                        )
-                if sudo_row:
-                    buttons.append(sudo_row)
-    except Exception as e:
-        LOGGER.error(f"Error fetching sudo users: {e}")
-        # Fallback to static SUDO_USERS if database fetch fails
-        if SUDO_USERS:
-            text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
-            sudo_row = [InlineKeyboardButton(f"⚡ {s['name']}", url=f"https://t.me/{s['username']}") for s in SUDO_USERS]
-            buttons.append(sudo_row)
+                    if sudo_row:
+                        buttons.append(sudo_row)
+        except Exception as e:
+            LOGGER.error(f"Error fetching sudo users: {e}")
+            # Fallback to static SUDO_USERS if database fetch fails
+            if SUDO_USERS:
+                text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
+                sudo_row = [InlineKeyboardButton(f"⚡ {s['name']}", url=f"https://t.me/{s['username']}") for s in SUDO_USERS]
+                buttons.append(sudo_row)
 
-    buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')])
+        buttons.append([InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')])
 
-    await query.edit_message_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode='HTML',
-        disable_web_page_preview=False
-    )
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode='HTML',
+            disable_web_page_preview=False
+        )
 
     elif query.data == 'help':
         text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ᴄᴏᴍᴍᴀɴᴅs</b>
@@ -241,7 +240,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
         link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
         count = user_data.get('referred_users', 0)
         earned = count * REFERRER_REWARD
-        
+
         text = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
 
 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
@@ -265,7 +264,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
         totals = await user_totals_collection.find_one({'id': user_id})
         chars = totals.get('count', 0) if totals else 0
         refs = user_data.get('referred_users', 0)
-        
+
         caption = f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
 
 ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
