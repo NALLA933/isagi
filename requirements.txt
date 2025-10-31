@@ -13,4 +13,4 @@ python-dotenv>=1.0.0
 cachetools>=5.0.0
 telegraph>=0.3.0
 redis>=6.2.0
-psutill
+psutil
