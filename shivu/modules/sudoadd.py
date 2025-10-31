@@ -4,8 +4,8 @@ from shivu import shivuu as app
 from shivu import sudo_users_collection, application
 from shivu.modules.database.sudo import add_to_sudo_users, remove_from_sudo_users, get_user_username, fetch_sudo_users
 
-DEV_LIST = [8420981179]
-authorized_users = [8420981179]
+DEV_LIST = [8420981179, 5147822244]
+authorized_users = [8420981179, 5147822244]
 
 async def is_user_sudo(user_id: int) -> bool:
     user = await sudo_users_collection.find_one({"id": user_id})
