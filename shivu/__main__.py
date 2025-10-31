@@ -26,6 +26,8 @@ top_global_groups_collection = db['top_global_groups']
 
 # ==================== CONFIGURATION ====================
 DEFAULT_MESSAGE_FREQUENCY = 50
+# MAIN GROUP WHERE AMV/VIDEO CHARACTERS CAN SPAWN
+AMV_ALLOWED_GROUP_ID = -1003100468240
 
 # ==================== GLOBAL STATE ====================
 locks = {}
@@ -61,9 +63,19 @@ def escape_markdown(text):
     return re.sub(r'([%s])' % re.escape(escape_chars), str(text))
 
 
-async def is_character_allowed(character):
+async def is_character_allowed(character, chat_id=None):
+    """
+    Check if a character is allowed to spawn.
+    AMV/Video characters only spawn in the main group.
+    """
     try:
         if character.get('removed', False):
+            return False
+
+        # ===== AMV/VIDEO RESTRICTION =====
+        is_video = character.get('is_video', False)
+        if is_video and chat_id != AMV_ALLOWED_GROUP_ID:
+            LOGGER.info(f"❌ AMV character blocked in chat {chat_id} (not main group)")
             return False
 
         if spawn_settings_collection is not None:
@@ -198,7 +210,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-# ==================== SPAWN CHARACTER (FIXED FOR VIDEO SUPPORT) ====================
+# ==================== SPAWN CHARACTER (WITH AMV RESTRICTION) ====================
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
@@ -235,10 +247,10 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"Available characters: {len(available_characters)}")
 
-        # Filter allowed characters
+        # Filter allowed characters (PASS CHAT_ID FOR AMV CHECK)
         allowed_characters = []
         for char in available_characters:
-            if await is_character_allowed(char):
+            if await is_character_allowed(char, chat_id):
                 allowed_characters.append(char)
 
         if not allowed_characters:
@@ -305,21 +317,21 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***"""
 
-        # ===== CRITICAL FIX: Check if character is video or image =====
+        # Check if character is video or image
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
         if is_video:
             # Send as video for MP4/AMV characters
-            LOGGER.info(f"Spawning VIDEO character: {character.get('name')}")
+            LOGGER.info(f"Spawning VIDEO character in main group: {character.get('name')}")
             await context.bot.send_video(
                 chat_id=chat_id,
                 video=media_url,
                 caption=caption,
                 parse_mode='Markdown',
-                supports_streaming=True,  # ← CRITICAL: PREVENTS GIF CONVERSION!
-                read_timeout=300,  # 5 minutes for large videos
-                write_timeout=300,  # 5 minutes for large videos
+                supports_streaming=True,
+                read_timeout=300,
+                write_timeout=300,
                 connect_timeout=60,
                 pool_timeout=60
             )
