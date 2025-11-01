@@ -34,4 +34,4 @@ async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LOGGER.error(f"Error in gstats: {e}")
         await update.message.reply_text("ᴇʀʀᴏʀ ғᴇᴛᴄʜɪɴɢ sᴛᴀᴛs")
 
-# Add this handler to your application application.add_handler(CommandHandler("gstats", gstats))
+ application.add_handler(CommandHandler("gstats", gstats))
