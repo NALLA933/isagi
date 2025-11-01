@@ -1,10 +1,17 @@
 import logging
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
+from shivu import (
+    sudo_users, 
+    OWNER_ID,
+    user_collection,
+    top_global_groups_collection,
+    BANNED_USERS,
+    banned_groups_collection,
+    pm_users
+)
 
 LOGGER = logging.getLogger(__name__)
-
-OWNER_ID = 5147822244
 
 async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
