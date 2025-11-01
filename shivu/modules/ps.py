@@ -23,6 +23,9 @@ DEFAULT_CONFIG = {
     "cooldown_hours": 24 
 } 
 
+# Store to track panel owners
+panel_owners = {}
+
 async def get_config(): 
     cfg = await luv_config_collection.find_one({"_id": "luv_config"}) 
     if not cfg: 
@@ -103,6 +106,9 @@ async def delete_message_after_delay(context: CallbackContext, chat_id: int, mes
     await asyncio.sleep(delay)
     try:
         await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        # Clean up panel owner tracking
+        if message_id in panel_owners:
+            del panel_owners[message_id]
     except:
         pass
 
@@ -142,7 +148,6 @@ async def luv(update: Update, context: CallbackContext):
 
     context.user_data['luv_page'] = 0 
     context.user_data['luv_chars'] = chars 
-    context.user_data['luv_owner'] = uid  # Store the owner of this store session
 
     char = chars[0] 
     caption, img, price, owned = await build_caption(char, cfg, 1, len(chars), luv_data, balance) 
@@ -150,24 +155,28 @@ async def luv(update: Update, context: CallbackContext):
 
     btns = [] 
     if not owned: 
-        btns.append([InlineKeyboardButton("⊙ ʙᴜʏ", callback_data=f"luv_buy_{cid}")]) 
+        btns.append([InlineKeyboardButton("⊙ ʙᴜʏ", callback_data=f"luv_buy_{cid}_{uid}")]) 
 
     nav = [] 
     if len(chars) > 1: 
         refresh_left = max(0, cfg.get('refresh_limit', 2) - luv_data.get('refresh_count', 0)) 
         nav.append(InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ" if refresh_left > 0 else "⟲ ᴜꜱᴇᴅ",  
-                                        callback_data="luv_refresh" if refresh_left > 0 else "luv_nope")) 
-        nav.append(InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data="luv_page_1")) 
+                                        callback_data=f"luv_ref_{uid}" if refresh_left > 0 else f"luv_nope_{uid}")) 
+        nav.append(InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_1_{uid}")) 
         btns.append(nav) 
     else: 
         refresh_left = max(0, cfg.get('refresh_limit', 2) - luv_data.get('refresh_count', 0)) 
         btns.append([InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ" if refresh_left > 0 else "⟲ ᴜꜱᴇᴅ",  
-                                         callback_data="luv_refresh" if refresh_left > 0 else "luv_nope")]) 
+                                         callback_data=f"luv_ref_{uid}" if refresh_left > 0 else f"luv_nope_{uid}")]) 
 
-    btns.append([InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data="luv_close")]) 
+    btns.append([InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data=f"luv_close_{uid}")]) 
 
     msg = await update.message.reply_photo(photo=img, caption=caption, parse_mode="HTML",  
                                            reply_markup=InlineKeyboardMarkup(btns)) 
+    
+    # Track the owner of this panel
+    panel_owners[msg.message_id] = uid
+    
     context.user_data['luv_msg_id'] = msg.message_id 
     
     # Schedule message deletion after 30 minutes
@@ -179,8 +188,22 @@ async def luv_callback(update: Update, context: CallbackContext):
     data = q.data 
     cfg = await get_config() 
 
+    # Extract owner ID from callback data
+    parts = data.split("_")
+    if len(parts) >= 3:
+        try:
+            owner_id = int(parts[-1])
+        except:
+            owner_id = None
+    else:
+        owner_id = None
+
+    # Also check panel_owners dict
+    msg_id = q.message.message_id
+    if msg_id in panel_owners:
+        owner_id = panel_owners[msg_id]
+
     # Check if user is the owner of this store session
-    owner_id = context.user_data.get('luv_owner')
     if owner_id and owner_id != uid:
         await q.answer("⊗ ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛ!", show_alert=True)
         return
@@ -204,20 +227,20 @@ async def luv_callback(update: Update, context: CallbackContext):
 
         btns = [] 
         if not owned: 
-            btns.append([InlineKeyboardButton("⊙ ʙᴜʏ", callback_data=f"luv_buy_{cid}")]) 
+            btns.append([InlineKeyboardButton("⊙ ʙᴜʏ", callback_data=f"luv_buy_{cid}_{uid}")]) 
 
         nav = [] 
         if len(chars) > 1: 
             if page > 0: 
-                nav.append(InlineKeyboardButton("⊲ ᴘʀᴇᴠ", callback_data=f"luv_page_{page-1}")) 
+                nav.append(InlineKeyboardButton("⊲ ᴘʀᴇᴠ", callback_data=f"luv_page_{page-1}_{uid}")) 
             refresh_left = max(0, cfg.get('refresh_limit', 2) - luv_data.get('refresh_count', 0)) 
             nav.append(InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ" if refresh_left > 0 else "⟲ ᴜꜱᴇᴅ",  
-                                           callback_data="luv_refresh" if refresh_left > 0 else "luv_nope")) 
+                                           callback_data=f"luv_ref_{uid}" if refresh_left > 0 else f"luv_nope_{uid}")) 
             if page < len(chars) - 1: 
-                nav.append(InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_{page+1}")) 
+                nav.append(InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_{page+1}_{uid}")) 
             btns.append(nav) 
 
-        btns.append([InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data="luv_close")]) 
+        btns.append([InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data=f"luv_close_{uid}")]) 
 
         try: 
             await q.edit_message_media(media=InputMediaPhoto(media=img, caption=caption, parse_mode="HTML"), 
@@ -230,9 +253,10 @@ async def luv_callback(update: Update, context: CallbackContext):
                 pass 
 
     if data.startswith("luv_page_"): 
-        await render_page(int(data.split("_")[2])) 
+        page_num = int(parts[-2])
+        await render_page(page_num) 
 
-    elif data == "luv_refresh": 
+    elif data.startswith("luv_ref_"):
         user = await user_collection.find_one({"id": uid}) 
         if not user: 
             await q.answer("⊗ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ", show_alert=True) 
@@ -252,8 +276,8 @@ async def luv_callback(update: Update, context: CallbackContext):
             await q.answer(f"⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\nɴᴇᴇᴅ: {cost} ɢᴏʟᴅ\nʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {balance} ɢᴏʟᴅ", show_alert=True) 
             return 
 
-        btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data="luv_ref_ok"), 
-                 InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data="luv_ref_no")]] 
+        btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_refok_{uid}"), 
+                 InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"luv_cancel_{uid}")]] 
 
         await q.edit_message_caption( 
             caption=f"╭────────────────╮\n" 
@@ -267,7 +291,7 @@ async def luv_callback(update: Update, context: CallbackContext):
             reply_markup=InlineKeyboardMarkup(btns) 
         ) 
 
-    elif data == "luv_ref_ok": 
+    elif data.startswith("luv_refok_"):
         user = await user_collection.find_one({"id": uid}) 
         luv_data = await get_luv_data(uid) 
         cost = cfg.get('refresh_cost', 20000) 
@@ -304,16 +328,16 @@ async def luv_callback(update: Update, context: CallbackContext):
         await q.answer("✓ ꜱᴛᴏʀᴇ ʀᴇғʀᴇꜱʜᴇᴅ!") 
         await render_page(0) 
 
-    elif data == "luv_ref_no": 
+    elif data.startswith("luv_cancel_"):
         await render_page(context.user_data.get('luv_page', 0)) 
 
-    elif data == "luv_nope": 
+    elif data.startswith("luv_nope_"):
         await q.answer("⊗ ɴᴏ ʀᴇғʀᴇꜱʜᴇꜱ ʟᴇꜰᴛ!", show_alert=True) 
 
     elif data.startswith("luv_buy_"): 
-        cid = data.split("_", 2)[2] 
+        cid = parts[-2]
         chars = context.user_data.get('luv_chars', []) 
-        char = next((c for c in chars if (c.get("id") or c.get("_id")) == cid), None) 
+        char = next((c for c in chars if str(c.get("id") or c.get("_id")) == cid), None) 
 
         if not char: 
             await q.answer("⊗ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ", show_alert=True) 
@@ -327,8 +351,8 @@ async def luv_callback(update: Update, context: CallbackContext):
         rarity = char.get('rarity', 'Unknown') 
         price = cfg['rarities'].get(rarity, {}).get('price', 0) 
 
-        btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_ok_{cid}"), 
-                 InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data="luv_buy_no")]] 
+        btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_ok_{cid}_{uid}"), 
+                 InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"luv_buyno_{uid}")]] 
 
         await q.edit_message_caption( 
             caption=f"╭────────────────╮\n" 
@@ -343,9 +367,9 @@ async def luv_callback(update: Update, context: CallbackContext):
         ) 
 
     elif data.startswith("luv_ok_"): 
-        cid = data.split("_", 2)[2] 
+        cid = parts[-2]
         chars = context.user_data.get('luv_chars', []) 
-        char = next((c for c in chars if (c.get("id") or c.get("_id")) == cid), None) 
+        char = next((c for c in chars if str(c.get("id") or c.get("_id")) == cid), None) 
 
         if not char: 
             await q.answer("⊗ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ", show_alert=True) 
@@ -384,8 +408,8 @@ async def luv_callback(update: Update, context: CallbackContext):
         luv_data['purchased'].append(cid) 
         await update_luv_data(uid, luv_data) 
 
-        btns = [[InlineKeyboardButton("⊙ ᴍᴀɪɴ ꜱʜᴏᴘ", callback_data="luv_main"), 
-                 InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data="luv_close")]] 
+        btns = [[InlineKeyboardButton("⊙ ᴍᴀɪɴ ꜱʜᴏᴘ", callback_data=f"luv_main_{uid}"), 
+                 InlineKeyboardButton("⊗ ᴄʟᴏꜱᴇ", callback_data=f"luv_close_{uid}")]] 
 
         await q.edit_message_caption( 
             caption=f"╭────────────────╮\n" 
@@ -400,14 +424,17 @@ async def luv_callback(update: Update, context: CallbackContext):
         ) 
         await q.answer("✓ ᴘᴜʀᴄʜᴀꜱᴇᴅ!") 
 
-    elif data == "luv_buy_no": 
+    elif data.startswith("luv_buyno_"):
         await render_page(context.user_data.get('luv_page', 0)) 
 
-    elif data == "luv_main": 
+    elif data.startswith("luv_main_"):
         await render_page(0) 
 
-    elif data == "luv_close": 
+    elif data.startswith("luv_close_"):
         try: 
+            msg_id = q.message.message_id
+            if msg_id in panel_owners:
+                del panel_owners[msg_id]
             await q.message.delete() 
         except: 
             await q.edit_message_caption("ꜱᴛᴏʀᴇ ᴄʟᴏꜱᴇᴅ") 
@@ -478,8 +505,8 @@ async def luv_help(update: Update, context: CallbackContext):
             f"\n\n<b>ꜱᴜᴘᴇʀ ᴀᴅᴍɪɴ:</b>\n" 
             f"⟡ /pview - ᴠɪᴇᴡ ᴄᴏɴꜰɪɢ\n" 
             f"⟡ /pconfig <key> <val>\n" 
-            f"⟡ /prarity <name> <w> <p>\n" 
-            f"⟡ /prmrarity <name>\n" 
+            f"⟡ /prarity <n> <w> <p>\n" 
+            f"⟡ /prmrarity <n>\n" 
             f"⟡ /preset <uid>" 
         ) 
 
@@ -513,7 +540,7 @@ async def luv_rarity(update: Update, context: CallbackContext):
         return 
 
     if len(context.args) < 3: 
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /prarity <name> <weight> <price>") 
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /prarity <n> <weight> <price>") 
         return 
 
     try: 
