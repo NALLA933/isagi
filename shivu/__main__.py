@@ -26,6 +26,7 @@ top_global_groups_collection = db['top_global_groups']
 
 # ==================== CONFIGURATION ====================
 DEFAULT_MESSAGE_FREQUENCY = 50
+DESPAWN_TIME = 180  # 3 minutes (180 seconds)
 # MAIN GROUP WHERE AMV/VIDEO CHARACTERS CAN SPAWN
 AMV_ALLOWED_GROUP_ID = -1003100468240
 
@@ -37,6 +38,8 @@ last_characters = {}
 first_correct_guesses = {}
 last_user = {}
 warned_users = {}
+spawn_messages = {}  # Track spawn messages for deletion
+spawn_message_links = {}  # Track spawn message links for wrong guess button
 spawn_settings_collection = None
 
 # ==================== IMPORT ALL MODULES ====================
@@ -144,6 +147,80 @@ async def update_grab_task(user_id: int):
         LOGGER.error(f"Error in update_grab_task: {e}")
 
 
+# ==================== DESPAWN CHARACTER FUNCTION ====================
+async def despawn_character(chat_id, message_id, character, context):
+    """Handle character despawn after timeout"""
+    try:
+        await asyncio.sleep(DESPAWN_TIME)
+
+        # Check if character was grabbed - if yes, don't show despawn message
+        if chat_id in first_correct_guesses:
+            LOGGER.info(f"Character was grabbed in chat {chat_id}, skipping despawn message")
+            # Clean up without showing despawn message
+            last_characters.pop(chat_id, None)
+            spawn_messages.pop(chat_id, None)
+            spawn_message_links.pop(chat_id, None)
+            return
+
+        # Delete spawn message
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            LOGGER.info(f"Deleted spawn message in chat {chat_id}")
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete spawn message: {e}")
+
+        # Send missed message
+        rarity = character.get('rarity', '🟢 Common')
+        rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else '🟢'
+
+        # Check if character is video or image
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        missed_caption = f"""⏰ ᴛɪᴍᴇ's ᴜᴘ! ʏᴏᴜ ᴀʟʟ ᴍɪssᴇᴅ ᴛʜɪs ᴡᴀɪғᴜ!
+
+{rarity_emoji} ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
+⚡ ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
+🎯 ʀᴀʀɪᴛʏ: <b>{rarity}</b>
+
+💔 ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"""
+
+        if is_video:
+            missed_msg = await context.bot.send_video(
+                chat_id=chat_id,
+                video=media_url,
+                caption=missed_caption,
+                parse_mode='HTML',
+                supports_streaming=True
+            )
+        else:
+            missed_msg = await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=media_url,
+                caption=missed_caption,
+                parse_mode='HTML'
+            )
+
+        LOGGER.info(f"Sent missed message for chat {chat_id}")
+
+        # Delete missed message after 10 seconds
+        await asyncio.sleep(10)
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=missed_msg.message_id)
+            LOGGER.info(f"Deleted missed message in chat {chat_id}")
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete missed message: {e}")
+
+        # Clean up
+        last_characters.pop(chat_id, None)
+        spawn_messages.pop(chat_id, None)
+        spawn_message_links.pop(chat_id, None)
+
+    except Exception as e:
+        LOGGER.error(f"Error in despawn_character: {e}")
+        LOGGER.error(traceback.format_exc())
+
+
 # ==================== MESSAGE COUNTER ====================
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
@@ -210,7 +287,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-# ==================== SPAWN CHARACTER (WITH AMV RESTRICTION) ====================
+# ==================== SPAWN CHARACTER (WITH DESPAWN TIMER) ====================
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
@@ -315,7 +392,9 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         # Caption for spawn message
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
-/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎***"""
+/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
+
+⏰ ʏᴏᴜ ʜᴀᴠᴇ {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇs ᴛᴏ ɢʀᴀʙ!***"""
 
         # Check if character is video or image
         is_video = character.get('is_video', False)
@@ -324,7 +403,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         if is_video:
             # Send as video for MP4/AMV characters
             LOGGER.info(f"Spawning VIDEO character in main group: {character.get('name')}")
-            await context.bot.send_video(
+            spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
                 video=media_url,
                 caption=caption,
@@ -338,7 +417,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         else:
             # Send as photo for image characters
             LOGGER.info(f"Spawning IMAGE character: {character.get('name')}")
-            await context.bot.send_photo(
+            spawn_msg = await context.bot.send_photo(
                 chat_id=chat_id,
                 photo=media_url,
                 caption=caption,
@@ -347,14 +426,31 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 write_timeout=180
             )
 
+        # Store spawn message ID
+        spawn_messages[chat_id] = spawn_msg.message_id
+
+        # Create message link for the button (for wrong guesses)
+        chat_username = update.effective_chat.username
+        if chat_username:
+            spawn_message_links[chat_id] = f"https://t.me/{chat_username}/{spawn_msg.message_id}"
+        else:
+            # For private groups without username, use the chat ID format
+            chat_id_str = str(chat_id).replace('-100', '')
+            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str}/{spawn_msg.message_id}"
+
         LOGGER.info(f"✅ Character spawned successfully in chat {chat_id}")
+        LOGGER.info(f"Message link: {spawn_message_links.get(chat_id, 'N/A')}")
+
+        # Schedule despawn
+        asyncio.create_task(despawn_character(chat_id, spawn_msg.message_id, character, context))
+        LOGGER.info(f"Despawn scheduled for chat {chat_id} in {DESPAWN_TIME} seconds")
 
     except Exception as e:
         LOGGER.error(f"❌ Error in send_image for chat {chat_id}: {e}")
         LOGGER.error(traceback.format_exc())
 
 
-# ==================== GUESS HANDLER ====================
+# ==================== GUESS HANDLER (WITH BUTTON FOR WRONG GUESSES) ====================
 async def guess(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
@@ -400,6 +496,15 @@ async def guess(update: Update, context: CallbackContext) -> None:
         if is_correct:
             # Mark as grabbed
             first_correct_guesses[chat_id] = user_id
+
+            # Delete spawn message
+            if chat_id in spawn_messages:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=spawn_messages[chat_id])
+                    LOGGER.info(f"Deleted spawn message after correct guess in chat {chat_id}")
+                except BadRequest as e:
+                    LOGGER.warning(f"Could not delete spawn message: {e}")
+                spawn_messages.pop(chat_id, None)
 
             # Update or create user
             user = await user_collection.find_one({'id': user_id})
@@ -514,9 +619,24 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
+            # Clean up spawn message link after successful grab
+            spawn_message_links.pop(chat_id, None)
+
         else:
+            # Wrong guess - show button to view spawn message
+            keyboard = []
+            if chat_id in spawn_message_links:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        "📍 ᴠɪᴇᴡ sᴘᴀᴡɴ ᴍᴇssᴀɢᴇ",
+                        url=spawn_message_links[chat_id]
+                    )
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
             await update.message.reply_html(
-                '<b>ᴘʟᴇᴀsᴇ ᴡʀɪᴛᴇ ᴀ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ..❌</b>'
+                '<b>ᴘʟᴇᴀsᴇ ᴡʀɪᴛᴇ ᴀ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ..❌</b>',
+                reply_markup=reply_markup
             )
 
     except Exception as e:
