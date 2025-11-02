@@ -8,7 +8,7 @@ from shivu import application, db, user_collection
 collection = db['anime_characters_lol'] 
 luv_config_collection = db['luv_config'] 
 sudo_users = ["8297659126", "8420981179", "5147822244"] 
-super_admin = "5147822244"  # Only this user can use config commands
+super_admin = "8420981179"  # Only this user can use config commands
 
 DEFAULT_CONFIG = { 
     "rarities": { 
