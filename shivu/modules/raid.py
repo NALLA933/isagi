@@ -14,6 +14,7 @@ active_raids_collection = db['active_raids']
 
 LOGGER = logging.getLogger(__name__)
 OWNER_ID = 5147822244
+GLOBAL_SETTINGS_ID = "global_raid_settings"
 
 RARITY_MAP = {
     1: "🟢 Common", 2: "🟣 Rare", 3: "🟡 Legendary", 4: "💮 Special Edition",
@@ -24,20 +25,38 @@ RARITY_MAP = {
 }
 
 DEFAULT_SETTINGS = {
-    "start_charge": 1000, "join_phase_duration": 30, "cooldown_minutes": 5,
-    "min_balance": 500, "allowed_rarities": [3, 4, 5, 6, 7, 9],
+    "start_charge": 500, "join_phase_duration": 30, "cooldown_minutes": 5,
+    "min_balance": 500, "allowed_rarities": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     "coin_min": 500, "coin_max": 2000, "coin_loss_min": 200, "coin_loss_max": 500,
     "character_chance": 25, "coin_chance": 35, "loss_chance": 20,
     "nothing_chance": 15, "critical_chance": 5
 }
 
-async def get_raid_settings(chat_id):
-    settings = await raid_settings_collection.find_one({"chat_id": chat_id})
+async def get_global_settings():
+    """Get global raid settings that apply to all groups"""
+    settings = await raid_settings_collection.find_one({"chat_id": GLOBAL_SETTINGS_ID})
     if not settings:
         settings = DEFAULT_SETTINGS.copy()
-        settings["chat_id"] = chat_id
+        settings["chat_id"] = GLOBAL_SETTINGS_ID
         await raid_settings_collection.insert_one(settings)
     return settings
+
+async def get_raid_settings(chat_id):
+    """Get raid settings - now returns global settings for all groups"""
+    return await get_global_settings()
+
+async def update_global_settings(update_dict):
+    """Update global settings and apply to all groups"""
+    await raid_settings_collection.update_one(
+        {"chat_id": GLOBAL_SETTINGS_ID},
+        {"$set": update_dict},
+        upsert=True
+    )
+    # Optionally update all existing group settings
+    await raid_settings_collection.update_many(
+        {"chat_id": {"$ne": GLOBAL_SETTINGS_ID}},
+        {"$set": update_dict}
+    )
 
 async def check_user_cooldown(user_id, chat_id):
     cooldown_data = await raid_cooldown_collection.find_one({"user_id": user_id, "chat_id": chat_id})
@@ -342,15 +361,15 @@ async def execute_raid(client, message, raid_id):
 
     await active_raids_collection.delete_one({"raid_id": raid_id})
 
-# COMPACT ADMIN COMMANDS
+# GLOBAL ADMIN COMMANDS - Settings apply to ALL groups instantly
 @shivuu.on_message(filters.command(["setraidcharge"]) & filters.user(OWNER_ID))
 async def set_raid_charge(c, m):
     if len(m.command) < 2:
         return await m.reply_text("Usage: /setraidcharge amount")
     try:
         amt = int(m.command[1])
-        await raid_settings_collection.update_one({"chat_id": m.chat.id}, {"$set": {"start_charge": amt}}, upsert=True)
-        await m.reply_text(f"Raid charge set to {amt} coins")
+        await update_global_settings({"start_charge": amt})
+        await m.reply_text(f"✅ Raid charge set to {amt} coins globally for all groups!")
     except:
         await m.reply_text("Invalid amount")
 
@@ -360,8 +379,8 @@ async def set_raid_cooldown(c, m):
         return await m.reply_text("Usage: /setraidcooldown minutes")
     try:
         mins = int(m.command[1])
-        await raid_settings_collection.update_one({"chat_id": m.chat.id}, {"$set": {"cooldown_minutes": mins}}, upsert=True)
-        await m.reply_text(f"Cooldown set to {mins} minutes")
+        await update_global_settings({"cooldown_minutes": mins})
+        await m.reply_text(f"✅ Cooldown set to {mins} minutes globally for all groups!")
     except:
         await m.reply_text("Invalid value")
 
@@ -371,9 +390,9 @@ async def set_raid_rarities(c, m):
         return await m.reply_text("Usage: /setraidrarities 1,2,3,4,5")
     try:
         rarities = [int(r.strip()) for r in m.command[1].split(",")]
-        await raid_settings_collection.update_one({"chat_id": m.chat.id}, {"$set": {"allowed_rarities": rarities}}, upsert=True)
+        await update_global_settings({"allowed_rarities": rarities})
         rarity_names = [RARITY_MAP.get(r, f"Rarity {r}") for r in rarities]
-        await m.reply_text(f"Allowed rarities:\n" + "\n".join(rarity_names))
+        await m.reply_text(f"✅ Allowed rarities set globally for all groups:\n" + "\n".join(rarity_names))
     except:
         await m.reply_text("Invalid format")
 
@@ -385,12 +404,15 @@ async def set_raid_chances(c, m):
         char_c, coin_c, loss_c, nothing_c, crit_c = [int(m.command[i]) for i in range(1, 6)]
         if char_c + coin_c + loss_c + nothing_c + crit_c != 100:
             return await m.reply_text(f"Total must equal 100. Current: {char_c + coin_c + loss_c + nothing_c + crit_c}")
-        await raid_settings_collection.update_one(
-            {"chat_id": m.chat.id},
-            {"$set": {"character_chance": char_c, "coin_chance": coin_c, "loss_chance": loss_c, "nothing_chance": nothing_c, "critical_chance": crit_c}},
-            upsert=True
+        await update_global_settings({
+            "character_chance": char_c, "coin_chance": coin_c, 
+            "loss_chance": loss_c, "nothing_chance": nothing_c, 
+            "critical_chance": crit_c
+        })
+        await m.reply_text(
+            f"✅ Chances updated globally for all groups:\n"
+            f"Char: {char_c}% | Coin: {coin_c}% | Loss: {loss_c}% | Nothing: {nothing_c}% | Critical: {crit_c}%"
         )
-        await m.reply_text(f"Chances updated:\nChar: {char_c}% | Coin: {coin_c}% | Loss: {loss_c}% | Nothing: {nothing_c}% | Critical: {crit_c}%")
     except:
         await m.reply_text("Invalid values")
 
@@ -402,8 +424,8 @@ async def set_raid_coins(c, m):
         coin_min, coin_max = int(m.command[1]), int(m.command[2])
         if coin_min >= coin_max:
             return await m.reply_text("Min must be less than max")
-        await raid_settings_collection.update_one({"chat_id": m.chat.id}, {"$set": {"coin_min": coin_min, "coin_max": coin_max}}, upsert=True)
-        await m.reply_text(f"Coin range: {coin_min}-{coin_max}")
+        await update_global_settings({"coin_min": coin_min, "coin_max": coin_max})
+        await m.reply_text(f"✅ Coin range set to {coin_min}-{coin_max} globally for all groups!")
     except:
         await m.reply_text("Invalid values")
 
@@ -415,17 +437,17 @@ async def set_raid_loss(c, m):
         loss_min, loss_max = int(m.command[1]), int(m.command[2])
         if loss_min >= loss_max:
             return await m.reply_text("Min must be less than max")
-        await raid_settings_collection.update_one({"chat_id": m.chat.id}, {"$set": {"coin_loss_min": loss_min, "coin_loss_max": loss_max}}, upsert=True)
-        await m.reply_text(f"Loss range: {loss_min}-{loss_max}")
+        await update_global_settings({"coin_loss_min": loss_min, "coin_loss_max": loss_max})
+        await m.reply_text(f"✅ Loss range set to {loss_min}-{loss_max} globally for all groups!")
     except:
         await m.reply_text("Invalid values")
 
 @shivuu.on_message(filters.command(["raidsettings"]) & filters.user(OWNER_ID))
 async def show_raid_settings(c, m):
-    s = await get_raid_settings(m.chat.id)
+    s = await get_global_settings()
     rn = [RARITY_MAP.get(r, f"Rarity {r}") for r in s["allowed_rarities"]]
     await m.reply_text(
-        f"<b>Raid Settings</b>\n\n"
+        f"<b>🌐 Global Raid Settings (All Groups)</b>\n\n"
         f"Charge: {s['start_charge']} coins\n"
         f"Join Phase: {s['join_phase_duration']}s\n"
         f"Cooldown: {s['cooldown_minutes']}m\n"
@@ -438,13 +460,14 @@ async def show_raid_settings(c, m):
         f"Loss: {s['loss_chance']}% | Nothing: {s['nothing_chance']}%\n"
         f"Critical: {s.get('critical_chance', 5)}%\n\n"
         f"<b>Rarities:</b> {len(rn)}\n" + ", ".join(rn[:5]) + ("..." if len(rn) > 5 else "") +
-        f"\n\n<b>Commands:</b>\n"
+        f"\n\n<b>Global Commands (applies to ALL groups):</b>\n"
         f"/setraidcharge amount\n"
         f"/setraidcooldown minutes\n"
         f"/setraidchances c co l n cr\n"
         f"/setraidcoins min max\n"
         f"/setraidloss min max\n"
-        f"/setraidrarities 1,2,3..."
+        f"/setraidrarities 1,2,3...\n\n"
+        f"✨ All settings apply globally to every group!"
     )
 
-LOGGER.info("Enhanced Shadow Raid module loaded!")
+LOGGER.info("Enhanced Shadow Raid module loaded with GLOBAL settings!")
