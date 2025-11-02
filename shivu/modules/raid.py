@@ -25,7 +25,7 @@ RARITY_MAP = {
 
 DEFAULT_SETTINGS = {
     "start_charge": 1000, "join_phase_duration": 30, "cooldown_minutes": 5,
-    "min_balance": 500, "allowed_rarities": [4, 5, 6, 7, 9],
+    "min_balance": 500, "allowed_rarities": [3, 4, 5, 6, 7, 9],
     "coin_min": 500, "coin_max": 2000, "coin_loss_min": 200, "coin_loss_max": 500,
     "character_chance": 25, "coin_chance": 35, "loss_chance": 20,
     "nothing_chance": 15, "critical_chance": 5
