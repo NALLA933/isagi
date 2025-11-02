@@ -5,6 +5,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, user_totals_collection
 
+# Import tracking function
+from shivu.modules.chatlog import track_bot_start
+
 # Config
 PHOTOS = [
     "https://files.catbox.moe/k3dhbe.mp4"
@@ -109,8 +112,15 @@ async def start(update: Update, context: CallbackContext):
         await user_collection.insert_one(new_user)
         user_data = new_user
 
+        # Track AFTER inserting user so count is accurate
+        await track_bot_start(user_id, first_name, username, is_new_user)
+
         if referring_user_id:
             await process_referral(user_id, first_name, referring_user_id, context)
+
+    else:
+        # Track returning user
+        await track_bot_start(user_id, first_name, username, is_new_user)
 
     balance = user_data.get('balance', 0)
     totals = await user_totals_collection.find_one({'id': user_id})
