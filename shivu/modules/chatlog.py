@@ -3,11 +3,38 @@ from pyrogram import Client
 from pyrogram.types import Message
 from pyrogram import filters
 from pyrogram.types import(InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, Message)
+from pyrogram.errors import PeerIdInvalid, BadRequest
 from shivu import user_collection, shivuu as app, LEAVELOGS, JOINLOGS
 
 
 async def lul_message(chat_id: int, message: str):
-    await app.send_message(chat_id=chat_id, text=message)
+    try:
+        await app.send_message(chat_id=chat_id, text=message)
+    except (PeerIdInvalid, BadRequest) as e:
+        print(f"Failed to send message to {chat_id}: {e}")
+    except Exception as e:
+        print(f"Unexpected error sending message: {e}")
+
+
+# Track every bot start
+async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
+    """Log every bot start to JOINLOGS"""
+    try:
+        user_mention = f"<a href='tg://user?id={user_id}'>{first_name}</a>"
+        username_str = f"@{username}" if username else "ɴᴏ ᴜsᴇʀɴᴀᴍᴇ"
+
+        if is_new:
+            # Count total users in database
+            total_users = await user_collection.count_documents({})
+            status = f"ɴᴇᴡ ᴜsᴇʀ #{total_users}"
+        else:
+            status = "ʀᴇᴛᴜʀɴɪɴɢ ᴜsᴇʀ"
+
+        start_log = f"˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n#BOTSTART\n sᴛᴀᴛᴜs : {status}\n ᴜsᴇʀ : {user_mention}\n ᴜsᴇʀ ɪᴅ : `{user_id}`\n ᴜsᴇʀɴᴀᴍᴇ : {username_str}"
+        await lul_message(JOINLOGS, start_log)
+    except Exception as e:
+        print(f"Failed to track bot start: {e}")
+
 
 @app.on_message(filters.new_chat_members)
 async def on_new_chat_members(client: Client, message: Message):
@@ -21,7 +48,7 @@ async def on_new_chat_members(client: Client, message: Message):
             chatusername = "ᴩʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
         lemda_text = f"˹𝐆ʀᴀʙʙɪɴɢ 𝐘ᴏᴜʀ 𝐖ᴀɪғᴜ˼ 🥀\n#NEWCHAT \n ᴄʜᴀᴛ ᴛɪᴛʟᴇ : {matlabi_jhanto}\n ᴄʜᴀᴛ ɪᴅ : {chat_id}\n ᴄʜᴀᴛ ᴜɴᴀᴍᴇ : {chatusername}\n ᴀᴅᴅᴇᴅ ʙʏ : {added_by}"
         await lul_message(JOINLOGS, lemda_text)
-        
+
 
 @app.on_message(filters.left_chat_member)
 async def on_left_chat_member(_, message: Message):
