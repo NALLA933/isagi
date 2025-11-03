@@ -178,13 +178,13 @@ def format_character_card(character, global_count=None, show_owners=False, owner
             
             # Medal for top 3
             if i == 1:
-                medal = "1"
+                medal = "🥇"
             elif i == 2:
-                medal = "2"
+                medal = "🥈"
             elif i == 3:
-                medal = "3"
+                medal = "🥉"
             else:
-                medal = f"{i}"
+                medal = f"{i}."
             
             user_link = f"<a href='tg://user?id={user_id}'>{escape(name)}</a>"
             if username:
@@ -263,7 +263,7 @@ async def check_character(update: Update, context: CallbackContext) -> None:
             ]
         ]
 
-        # ===== KEY CHANGE: Check if video or image =====
+        # Check if video or image
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
@@ -394,7 +394,7 @@ async def find_character(update: Update, context: CallbackContext) -> None:
 
 @bot.on_message(filters.command(["anime"]))
 async def find_anime(_, message: t.Message):
-    """Find all characters from an anime with pagination"""
+    """Find all characters from an anime with complete info and counts"""
     try:
         if len(message.command) < 2:
             return await message.reply_text(
@@ -421,31 +421,75 @@ async def find_anime(_, message: t.Message):
                 quote=True
             )
 
-        # Remove duplicates by name
-        seen_names = set()
-        unique_chars = []
-        for char in characters:
-            char_name = char.get('name', '')
-            if char_name and char_name not in seen_names:
-                seen_names.add(char_name)
-                unique_chars.append(char)
-
-        # Build response with pagination
-        page_size = 20
-        total_chars = len(unique_chars)
+        # Count character names and organize data
+        name_counts = {}
+        char_data = {}
+        rarity_counts = {}
         
-        response = f"<b>📺 {to_small_caps('characters from')}</b> <code>{escape(anime_name)}</code>\n"
-        response += f"<b>{to_small_caps('total found')}</b> <code>{total_chars}</code>\n\n"
+        for char in characters:
+            name = char.get('name', 'Unknown')
+            if name not in name_counts:
+                name_counts[name] = 0
+                char_data[name] = char
+            name_counts[name] += 1
+            
+            # Count rarities
+            rarity = char.get('rarity', '🟢 Common')
+            if isinstance(rarity, str):
+                rarity_emoji = rarity.split(' ')[0] if ' ' in rarity else rarity
+                rarity_counts[rarity_emoji] = rarity_counts.get(rarity_emoji, 0) + 1
 
-        for i, char in enumerate(unique_chars[:page_size], 1):
-            rarity_emoji = get_rarity_color(char.get('rarity', ''))
-            response += (
-                f"{i}. {rarity_emoji} <code>{char.get('id', '??')}</code> "
-                f"<b>{escape(char.get('name', 'Unknown'))}</b>\n"
-            )
+        total_chars = len(characters)
+        unique_names = len(name_counts)
+        
+        # Build response header
+        response = f"""<b>╭━━━━━━━━━━━━━━━━━╮</b>
+<b>┃  📺 {to_small_caps('anime characters')}  ┃</b>
+<b>╰━━━━━━━━━━━━━━━━━╯</b>
 
-        if total_chars > page_size:
-            response += f"\n<i>{to_small_caps('showing first')} {page_size} {to_small_caps('of')} {total_chars}</i>"
+<b>🎬 {to_small_caps('anime')}</b> <code>{escape(anime_name)}</code>
+<b>📊 {to_small_caps('total found')}</b> <code>{total_chars}</code>
+<b>👤 {to_small_caps('unique characters')}</b> <code>{unique_names}</code>
+
+"""
+        
+        # Show rarity distribution
+        if rarity_counts:
+            response += f"<b>🎨 {to_small_caps('rarity breakdown')}</b>\n"
+            for rarity_emoji, count in sorted(rarity_counts.items(), key=lambda x: x[1], reverse=True):
+                response += f"   {rarity_emoji} <code>{count}x</code>\n"
+            response += "\n"
+        
+        response += f"<b>━━━━━━━━━━━━━━━━━</b>\n\n"
+
+        # Show all characters with full info
+        for i, (name, count) in enumerate(sorted(name_counts.items()), 1):
+            char = char_data[name]
+            char_id = char.get('id', '??')
+            char_rarity = char.get('rarity', '🟢 Common')
+            
+            # Extract rarity
+            if isinstance(char_rarity, str):
+                rarity_parts = char_rarity.split(' ', 1)
+                rarity_emoji = rarity_parts[0] if len(rarity_parts) > 0 else '🟢'
+                rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
+            else:
+                rarity_emoji = '🟢'
+                rarity_text = 'Common'
+            
+            # Get global count
+            global_count = await get_global_count(char_id)
+            
+            response += f"<b>{i}. {escape(name)}</b>"
+            if count > 1:
+                response += f" <code>x{count}</code>"
+            response += f"\n"
+            response += f"   🆔 <code>{char_id}</code>\n"
+            response += f"   {rarity_emoji} {to_small_caps(rarity_text)}\n"
+            response += f"   🌍 <code>{global_count}x</code> {to_small_caps('grabbed')}\n\n"
+
+        response += f"<b>━━━━━━━━━━━━━━━━━</b>\n"
+        response += f"<i>{to_small_caps('use')} /check [id] {to_small_caps('for more details')}</i>"
 
         await message.reply_text(response, quote=True)
         
@@ -499,7 +543,7 @@ async def find_users_with_character(_, message: t.Message):
         # Format with image
         caption = format_character_card(character, global_count, show_owners=True, owners_list=users)
 
-        # ===== KEY CHANGE: Check if video or image =====
+        # Check if video or image
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
@@ -583,6 +627,52 @@ async def handle_show_owners(update: Update, context: CallbackContext) -> None:
         )
         
     except Exception as e:
+        print(f"Error going back: {e}")
+        await query.answer(to_small_caps("error"), show_alert=True)
+
+
+async def handle_char_stats(update: Update, context: CallbackContext) -> None:
+    """Show character statistics"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        character_id = query.data.split('_')[2]
+        character = await get_character_by_id(character_id)
+        
+        if not character:
+            await query.answer(to_small_caps("character not found"), show_alert=True)
+            return
+        
+        global_count = await get_global_count(character_id)
+        users = await get_users_by_character(character_id)
+        unique_owners = len(users)
+        
+        stats = (
+            f"📊 {to_small_caps('statistics')}\n\n"
+            f"🌍 {to_small_caps('total grabbed')}: {global_count}\n"
+            f"👥 {to_small_caps('unique owners')}: {unique_owners}\n"
+            f"📈 {to_small_caps('avg per user')}: {global_count/unique_owners if unique_owners > 0 else 0:.1f}"
+        )
+        
+        await query.answer(stats, show_alert=True)
+        
+    except Exception as e:
+        print(f"Error showing stats: {e}")
+        await query.answer(to_small_caps("error loading stats"), show_alert=True)
+
+
+# ==================== HANDLER REGISTRATION ====================
+
+# Telegram handlers
+application.add_handler(CommandHandler('check', check_character, block=False))
+application.add_handler(CommandHandler('find', find_character, block=False))
+application.add_handler(CallbackQueryHandler(handle_show_owners, pattern=r'^show_owners_', block=False))
+application.add_handler(CallbackQueryHandler(handle_back_to_card, pattern=r'^back_to_card_', block=False))
+application.add_handler(CallbackQueryHandler(handle_char_stats, pattern=r'^char_stats_', block=False))
+        )
+        
+    except Exception as e:
         print(f"Error showing owners: {e}")
         await query.answer(to_small_caps("error loading owners"), show_alert=True)
 
@@ -627,49 +717,3 @@ async def handle_back_to_card(update: Update, context: CallbackContext) -> None:
             caption=caption,
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-    except Exception as e:
-        print(f"Error going back: {e}")
-        await query.answer(to_small_caps("error"), show_alert=True)
-
-
-async def handle_char_stats(update: Update, context: CallbackContext) -> None:
-    """Show character statistics"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        character_id = query.data.split('_')[2]
-        character = await get_character_by_id(character_id)
-        
-        if not character:
-            await query.answer(to_small_caps("character not found"), show_alert=True)
-            return
-        
-        global_count = await get_global_count(character_id)
-        users = await get_users_by_character(character_id)
-        unique_owners = len(users)
-        
-        stats = (
-            f"📊 {to_small_caps('statistics')}\n\n"
-            f"🌍 {to_small_caps('total grabbed')} {global_count}\n"
-            f"👥 {to_small_caps('unique owners')} {unique_owners}\n"
-            f"📈 {to_small_caps('avg per user')} {global_count/unique_owners if unique_owners > 0 else 0:.1f}"
-        )
-        
-        await query.answer(stats, show_alert=True)
-        
-    except Exception as e:
-        print(f"Error showing stats: {e}")
-        await query.answer(to_small_caps("error loading stats"), show_alert=True)
-
-
-# ==================== HANDLER REGISTRATION ====================
-
-# Telegram handlers
-application.add_handler(CommandHandler('check', check_character, block=False))
-application.add_handler(CommandHandler('find', find_character, block=False))
-application.add_handler(CallbackQueryHandler(handle_show_owners, pattern=r'^show_owners_', block=False))
-application.add_handler(CallbackQueryHandler(handle_back_to_card, pattern=r'^back_to_card_', block=False))
-application.add_handler(CallbackQueryHandler(handle_char_stats, pattern=r'^char_stats_', block=False))
