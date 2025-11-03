@@ -299,7 +299,7 @@ async def check_character(update: Update, context: CallbackContext) -> None:
 # ==================== /FIND COMMAND ====================
 
 async def find_character(update: Update, context: CallbackContext) -> None:
-    """Find character by name"""
+    """Find character by name with complete info and counts"""
     try:
         if not context.args:
             await update.message.reply_text(
@@ -314,7 +314,7 @@ async def find_character(update: Update, context: CallbackContext) -> None:
         # Search characters
         characters = await collection.find({
             'name': {'$regex': char_name, '$options': 'i'}
-        }).limit(10).to_list(length=10)
+        }).to_list(length=None)
         
         if not characters:
             await update.message.reply_text(
@@ -323,19 +323,62 @@ async def find_character(update: Update, context: CallbackContext) -> None:
             )
             return
         
-        # Build response
-        response = f"<b>🔍 {to_small_caps('search results for')}</b> <code>{escape(char_name)}</code>\n\n"
+        # Count character names
+        name_counts = {}
+        char_data = {}
+        for char in characters:
+            name = char.get('name', 'Unknown')
+            if name not in name_counts:
+                name_counts[name] = 0
+                char_data[name] = char
+            name_counts[name] += 1
         
-        for char in characters[:10]:
-            rarity_emoji = get_rarity_color(char.get('rarity', ''))
-            response += (
-                f"{rarity_emoji} <code>{char.get('id', '??')}</code> "
-                f"<b>{escape(char.get('name', 'Unknown'))}</b>\n"
-                f"   ↳ {to_small_caps('from')} <i>{escape(char.get('anime', 'Unknown'))}</i>\n\n"
-            )
+        # Build response header
+        total_chars = len(characters)
+        unique_names = len(name_counts)
         
-        if len(characters) == 10:
-            response += f"\n<i>{to_small_caps('showing first 10 results')}</i>"
+        response = f"""<b>╭━━━━━━━━━━━━━━━━━╮</b>
+<b>┃  🔍 {to_small_caps('search results')}  ┃</b>
+<b>╰━━━━━━━━━━━━━━━━━╯</b>
+
+<b>🔎 {to_small_caps('query')}</b> <code>{escape(char_name)}</code>
+<b>📊 {to_small_caps('total found')}</b> <code>{total_chars}</code>
+<b>👤 {to_small_caps('unique characters')}</b> <code>{unique_names}</code>
+
+<b>━━━━━━━━━━━━━━━━━</b>
+
+"""
+        
+        # Show all characters with full info
+        for i, (name, count) in enumerate(sorted(name_counts.items()), 1):
+            char = char_data[name]
+            char_id = char.get('id', '??')
+            char_anime = char.get('anime', 'Unknown')
+            char_rarity = char.get('rarity', '🟢 Common')
+            
+            # Extract rarity
+            if isinstance(char_rarity, str):
+                rarity_parts = char_rarity.split(' ', 1)
+                rarity_emoji = rarity_parts[0] if len(rarity_parts) > 0 else '🟢'
+                rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
+            else:
+                rarity_emoji = '🟢'
+                rarity_text = 'Common'
+            
+            # Get global count
+            global_count = await get_global_count(char_id)
+            
+            response += f"<b>{i}. {escape(name)}</b>"
+            if count > 1:
+                response += f" <code>x{count}</code>"
+            response += f"\n"
+            response += f"   🆔 <code>{char_id}</code>\n"
+            response += f"   📺 <i>{escape(char_anime)}</i>\n"
+            response += f"   {rarity_emoji} {to_small_caps(rarity_text)}\n"
+            response += f"   🌍 <code>{global_count}x</code> {to_small_caps('grabbed')}\n\n"
+        
+        response += f"<b>━━━━━━━━━━━━━━━━━</b>\n"
+        response += f"<i>{to_small_caps('use')} /check [id] {to_small_caps('for more details')}</i>"
         
         await update.message.reply_text(response, parse_mode='HTML')
         
