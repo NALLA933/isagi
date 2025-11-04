@@ -11,14 +11,15 @@ PHOTOS = [
 ]
 
 TIPS = [
-    "ᴜsᴇ /ᴄʟᴀɪᴍ ᴅᴀɪʟʏ ғᴏʀ ғʀᴇᴇ ɢᴏʟᴅ",
-    "ɪɴᴠɪᴛᴇ ғʀɪᴇɴᴅs ᴛᴏ ᴇᴀʀɴ ɢᴏʟᴅ",
-    "ᴘʟᴀʏ ɢᴀᴍᴇs ᴛᴏ ɢᴀɪɴ xᴘ",
-    "ᴄᴏʟʟᴇᴄᴛ ʀᴀʀᴇ sʟᴀᴠᴇs",
-    "ᴜsᴇ /ʙᴀʟ ᴛᴏ ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ",
+    "ᴜsᴇ /ʜᴄʟᴀɪᴍ ғᴏʀ ᴅᴀɪʟʏ sʟᴀᴠᴇ ʀᴇᴡᴀʀᴅs",
+    "ᴄʜᴇᴄᴋ /ʙᴀʟ ᴛᴏ ᴍᴀɴᴀɢᴇ ʏᴏᴜʀ ᴡᴀʟʟᴇᴛ ᴀɴᴅ ʙᴀɴᴋ",
+    "ᴜsᴇ /ғᴀᴠ ᴛᴏ ᴍᴀʀᴋ ʏᴏᴜʀ ғᴀᴠᴏʀɪᴛᴇ sʟᴀᴠᴇs",
+    "ᴇxᴘʟᴏʀᴇ ɴᴇᴡ ᴀʀᴇᴀs ᴡɪᴛʜ /ᴇxᴘʟᴏʀᴇ ᴄᴏᴍᴍᴀɴᴅ",
+    "ᴛʀᴀᴅᴇ sʟᴀᴠᴇs ᴡɪᴛʜ ᴏᴛʜᴇʀ ᴘʟᴀʏᴇʀs ғᴏʀ ᴘʀᴏғɪᴛ",
+    "ᴄᴏᴍᴘʟᴇᴛᴇ ᴅᴀɪʟʏ ǫᴜᴇsᴛs ᴛᴏ ᴇᴀʀɴ ʙᴏɴᴜsᴇs",
+    "ᴊᴏɪɴ ᴛᴏᴜʀɴᴀᴍᴇɴᴛs ᴡɪᴛʜ /sᴛᴏᴜʀ ᴄᴏᴍᴍᴀɴᴅ",
 ]
 
-# Store current state to detect duplicates
 user_states = {}
 
 async def get_user_balance(user_id):
@@ -32,115 +33,282 @@ def get_main_keyboard(user_id):
     return [
         [
             InlineKeyboardButton("ɢᴀᴍᴇs", callback_data=f'help_games_{user_id}'),
-            InlineKeyboardButton("ᴇᴄᴏɴᴏᴍʏ", callback_data=f'help_economy_{user_id}')
+            InlineKeyboardButton("ᴇᴄᴏɴᴏᴍʏ", callback_data=f'help_economy_{user_id}'),
+            InlineKeyboardButton("sʟᴀᴠᴇs", callback_data=f'help_slaves_{user_id}')
         ],
         [
-            InlineKeyboardButton("sʟᴀᴠᴇs", callback_data=f'help_slaves_{user_id}'),
-            InlineKeyboardButton("ᴘᴀss", callback_data=f'help_pass_{user_id}')
+            InlineKeyboardButton("ᴛʀᴀᴅɪɴɢ", callback_data=f'help_trading_{user_id}'),
+            InlineKeyboardButton("ᴘʀᴏғɪʟᴇ", callback_data=f'help_profile_{user_id}'),
+            InlineKeyboardButton("sᴏᴄɪᴀʟ", callback_data=f'help_social_{user_id}')
         ],
         [
-            InlineKeyboardButton("ʀᴀɴᴋɪɴɢs", callback_data=f'help_top_{user_id}'),
-            InlineKeyboardButton("ʀᴇᴡᴀʀᴅs", callback_data=f'help_rewards_{user_id}')
+            InlineKeyboardButton("ʀᴀɴᴋɪɴɢs", callback_data=f'help_rankings_{user_id}'),
+            InlineKeyboardButton("sᴛᴏʀᴇ", callback_data=f'help_store_{user_id}'),
+            InlineKeyboardButton("ᴀᴅᴠᴀɴᴄᴇᴅ", callback_data=f'help_advanced_{user_id}')
         ]
     ]
 
 def get_main_caption(first_name, balance):
-    # Always use a random photo and tip to make content unique
-    return f"""<a href="{random.choice(PHOTOS)}">&#8203;</a>✦ <b>ʜᴇʟᴘ ᴄᴇɴᴛᴇʀ</b>
+    return f"""<a href="{random.choice(PHOTOS)}">&#8203;</a><b>╔═══════════════════╗
+║  ᴄᴏᴍᴍᴀɴᴅ ᴄᴇɴᴛᴇʀ  ║
+╚═══════════════════╝</b>
 
-╰┈➤ ʜᴇʏ <b>{first_name}</b>
-╰┈➤ ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ
+<b>┌─ ᴜsᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>
+<b>├</b> ᴜsᴇʀ <b>{first_name}</b>
+<b>├</b> ʙᴀʟᴀɴᴄᴇ <b>{balance:,}</b> ɢᴏʟᴅ
+<b>└─ sᴛᴀᴛᴜs</b> ᴀᴄᴛɪᴠᴇ
 
-✦ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: <b>{balance}</b>
+<b>┌─ sʏsᴛᴇᴍ ᴛɪᴘ</b>
+<b>└─</b> <i>{random.choice(TIPS)}</i>
 
-<i>{random.choice(TIPS)}</i>"""
+<b>▸</b> sᴇʟᴇᴄᴛ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ"""
 
 def get_category_caption(action):
     photo = random.choice(PHOTOS)
     captions = {
-        'games': f"""<a href="{photo}">&#8203;</a>✦ <b>ɢᴀᴍᴇ ᴢᴏɴᴇ</b>
+        'games': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║   ɢᴀᴍᴇ ᴢᴏɴᴇ    ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ɢᴀᴍʙʟɪɴɢ</b>
-<code>/sbet 10000 heads</code> ᴄᴏɪɴ ᴛᴏss
-<code>/roll 10000 even</code> ᴅɪᴄᴇ ʀᴏʟʟ
-<code>/gamble 10000 l</code> ʟᴇғᴛ ᴏʀ ʀɪɢʜᴛ
+<b>┌─ ɢᴀᴍʙʟɪɴɢ sʏsᴛᴇᴍ</b>
+<b>├</b> <code>/sbet [amount] [heads/tails]</code>
+<b>│</b>  ᴄᴏɪɴ ғʟɪᴘ ɢᴀᴍʙʟᴇ
+<b>├</b> <code>/roll [amount] [even/odd]</code>
+<b>│</b>  ᴅɪᴄᴇ ʀᴏʟʟ ʙᴇᴛᴛɪɴɢ
+<b>└</b> <code>/gamble [amount] [l/r]</code>
+   ʟᴇғᴛ ᴏʀ ʀɪɢʜᴛ ᴄʜᴀʟʟᴇɴɢᴇ
 
-╰┈➤ <b>sᴋɪʟʟ ɢᴀᴍᴇs</b>
-<code>/basket 5000</code> ʙᴀsᴋᴇᴛʙᴀʟʟ
-<code>/dart 2000</code> ᴅᴀʀᴛ ɢᴀᴍᴇ
+<b>┌─ sᴋɪʟʟ ʙᴀsᴇᴅ</b>
+<b>├</b> <code>/basket [amount]</code>
+<b>│</b>  ʙᴀsᴋᴇᴛʙᴀʟʟ sʜᴏᴏᴛɪɴɢ
+<b>├</b> <code>/dart [amount]</code>
+<b>│</b>  ᴘʀᴇᴄɪsɪᴏɴ ᴅᴀʀᴛ ᴛʜʀᴏᴡ
+<b>└</b> <code>/riddle</code>
+   ʙʀᴀɪɴ ᴛᴇᴀsᴇʀ ᴄʜᴀʟʟᴇɴɢᴇ
 
-╰┈➤ <b>sᴘᴇᴄɪᴀʟ</b>
-<code>/riddle</code> sᴏʟᴠᴇ ᴀɴᴅ ᴇᴀʀɴ
-<code>/stour</code> sʟᴀᴠᴇ ᴛᴏᴜʀɴᴀᴍᴇɴᴛs""",
+<b>┌─ ᴄᴏᴍᴘᴇᴛɪᴛɪᴠᴇ</b>
+<b>├</b> <code>/stour</code> sʟᴀᴠᴇ ᴛᴏᴜʀɴᴀᴍᴇɴᴛ
+<b>├</b> <code>/games</code> ɢᴀᴍᴇ ᴍᴇɴᴜ
+<b>├</b> <code>/gamestats</code> ʏᴏᴜʀ sᴛᴀᴛs
+<b>└</b> <code>/leaderboard</code> ᴛᴏᴘ ᴘʟᴀʏᴇʀs""",
 
-        'economy': f"""<a href="{photo}">&#8203;</a>✦ <b>ᴇᴄᴏɴᴏᴍʏ</b>
+        'economy': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  ᴇᴄᴏɴᴏᴍʏ ʜᴜʙ  ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ</b>
-<code>/bal</code> ᴡᴀʟʟᴇᴛ ᴀɴᴅ ʙᴀɴᴋ
-<code>/sinv</code> ɪɴᴠᴇɴᴛᴏʀʏ
+<b>┌─ ᴡᴀʟʟᴇᴛ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ</b>
+<b>├</b> <code>/bal</code>
+<b>│</b>  ᴠɪᴇᴡ ʙᴀʟᴀɴᴄᴇ ᴀɴᴅ ʙᴀɴᴋ
+<b>├</b> <code>/deposit [amount]</code>
+<b>│</b>  sᴛᴏʀᴇ ɢᴏʟᴅ sᴀғᴇʟʏ
+<b>├</b> <code>/withdraw [amount]</code>
+<b>│</b>  ʀᴇᴛʀɪᴇᴠᴇ ғʀᴏᴍ ʙᴀɴᴋ
+<b>└</b> <code>/pay @user [amount]</code>
+   ᴛʀᴀɴsғᴇʀ ɢᴏʟᴅ
 
-╰┈➤ <b>ᴛʀᴀɴsᴀᴄᴛɪᴏɴs</b>
-<code>/pay @user 1000</code> sᴇɴᴅ ɢᴏʟᴅ
-<code>/claim</code> ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅ
+<b>┌─ ʟᴏᴀɴ sʏsᴛᴇᴍ</b>
+<b>├</b> <code>/loan [amount]</code>
+<b>│</b>  ʙᴏʀʀᴏᴡ ɢᴏʟᴅ
+<b>└</b> <code>/repay [amount]</code>
+   ᴘᴀʏ ʙᴀᴄᴋ ʟᴏᴀɴ
 
-╰┈➤ <b>ʀᴇᴡᴀʀᴅs</b>
-<code>/daily</code> ᴅᴀɪʟʏ ʙᴏɴᴜs
-<code>/weekly</code> ᴡᴇᴇᴋʟʏ ʙᴏɴᴜs""",
+<b>┌─ ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅs</b>
+<b>├</b> <code>/cclaim</code> ᴅᴀɪʟʏ ɢᴏʟᴅ
+<b>├</b> <code>/daily</code> ʙᴏɴᴜs ʀᴇᴡᴀʀᴅ
+<b>└</b> <code>/xp</code> ᴇxᴘᴇʀɪᴇɴᴄᴇ ᴘᴏɪɴᴛs
 
-        'slaves': f"""<a href="{photo}">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>
+<b>┌─ ʜᴇʟᴘ</b>
+<b>├</b> <code>/bankhelp</code> ɢᴜɪᴅᴇ
+<b>└</b> <code>/bankexample</code> ᴇxᴀᴍᴘʟᴇs""",
 
-╰┈➤ <b>ᴄᴀᴛᴄʜɪɴɢ</b>
-<code>/grab name</code> ᴄᴀᴛᴄʜ sʟᴀᴠᴇ
-sᴘᴀᴡɴs ᴇᴠᴇʀʏ 100 ᴍᴇssᴀɢᴇs
+        'slaves': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║ sʟᴀᴠᴇ sʏsᴛᴇᴍ ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>
-<code>/harem</code> ʏᴏᴜʀ sʟᴀᴠᴇs
-<code>/slaves</code> ᴀʟʟ sʟᴀᴠᴇs
-<code>/smode</code> sᴏʀᴛ ʙʏ ʀᴀɴᴋ
+<b>┌─ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>
+<b>├</b> <code>/grab [name]</code>
+<b>│</b>  ᴄᴀᴛᴄʜ sᴘᴀᴡɴᴇᴅ sʟᴀᴠᴇ
+<b>├</b> <code>/harem</code>
+<b>│</b>  ᴠɪᴇᴡ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
+<b>├</b> <code>/smode</code>
+<b>│</b>  sᴏʀᴛ ʙʏ ʀᴀʀɪᴛʏ
+<b>└</b> <code>/hclaim</code>
+   ᴅᴀɪʟʏ sʟᴀᴠᴇ ʀᴇᴡᴀʀᴅ
 
-╰┈➤ <b>ᴛʀᴀᴅɪɴɢ</b>
-<code>/trade</code> ᴛʀᴀᴅᴇ ᴡɪᴛʜ ᴏᴛʜᴇʀs
-<code>/sinfo id</code> sʟᴀᴠᴇ ᴅᴇᴛᴀɪʟs""",
+<b>┌─ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ</b>
+<b>├</b> <code>/fav [id]</code>
+<b>│</b>  ᴍᴀʀᴋ ғᴀᴠᴏʀɪᴛᴇ
+<b>├</b> <code>/unfav [id]</code>
+<b>│</b>  ʀᴇᴍᴏᴠᴇ ғᴀᴠᴏʀɪᴛᴇ
+<b>└</b> <code>/gift @user [id]</code>
+   ɢɪғᴛ ᴛᴏ ᴜsᴇʀ
 
-        'pass': f"""<a href="{photo}">&#8203;</a>✦ <b>sʟᴀᴠᴇ ᴘᴀss</b>
+<b>┌─ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>
+<b>├</b> <code>/check [name]</code>
+<b>│</b>  sʟᴀᴠᴇ ᴅᴇᴛᴀɪʟs
+<b>├</b> <code>/find [name]</code>
+<b>│</b>  sᴇᴀʀᴄʜ sʟᴀᴠᴇs
+<b>└</b> <code>/explore</code>
+   ᴅɪsᴄᴏᴠᴇʀ ɴᴇᴡ ᴀʀᴇᴀs""",
 
-╰┈➤ <b>ᴡᴇᴇᴋʟʏ ʀᴇᴡᴀʀᴅs</b>
-<code>/claim</code> ᴄʟᴀɪᴍ ᴡᴇᴇᴋʟʏ
-<code>/sweekly</code> ʙᴏɴᴜs ᴀғᴛᴇʀ 6 ᴄʟᴀɪᴍs
-<code>/pbonus</code> ᴄᴏᴍᴘʟᴇᴛᴇ ᴛᴀsᴋs
+        'trading': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  ᴛʀᴀᴅᴇ ᴄᴇɴᴛᴇʀ  ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ʙᴇɴᴇғɪᴛs</b>
-ᴇxᴄʟᴜsɪᴠᴇ sʟᴀᴠᴇs
-ᴇxᴛʀᴀ ɢᴏʟᴅ ʀᴇᴡᴀʀᴅs
-sᴘᴇᴄɪᴀʟ ᴇᴠᴇɴᴛs
+<b>┌─ ᴛʀᴀᴅɪɴɢ sʏsᴛᴇᴍ</b>
+<b>├</b> <code>/trade @user</code>
+<b>│</b>  ɪɴɪᴛɪᴀᴛᴇ ᴛʀᴀᴅᴇ
+<b>├</b> <code>/gift @user [id]</code>
+<b>│</b>  ɢɪғᴛ sʟᴀᴠᴇ
+<b>└</b> <code>/pay @user [amount]</code>
+   sᴇɴᴅ ɢᴏʟᴅ
 
-╰┈➤ <code>/pass</code> ᴠɪᴇᴡ sᴛᴀᴛᴜs""",
+<b>┌─ ᴍᴀʀᴋᴇᴛᴘʟᴀᴄᴇ</b>
+<b>├</b> <code>/store</code>
+<b>│</b>  ʙʀᴏᴡsᴇ sᴛᴏʀᴇ
+<b>├</b> <code>/addshop [item]</code>
+<b>│</b>  ʟɪsᴛ ғᴏʀ sᴀʟᴇ
+<b>└</b> <code>/rmshop [item]</code>
+   ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ
 
-        'top': f"""<a href="{photo}">&#8203;</a>✦ <b>ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅs</b>
+<b>┌─ ᴠᴀʟᴜᴀᴛɪᴏɴ</b>
+<b>├</b> <code>/sinfo [id]</code>
+<b>│</b>  sʟᴀᴠᴇ ᴠᴀʟᴜᴇ
+<b>└</b> <code>/check [name]</code>
+   ᴍᴀʀᴋᴇᴛ ᴘʀɪᴄᴇ""",
 
-╰┈➤ <b>ᴘʟᴀʏᴇʀ ʀᴀɴᴋɪɴɢs</b>
-<code>/tops</code> ʀɪᴄʜᴇsᴛ ʜᴜɴᴛᴇʀs
-<code>/xtop</code> ʜɪɢʜᴇsᴛ xᴘ
-<code>/gstop</code> ᴍᴏsᴛ ɢᴏʟᴅ
-<code>/tophunters</code> ᴇʟɪᴛᴇ ʟɪsᴛ
+        'profile': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  ᴜsᴇʀ ᴘʀᴏғɪʟᴇ  ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ɢʀᴏᴜᴘ sᴛᴀᴛs</b>
-<code>/topchat</code> ᴀᴄᴛɪᴠᴇ ᴄʜᴀᴛs
-<code>/topgroups</code> ᴛᴏᴘ ɢʀᴏᴜᴘs""",
+<b>┌─ sᴛᴀᴛɪsᴛɪᴄs</b>
+<b>├</b> <code>/stats</code>
+<b>│</b>  ʏᴏᴜʀ ᴏᴠᴇʀᴀʟʟ sᴛᴀᴛs
+<b>├</b> <code>/gamestats</code>
+<b>│</b>  ɢᴀᴍɪɴɢ ʀᴇᴄᴏʀᴅ
+<b>└</b> <code>/xp</code>
+   ᴇxᴘᴇʀɪᴇɴᴄᴇ ʟᴇᴠᴇʟ
 
-        'rewards': f"""<a href="{photo}">&#8203;</a>✦ <b>ʀᴇᴡᴀʀᴅs</b>
+<b>┌─ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b>
+<b>├</b> <code>/ps</code>
+<b>│</b>  ᴘʀᴏғɪʟᴇ sᴇᴛᴛɪɴɢs
+<b>├</b> <code>/pstats</code>
+<b>│</b>  ᴘʀᴏғɪʟᴇ sᴛᴀᴛs
+<b>├</b> <code>/pview</code>
+<b>│</b>  ᴠɪᴇᴡ ᴘʀᴏғɪʟᴇ
+<b>└</b> <code>/pconfig</code>
+   ᴄᴏɴғɪɢᴜʀᴇ sᴇᴛᴛɪɴɢs
 
-╰┈➤ <b>ᴅᴀɪʟʏ</b>
-<code>/claim</code> 2000 ɢᴏʟᴅ ᴅᴀɪʟʏ
-<code>/daily</code> ʙᴏɴᴜs ɢᴏʟᴅ
-<code>/hclaim</code> ᴅᴀɪʟʏ sʟᴀᴠᴇ
+<b>┌─ ᴘʀᴇғᴇʀᴇɴᴄᴇs</b>
+<b>├</b> <code>/notifications</code>
+<b>│</b>  ᴛᴏɢɢʟᴇ ᴀʟᴇʀᴛs
+<b>├</b> <code>/prarity</code>
+<b>│</b>  sᴇᴛ ʀᴀʀɪᴛʏ
+<b>└</b> <code>/preset</code>
+   ʀᴇsᴇᴛ sᴇᴛᴛɪɴɢs""",
 
-╰┈➤ <b>ᴡᴇᴇᴋʟʏ</b>
-<code>/weekly</code> ᴡᴇᴇᴋʟʏ ʀᴇᴡᴀʀᴅ
-<code>/sweekly</code> ᴘᴀss ʙᴏɴᴜs
+        'social': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  sᴏᴄɪᴀʟ ʜᴜʙ   ║
+╚═══════════════════╝</b>
 
-╰┈➤ <b>ʀᴇғᴇʀʀᴀʟ</b>
-ɪɴᴠɪᴛᴇ ғʀɪᴇɴᴅs ғᴏʀ 1000 ɢᴏʟᴅ"""
+<b>┌─ ʀᴇʟᴀᴛɪᴏɴsʜɪᴘs</b>
+<b>├</b> <code>/propose @user</code>
+<b>│</b>  ᴍᴀʀʀɪᴀɢᴇ ᴘʀᴏᴘᴏsᴀʟ
+<b>├</b> <code>/marry @user</code>
+<b>│</b>  ᴍᴀʀʀʏ ᴜsᴇʀ
+<b>└</b> <code>/dice</code>
+   ʀᴀɴᴅᴏᴍ ᴍᴀᴛᴄʜ
+
+<b>┌─ ᴄᴏᴍᴍᴜɴɪᴛʏ</b>
+<b>├</b> <code>/topchat</code>
+<b>│</b>  ᴀᴄᴛɪᴠᴇ ᴄʜᴀᴛs
+<b>├</b> <code>/topgroups</code>
+<b>│</b>  ᴛᴏᴘ ɢʀᴏᴜᴘs
+<b>└</b> <code>/raid</code>
+   ɢʀᴏᴜᴘ ᴇᴠᴇɴᴛ
+
+<b>┌─ ᴀᴅᴍɪɴ</b>
+<b>├</b> <code>/list</code>
+<b>│</b>  ᴜsᴇʀ ʟɪsᴛ
+<b>└</b> <code>/groups</code>
+   ɢʀᴏᴜᴘ ʟɪsᴛ""",
+
+        'rankings': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅs  ║
+╚═══════════════════╝</b>
+
+<b>┌─ ɢʟᴏʙᴀʟ ʀᴀɴᴋɪɴɢs</b>
+<b>├</b> <code>/gstop</code>
+<b>│</b>  ᴛᴏᴘ ɢᴏʟᴅ ʜᴏʟᴅᴇʀs
+<b>├</b> <code>/xtop</code>
+<b>│</b>  ʜɪɢʜᴇsᴛ xᴘ
+<b>├</b> <code>/tops</code>
+<b>│</b>  ʀɪᴄʜᴇsᴛ ᴘʟᴀʏᴇʀs
+<b>└</b> <code>/tophunters</code>
+   ᴇʟɪᴛᴇ ʜᴜɴᴛᴇʀs
+
+<b>┌─ ɢᴀᴍᴇ ʀᴀɴᴋɪɴɢs</b>
+<b>├</b> <code>/leaderboard</code>
+<b>│</b>  ɢᴀᴍᴇ ʟᴇᴀᴅᴇʀs
+<b>└</b> <code>/gamestats</code>
+   ʏᴏᴜʀ ɢᴀᴍᴇ ʀᴀɴᴋ
+
+<b>┌─ ᴄᴏᴍᴍᴜɴɪᴛʏ</b>
+<b>├</b> <code>/topchat</code>
+<b>│</b>  ᴀᴄᴛɪᴠᴇ ᴄʜᴀᴛs
+<b>└</b> <code>/topgroups</code>
+   ᴛᴏᴘ ɢʀᴏᴜᴘs""",
+
+        'store': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║  ᴍᴀʀᴋᴇᴛᴘʟᴀᴄᴇ  ║
+╚═══════════════════╝</b>
+
+<b>┌─ sʜᴏᴘᴘɪɴɢ</b>
+<b>├</b> <code>/store</code>
+<b>│</b>  ʙʀᴏᴡsᴇ ɪᴛᴇᴍs
+<b>└</b> <code>/sinv</code>
+   ʏᴏᴜʀ ɪɴᴠᴇɴᴛᴏʀʏ
+
+<b>┌─ sᴇʟʟɪɴɢ</b>
+<b>├</b> <code>/addshop [item]</code>
+<b>│</b>  ʟɪsᴛ ɪᴛᴇᴍ
+<b>└</b> <code>/rmshop [item]</code>
+   ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ
+
+<b>┌─ sᴘᴇᴄɪᴀʟ</b>
+<b>├</b> ᴘʀᴇᴍɪᴜᴍ ɪᴛᴇᴍs
+<b>├</b> ʟɪᴍɪᴛᴇᴅ ᴇᴅɪᴛɪᴏɴs
+<b>└</b> sᴇᴀsᴏɴᴀʟ ᴏғғᴇʀs""",
+
+        'advanced': f"""<a href="{photo}">&#8203;</a><b>╔═══════════════════╗
+║ ᴀᴅᴠᴀɴᴄᴇᴅ sʏsᴛᴇᴍ ║
+╚═══════════════════╝</b>
+
+<b>┌─ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ</b>
+<b>├</b> <code>/pconfig</code>
+<b>│</b>  ᴘʀᴏғɪʟᴇ sᴇᴛᴛɪɴɢs
+<b>├</b> <code>/prarity</code>
+<b>│</b>  sᴇᴛ ʀᴀʀɪᴛʏ
+<b>├</b> <code>/prmrarity</code>
+<b>│</b>  ʀᴇᴍᴏᴠᴇ ʀᴀʀɪᴛʏ
+<b>└</b> <code>/preset</code>
+   ʀᴇsᴇᴛ ᴀʟʟ
+
+<b>┌─ ᴜᴛɪʟɪᴛʏ</b>
+<b>├</b> <code>/phelp</code>
+<b>│</b>  ᴘʀᴏғɪʟᴇ ɢᴜɪᴅᴇ
+<b>├</b> <code>/pview</code>
+<b>│</b>  ᴠɪᴇᴡ sᴇᴛᴛɪɴɢs
+<b>└</b> <code>/notifications</code>
+   ᴀʟᴇʀᴛ ᴍᴀɴᴀɢᴇʀ
+
+<b>┌─ ʜᴇʟᴘ</b>
+<b>├</b> <code>/helpgames</code>
+<b>│</b>  ɢᴀᴍᴇ ɢᴜɪᴅᴇ
+<b>├</b> <code>/bankhelp</code>
+<b>│</b>  ʙᴀɴᴋɪɴɢ ɢᴜɪᴅᴇ
+<b>└</b> <code>/bankexample</code>
+   ᴇxᴀᴍᴘʟᴇs"""
     }
     return captions.get(action, "")
 
@@ -158,10 +326,9 @@ async def help_command(update: Update, context: CallbackContext):
             parse_mode="HTML",
             disable_web_page_preview=False
         )
-        
-        # Store initial state
+
         user_states[user.id] = 'main'
-        
+
     except Exception as e:
         print(f"Error in help_command: {e}")
 
@@ -176,20 +343,16 @@ async def help_callback(update: Update, context: CallbackContext):
         user_id = query.from_user.id
 
         if user_id != expected_user_id:
-            await query.answer("ᴛʜɪs ɪsɴ'ᴛ ғᴏʀ ʏᴏᴜ", show_alert=True)
+            await query.answer("ᴛʜɪs ɪɴᴛᴇʀғᴀᴄᴇ ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ", show_alert=True)
             return
 
-        # Check if user is already on this page
         current_state = user_states.get(user_id)
-        
+
         if current_state == action:
-            # User clicked the same button - just answer the callback without editing
-            await query.answer("ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ʜᴇʀᴇ", show_alert=False)
+            await query.answer("ᴀʟʀᴇᴀᴅʏ ᴏɴ ᴛʜɪs ᴘᴀɢᴇ", show_alert=False)
             return
 
-        # Update state
         user_states[user_id] = action
-        
         await query.answer()
 
         if action == 'back':
@@ -224,13 +387,10 @@ async def help_callback(update: Update, context: CallbackContext):
                     if "message is not modified" not in str(e).lower():
                         raise
             else:
-                await query.answer("ɪɴᴠᴀʟɪᴅ ᴄᴀᴛᴇɢᴏʀʏ", show_alert=True)
+                await query.answer("ᴄᴀᴛᴇɢᴏʀʏ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
 
     except BadRequest as e:
-        if "message is not modified" in str(e).lower():
-            # Silently ignore this specific error
-            pass
-        else:
+        if "message is not modified" not in str(e).lower():
             print(f"BadRequest in help_callback: {e}")
     except Exception as e:
         print(f"Error in help_callback: {e}")
