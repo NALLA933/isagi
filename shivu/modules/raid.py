@@ -13,7 +13,7 @@ raid_cooldown_collection = db['raid_cooldown']
 active_raids_collection = db['active_raids']
 
 LOGGER = logging.getLogger(__name__)
-OWNER_ID = 5147822244
+OWNER_ID = 8420981179
 GLOBAL_SETTINGS_ID = "global_raid_settings"
 
 RARITY_MAP = {
