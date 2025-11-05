@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id not in sudo_users and user_id != OWNER_ID and user_id != 5147822244:
+    if user_id not in sudo_users and user_id != OWNER_ID and user_id != 8420981179:
         return
     
     try:
