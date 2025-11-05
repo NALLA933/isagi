@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 from datetime import datetime
 from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,11 +11,19 @@ from shivu import sudo_users as SUDO_USERS
 
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
+# Video URLs for random preview
+VIDEOS = [
+    "https://files.catbox.moe/csqqb2.mp4",
+    "https://files.catbox.moe/dpeatb.mp4"
+]
+
 def sc(text): return text.translate(str.maketrans("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
 def badge(r): return "★ 1ꜱᴛ ★" if r==1 else "★ 2ɴᴅ ★" if r==2 else "★ 3ʀᴅ ★" if r==3 else f"ᴛᴏᴘ {r}" if r<=10 else f"#{r}"
 
 def bar(c, m, l=10): f=int((c/m)*l) if m>0 else 0; return "▰"*f+"▱"*(l-f)
+
+def get_video(): return random.choice(VIDEOS)
 
 async def anim(msg, txt):
     try:
@@ -35,7 +44,8 @@ async def global_leaderboard(update: Update, context: CallbackContext, edit=Fals
         
         if not data: return await msg.edit_text(sc("no data available."))
         
-        cap = f"<b>⸻ {sc('top global groups')} ⸻</b>\n\n"
+        vid = get_video()
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('top global groups')} ⸻</b>\n\n"
         for i, g in enumerate(data, 1):
             n = escape(g.get('group_name', 'Unknown'))[:22]; c = g.get("count", 0)
             cap += f"<b>{badge(i)}</b>\n<blockquote>{sc(n)}\n{bar(c, data[0]['count'], 12)}\n{sc('chars')}: <b>{c:,}</b></blockquote>\n\n"
@@ -65,7 +75,8 @@ async def ctop(update: Update, context: CallbackContext, edit=False, cid=None):
         if not data: return await msg.edit_text(sc("no data."))
         
         tot = sum(u['character_count'] for u in data)
-        cap = f"<b>⸻ {sc('top chat')} ⸻</b>\n\n<b>{sc('chat')}</b>: {sc(title)}\n\n"
+        vid = get_video()
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('top chat')} ⸻</b>\n\n<b>{sc('chat')}</b>: {sc(title)}\n\n"
         for i, u in enumerate(data, 1):
             uid = u.get('user_id', u.get('_id')); n = escape(u.get('first_name', 'Unknown'))[:17]; c = u.get("character_count", 0)
             pct = (c/tot*100) if tot>0 else 0; m = f"<a href='tg://user?id={uid}'>{sc(n)}</a>"
@@ -92,7 +103,8 @@ async def leaderboard(update: Update, context: CallbackContext, edit=False, lim=
         
         if not data: return await msg.edit_text(sc("no data."))
         
-        cap = f"<b>⸻ {sc('global hall of fame' if lim==10 else f'top {lim}')} ⸻</b>\n\n"
+        vid = get_video()
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('global hall of fame' if lim==10 else f'top {lim}')} ⸻</b>\n\n"
         for i, u in enumerate(data, 1):
             uid = u.get('user_id', u.get('_id')); n = escape(u.get('first_name', 'Unknown'))[:17]; c = u.get("character_count", 0)
             m = f"<a href='tg://user?id={uid}'>{sc(n)}</a>"
@@ -117,8 +129,9 @@ async def my_rank(update: Update, context: CallbackContext, edit=False):
         user = await user_collection.find_one({'id': uid})
         task.cancel()
         
+        vid = get_video()
         if not user or 'characters' not in user:
-            cap = f"<b>⸻ {sc('no profile')} ⸻</b>\n\n<blockquote>{sc('start collecting!')}</blockquote>\n\n<b>⸻ {sc('system')} ⸻</b>"
+            cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('no profile')} ⸻</b>\n\n<blockquote>{sc('start collecting!')}</blockquote>\n\n<b>⸻ {sc('system')} ⸻</b>"
             btns = InlineKeyboardMarkup([[InlineKeyboardButton("🏆 ᴠɪᴇᴡ ᴛᴏᴘ", callback_data="lb_g")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
             return await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
         
@@ -129,7 +142,7 @@ async def my_rank(update: Update, context: CallbackContext, edit=False):
         pct = ((tot-r)/tot*100) if tot>0 else 0
         tier = "🌟 ʟᴇɢᴇɴᴅ" if r==1 else "💎 ᴍᴀꜱᴛᴇʀ" if r<=10 else "💠 ᴅɪᴀᴍᴏɴᴅ" if pct>=90 else "🔷 ᴘʟᴀᴛɪɴᴜᴍ" if pct>=75 else "🟡 ɢᴏʟᴅ" if pct>=50 else "⚪ ꜱɪʟᴠᴇʀ" if pct>=25 else "🟤 ʙʀᴏɴᴢᴇ"
         
-        cap = f"<b>⸻ {sc('your profile')} ⸻</b>\n\n<b>{sc('collector')}</b>\n<blockquote>{m}\n{sc('tier')}: {tier}</blockquote>\n\n<b>{sc('statistics')}</b>\n<blockquote>\n{sc('rank')}: <b>#{r:,}</b> / {tot:,}\n{sc('badge')}: <b>{badge(r)}</b>\n{sc('chars')}: <b>{cc:,}</b>\n{sc('percentile')}: <b>ᴛᴏᴘ {100-pct:.1f}%</b>\n</blockquote>\n\n<b>{sc('progress')}</b>\n<blockquote>{bar(pct, 100, 15)}</blockquote>\n\n<b>⸻ {sc('keep going!')} ⸻</b>"
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('your profile')} ⸻</b>\n\n<b>{sc('collector')}</b>\n<blockquote>{m}\n{sc('tier')}: {tier}</blockquote>\n\n<b>{sc('statistics')}</b>\n<blockquote>\n{sc('rank')}: <b>#{r:,}</b> / {tot:,}\n{sc('badge')}: <b>{badge(r)}</b>\n{sc('chars')}: <b>{cc:,}</b>\n{sc('percentile')}: <b>ᴛᴏᴘ {100-pct:.1f}%</b>\n</blockquote>\n\n<b>{sc('progress')}</b>\n<blockquote>{bar(pct, 100, 15)}</blockquote>\n\n<b>⸻ {sc('keep going!')} ⸻</b>"
         
         btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_mr"), InlineKeyboardButton("🏆 ᴛᴏᴘ", callback_data="lb_g")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
         await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
@@ -154,7 +167,8 @@ async def chat_stats(update: Update, context: CallbackContext, edit=False, cid=N
         tot = res[0]['total'] if res else 0
         top = await group_user_totals_collection.find_one({"group_id": cid}, sort=[("count", -1)])
         
-        cap = f"<b>⸻ {sc('chat stats')} ⸻</b>\n\n<b>{sc('chat')}</b>\n<blockquote>{sc(title)}</blockquote>\n\n<b>{sc('data')}</b>\n<blockquote>\n{sc('users')}: <b>{uc:,}</b>\n{sc('chars')}: <b>{tot:,}</b>\n{sc('avg')}: <b>{tot/uc:.1f}</b>\n</blockquote>"
+        vid = get_video()
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('chat stats')} ⸻</b>\n\n<b>{sc('chat')}</b>\n<blockquote>{sc(title)}</blockquote>\n\n<b>{sc('data')}</b>\n<blockquote>\n{sc('users')}: <b>{uc:,}</b>\n{sc('chars')}: <b>{tot:,}</b>\n{sc('avg')}: <b>{tot/uc:.1f}</b>\n</blockquote>"
         if top: cap += f"\n\n<b>{sc('top')}</b>\n<blockquote>{sc(escape(top.get('first_name', 'Unknown'))[:20])}\n{sc('count')}: <b>{top.get('count', 0):,}</b>\n</blockquote>"
         cap += f"\n\n<b>⸻ {sc('analytics')} ⸻</b>"
         
@@ -178,7 +192,8 @@ async def stats(update: Update, context: CallbackContext, edit=False):
         tc = res[0]['tot'] if res else 0
         task.cancel()
         
-        cap = f"<b>⸻ {sc('system stats')} ⸻</b>\n\n<b>{sc('database')}</b>\n<blockquote>\n{sc('users')}: <b>{u:,}</b>\n{sc('collectors')}: <b>{c:,}</b>\n{sc('groups')}: <b>{g:,}</b>\n{sc('chars')}: <b>{tc:,}</b>\n</blockquote>\n\n<b>{sc('analytics')}</b>\n<blockquote>\n{sc('avg')}: <b>{tc/c:.1f}</b>\n{sc('rate')}: <b>{(c/u*100):.1f}%</b>\n</blockquote>\n\n<b>⸻ {sc('bot system')} ⸻</b>\n<i>{sc('updated')}: {datetime.now().strftime('%H:%M:%S')}</i>"
+        vid = get_video()
+        cap = f"<a href='{vid}'>&#8205;</a><b>⸻ {sc('system stats')} ⸻</b>\n\n<b>{sc('database')}</b>\n<blockquote>\n{sc('users')}: <b>{u:,}</b>\n{sc('collectors')}: <b>{c:,}</b>\n{sc('groups')}: <b>{g:,}</b>\n{sc('chars')}: <b>{tc:,}</b>\n</blockquote>\n\n<b>{sc('analytics')}</b>\n<blockquote>\n{sc('avg')}: <b>{tc/c:.1f}</b>\n{sc('rate')}: <b>{(c/u*100):.1f}%</b>\n</blockquote>\n\n<b>⸻ {sc('bot system')} ⸻</b>\n<i>{sc('updated')}: {datetime.now().strftime('%H:%M:%S')}</i>"
         
         btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_st")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
         await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
