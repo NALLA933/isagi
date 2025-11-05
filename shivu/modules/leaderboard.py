@@ -5,560 +5,236 @@ from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 
-from shivu import (
-    application, OWNER_ID, user_collection, 
-    top_global_groups_collection, group_user_totals_collection
-)
+from shivu import application, OWNER_ID, user_collection, top_global_groups_collection, group_user_totals_collection
 from shivu import sudo_users as SUDO_USERS
 
 SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-def smallcaps(text: str) -> str:
-    """Convert text to small caps for aesthetic appeal"""
-    normal = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    small = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    return text.translate(str.maketrans(normal, small))
+def sc(text): return text.translate(str.maketrans("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
-def get_badge(rank):
-    """Get rank badge"""
-    if rank == 1: return "★ 1ꜱᴛ ★"
-    elif rank == 2: return "★ 2ɴᴅ ★"
-    elif rank == 3: return "★ 3ʀᴅ ★"
-    elif rank <= 10: return f"ᴛᴏᴘ {rank}"
-    return f"#{rank}"
+def badge(r): return "★ 1ꜱᴛ ★" if r==1 else "★ 2ɴᴅ ★" if r==2 else "★ 3ʀᴅ ★" if r==3 else f"ᴛᴏᴘ {r}" if r<=10 else f"#{r}"
 
-async def animate(msg, text):
-    """Simple loading animation"""
+def bar(c, m, l=10): f=int((c/m)*l) if m>0 else 0; return "▰"*f+"▱"*(l-f)
+
+async def anim(msg, txt):
     try:
-        for i in range(10):
-            frame = SPINNER[i % len(SPINNER)]
-            await msg.edit_text(f"{frame} {smallcaps(text)}")
-            await asyncio.sleep(0.2)
-    except Exception as e:
-        print(f"Animation error: {e}")
+        for i in range(8): await msg.edit_text(f"{SPINNER[i%len(SPINNER)]} {sc(txt)}"); await asyncio.sleep(0.2)
+    except: pass
 
-async def global_leaderboard(update: Update, context: CallbackContext) -> None:
-    """Top 10 groups globally"""
-    msg = await update.message.reply_text(smallcaps("loading..."))
+async def global_leaderboard(update: Update, context: CallbackContext, edit=False):
+    q = update.callback_query if edit else None
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    if edit: await q.answer(sc("refreshing..."))
     
-    animation_task = asyncio.create_task(animate(msg, "fetching global rankings"))
-    
+    task = asyncio.create_task(anim(msg, "fetching rankings"))
     try:
-        cursor = top_global_groups_collection.aggregate([
-            {"$project": {"group_name": 1, "count": 1}},
-            {"$sort": {"count": -1}},
-            {"$limit": 10}
-        ])
-        data = await cursor.to_list(length=10)
+        data = await top_global_groups_collection.aggregate([
+            {"$project": {"group_name": 1, "count": 1}}, {"$sort": {"count": -1}}, {"$limit": 10}
+        ]).to_list(10)
+        task.cancel()
         
-        animation_task.cancel()
+        if not data: return await msg.edit_text(sc("no data available."))
         
-        if not data:
-            await msg.edit_text(smallcaps("no group data available."))
-            return
-        
-        caption = f"""
-<b>⸻ {smallcaps('top global groups')} ⸻</b>
-
-"""
-        
+        cap = f"<b>⸻ {sc('top global groups')} ⸻</b>\n\n"
         for i, g in enumerate(data, 1):
-            name = escape(g.get('group_name', 'Unknown'))
-            if len(name) > 22:
-                name = name[:19] + "..."
-            count = g.get("count", 0)
-            
-            caption += f"<b>{get_badge(i)}</b>\n"
-            caption += f"<blockquote>{smallcaps(name)}\n"
-            caption += f"{smallcaps('characters')}: <b>{count:,}</b></blockquote>\n\n"
+            n = escape(g.get('group_name', 'Unknown'))[:22]; c = g.get("count", 0)
+            cap += f"<b>{badge(i)}</b>\n<blockquote>{sc(n)}\n{bar(c, data[0]['count'], 12)}\n{sc('chars')}: <b>{c:,}</b></blockquote>\n\n"
+        cap += f"<b>⸻ {sc('leaderboard')} ⸻</b>\n<i>{sc('updated')}: {datetime.now().strftime('%H:%M:%S')}</i>"
         
-        caption += f"<b>⸻ {smallcaps('leaderboard system')} ⸻</b>"
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data="refresh_topgroups"),
-             InlineKeyboardButton("ᴠɪᴇᴡ ᴍᴏʀᴇ", callback_data="view_more_groups")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in global_leaderboard: {e}")
+        btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_tg"), InlineKeyboardButton("📊 ᴍᴏʀᴇ", callback_data="lb_more")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-async def ctop(update: Update, context: CallbackContext) -> None:
-    """Top 10 users in chat"""
-    msg = await update.message.reply_text(smallcaps("loading..."))
+async def ctop(update: Update, context: CallbackContext, edit=False, cid=None):
+    q = update.callback_query if edit else None
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    cid = cid or update.effective_chat.id
+    if edit: await q.answer(sc("refreshing..."))
     
-    animation_task = asyncio.create_task(animate(msg, "analyzing chat members"))
-    
+    task = asyncio.create_task(anim(msg, "analyzing chat"))
     try:
-        chat_id = update.effective_chat.id
-        chat_title = escape(update.effective_chat.title or "This Chat")
+        try: chat = await context.bot.get_chat(cid); title = escape(chat.title)[:30]
+        except: title = "This Chat"
         
-        cursor = group_user_totals_collection.aggregate([
-            {"$match": {"group_id": chat_id}},
-            {"$project": {"username": 1, "first_name": 1, "character_count": "$count"}},
-            {"$sort": {"character_count": -1}},
-            {"$limit": 10}
-        ])
-        data = await cursor.to_list(length=10)
+        data = await group_user_totals_collection.aggregate([
+            {"$match": {"group_id": cid}}, {"$project": {"user_id": "$_id", "first_name": 1, "character_count": "$count"}},
+            {"$sort": {"character_count": -1}}, {"$limit": 10}
+        ]).to_list(10)
+        task.cancel()
         
-        animation_task.cancel()
+        if not data: return await msg.edit_text(sc("no data."))
         
-        if not data:
-            await msg.edit_text(smallcaps("no data available for this chat."))
-            return
-        
-        caption = f"""
-<b>⸻ {smallcaps('top chat collectors')} ⸻</b>
-
-<b>{smallcaps('chat')}</b>: {smallcaps(chat_title[:30])}
-
-"""
-        
+        tot = sum(u['character_count'] for u in data)
+        cap = f"<b>⸻ {sc('top chat')} ⸻</b>\n\n<b>{sc('chat')}</b>: {sc(title)}\n\n"
         for i, u in enumerate(data, 1):
-            user_id = u.get('_id')
-            name = escape(u.get('first_name', 'Unknown'))
-            if len(name) > 18:
-                name = name[:15] + "..."
-            count = u.get("character_count", 0)
-            
-            mention = f"<a href='tg://user?id={user_id}'>{smallcaps(name)}</a>"
-            
-            caption += f"<b>{get_badge(i)}</b>\n"
-            caption += f"<blockquote>{mention}\n"
-            caption += f"{smallcaps('count')}: <b>{count:,}</b></blockquote>\n\n"
+            uid = u.get('user_id', u.get('_id')); n = escape(u.get('first_name', 'Unknown'))[:17]; c = u.get("character_count", 0)
+            pct = (c/tot*100) if tot>0 else 0; m = f"<a href='tg://user?id={uid}'>{sc(n)}</a>"
+            cap += f"<b>{badge(i)}</b>\n<blockquote>{m}\n{bar(c, data[0]['character_count'], 12)}\n{sc('count')}: <b>{c:,}</b> ({pct:.1f}%)</blockquote>\n\n"
+        cap += f"<b>⸻ {sc('rankings')} ⸻</b>\n<i>{sc('total')}: {tot:,}</i>"
         
-        caption += f"<b>⸻ {smallcaps('chat rankings')} ⸻</b>"
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data=f"refresh_ctop_{chat_id}"),
-             InlineKeyboardButton("ꜱᴛᴀᴛꜱ", callback_data=f"chat_stats_{chat_id}")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in ctop: {e}")
+        btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data=f"lb_ct_{cid}"), InlineKeyboardButton("📊 ꜱᴛᴀᴛꜱ", callback_data=f"lb_cs_{cid}")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-async def leaderboard(update: Update, context: CallbackContext) -> None:
-    """Global top 10 users"""
-    msg = await update.message.reply_text(smallcaps("loading..."))
+async def leaderboard(update: Update, context: CallbackContext, edit=False, lim=10):
+    q = update.callback_query if edit else None
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    if edit: await q.answer(sc("refreshing..."))
     
-    animation_task = asyncio.create_task(animate(msg, "fetching global champions"))
-    
+    task = asyncio.create_task(anim(msg, "fetching champions"))
     try:
-        cursor = user_collection.aggregate([
+        data = await user_collection.aggregate([
             {"$match": {"characters": {"$exists": True, "$type": "array"}}},
-            {"$project": {"username": 1, "first_name": 1, "character_count": {"$size": "$characters"}}},
-            {"$sort": {"character_count": -1}},
-            {"$limit": 10}
-        ])
-        data = await cursor.to_list(length=10)
+            {"$project": {"user_id": "$id", "first_name": 1, "character_count": {"$size": "$characters"}}},
+            {"$sort": {"character_count": -1}}, {"$limit": lim}
+        ]).to_list(lim)
+        task.cancel()
         
-        animation_task.cancel()
+        if not data: return await msg.edit_text(sc("no data."))
         
-        if not data:
-            await msg.edit_text(smallcaps("no collector data available."))
-            return
-        
-        caption = f"""
-<b>⸻ {smallcaps('global hall of fame')} ⸻</b>
-
-"""
-        
+        cap = f"<b>⸻ {sc('global hall of fame' if lim==10 else f'top {lim}')} ⸻</b>\n\n"
         for i, u in enumerate(data, 1):
-            user_id = u.get('_id')
-            name = escape(u.get('first_name', 'Unknown'))
-            if len(name) > 18:
-                name = name[:15] + "..."
-            count = u.get("character_count", 0)
-            
-            mention = f"<a href='tg://user?id={user_id}'>{smallcaps(name)}</a>"
-            
-            caption += f"<b>{get_badge(i)}</b>\n"
-            caption += f"<blockquote>{mention}\n"
-            caption += f"{smallcaps('collection')}: <b>{count:,}</b></blockquote>\n\n"
+            uid = u.get('user_id', u.get('_id')); n = escape(u.get('first_name', 'Unknown'))[:17]; c = u.get("character_count", 0)
+            m = f"<a href='tg://user?id={uid}'>{sc(n)}</a>"
+            cap += f"<b>{badge(i)}</b>\n<blockquote>{m}\n{bar(c, data[0]['character_count'], 12)}\n{sc('collection')}: <b>{c:,}</b></blockquote>\n\n"
+        cap += f"<b>⸻ {sc('rankings')} ⸻</b>\n<i>{sc('showing top')} {lim}</i>"
         
-        caption += f"<b>⸻ {smallcaps('global rankings')} ⸻</b>"
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data="refresh_global"),
-             InlineKeyboardButton("ᴛᴏᴘ 20", callback_data="top20_global")],
-            [InlineKeyboardButton("ᴍʏ ʀᴀɴᴋ", callback_data="my_rank")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in leaderboard: {e}")
-
-async def my_rank(update: Update, context: CallbackContext) -> None:
-    """Show user's rank"""
-    msg = update.message if update.message else update.callback_query.message
-    user_id = update.effective_user.id
-    
-    if update.callback_query:
-        await update.callback_query.answer()
-        loading_msg = await msg.reply_text(smallcaps("loading..."))
-    else:
-        loading_msg = await msg.reply_text(smallcaps("loading..."))
-    
-    animation_task = asyncio.create_task(animate(loading_msg, "calculating your rank"))
-    
-    try:
-        user_data = await user_collection.find_one({'id': user_id})
-        
-        animation_task.cancel()
-        
-        if not user_data or 'characters' not in user_data:
-            caption = f"""
-<b>⸻ {smallcaps('profile not found')} ⸻</b>
-
-<blockquote>{smallcaps('you have not collected any characters yet.')}</blockquote>
-
-<b>{smallcaps('tip')}</b>: {smallcaps('start collecting to appear in rankings!')}
-"""
-            await loading_msg.edit_text(caption, parse_mode='HTML')
-            return
-        
-        char_count = len(user_data.get('characters', []))
-        
-        higher = await user_collection.count_documents({
-            "characters": {"$exists": True, "$type": "array"},
-            "$expr": {"$gt": [{"$size": "$characters"}, char_count]}
-        })
-        
-        rank = higher + 1
-        total = await user_collection.count_documents({"characters": {"$exists": True, "$type": "array"}})
-        
-        name = escape(user_data.get('first_name', 'Unknown'))
-        mention = f"<a href='tg://user?id={user_id}'>{smallcaps(name)}</a>"
-        
-        # Calculate percentile
-        percentile = ((total - rank) / total) * 100 if total > 0 else 0
-        
-        caption = f"""
-<b>⸻ {smallcaps('your profile')} ⸻</b>
-
-<b>{smallcaps('collector')}</b>
-<blockquote>{mention}</blockquote>
-
-<b>{smallcaps('statistics')}</b>
-<blockquote>
-{smallcaps('global rank')}: <b>#{rank:,}</b> / {total:,}
-{smallcaps('characters')}: <b>{char_count:,}</b>
-{smallcaps('badge')}: <b>{get_badge(rank)}</b>
-{smallcaps('percentile')}: <b>ᴛᴏᴘ {100-percentile:.1f}%</b>
-</blockquote>
-
-<b>⸻ {smallcaps('keep collecting!')} ⸻</b>
-"""
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data="my_rank"),
-             InlineKeyboardButton("ᴠɪᴇᴡ ᴛᴏᴘ", callback_data="refresh_global")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        if update.callback_query:
-            await loading_msg.delete()
-            await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
+        if lim==10:
+            btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_g"), InlineKeyboardButton("📈 ᴛᴏᴘ 20", callback_data="lb_20")], [InlineKeyboardButton("👤 ᴍʏ ʀᴀɴᴋ", callback_data="lb_mr"), InlineKeyboardButton("🏆 ɢʀᴏᴜᴘꜱ", callback_data="lb_tg")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
         else:
-            await loading_msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await loading_msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in my_rank: {e}")
+            btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_20"), InlineKeyboardButton("🔙 ᴛᴏᴘ 10", callback_data="lb_g")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-async def chat_stats(update: Update, context: CallbackContext) -> None:
-    """Chat statistics"""
-    msg = await update.message.reply_text(smallcaps("loading..."))
+async def my_rank(update: Update, context: CallbackContext, edit=False):
+    q = update.callback_query if edit else None
+    uid = update.effective_user.id
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    if edit: await q.answer(sc("loading..."))
     
-    animation_task = asyncio.create_task(animate(msg, "computing statistics"))
-    
+    task = asyncio.create_task(anim(msg, "calculating rank"))
     try:
-        chat_id = update.effective_chat.id
-        title = escape(update.effective_chat.title or "This Chat")
+        user = await user_collection.find_one({'id': uid})
+        task.cancel()
         
-        user_count = await group_user_totals_collection.count_documents({"group_id": chat_id})
+        if not user or 'characters' not in user:
+            cap = f"<b>⸻ {sc('no profile')} ⸻</b>\n\n<blockquote>{sc('start collecting!')}</blockquote>\n\n<b>⸻ {sc('system')} ⸻</b>"
+            btns = InlineKeyboardMarkup([[InlineKeyboardButton("🏆 ᴠɪᴇᴡ ᴛᴏᴘ", callback_data="lb_g")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+            return await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
         
-        animation_task.cancel()
+        cc = len(user.get('characters', []))
+        hi = await user_collection.count_documents({"characters": {"$exists": True, "$type": "array"}, "$expr": {"$gt": [{"$size": "$characters"}, cc]}})
+        r = hi+1; tot = await user_collection.count_documents({"characters": {"$exists": True, "$type": "array"}})
+        n = escape(user.get('first_name', 'Unknown')); m = f"<a href='tg://user?id={uid}'>{sc(n)}</a>"
+        pct = ((tot-r)/tot*100) if tot>0 else 0
+        tier = "🌟 ʟᴇɢᴇɴᴅ" if r==1 else "💎 ᴍᴀꜱᴛᴇʀ" if r<=10 else "💠 ᴅɪᴀᴍᴏɴᴅ" if pct>=90 else "🔷 ᴘʟᴀᴛɪɴᴜᴍ" if pct>=75 else "🟡 ɢᴏʟᴅ" if pct>=50 else "⚪ ꜱɪʟᴠᴇʀ" if pct>=25 else "🟤 ʙʀᴏɴᴢᴇ"
         
-        if user_count == 0:
-            await msg.edit_text(smallcaps("no activity in this chat yet."))
-            return
+        cap = f"<b>⸻ {sc('your profile')} ⸻</b>\n\n<b>{sc('collector')}</b>\n<blockquote>{m}\n{sc('tier')}: {tier}</blockquote>\n\n<b>{sc('statistics')}</b>\n<blockquote>\n{sc('rank')}: <b>#{r:,}</b> / {tot:,}\n{sc('badge')}: <b>{badge(r)}</b>\n{sc('chars')}: <b>{cc:,}</b>\n{sc('percentile')}: <b>ᴛᴏᴘ {100-pct:.1f}%</b>\n</blockquote>\n\n<b>{sc('progress')}</b>\n<blockquote>{bar(pct, 100, 15)}</blockquote>\n\n<b>⸻ {sc('keep going!')} ⸻</b>"
         
-        result = await group_user_totals_collection.aggregate([
-            {"$match": {"group_id": chat_id}},
-            {"$group": {"_id": None, "total": {"$sum": "$count"}}}
-        ]).to_list(length=1)
-        total = result[0]['total'] if result else 0
-        
-        caption = f"""
-<b>⸻ {smallcaps('chat statistics')} ⸻</b>
+        btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_mr"), InlineKeyboardButton("🏆 ᴛᴏᴘ", callback_data="lb_g")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-<b>{smallcaps('chat name')}</b>
-<blockquote>{smallcaps(title[:40])}</blockquote>
-
-<b>{smallcaps('data')}</b>
-<blockquote>
-{smallcaps('active users')}: <b>{user_count:,}</b>
-{smallcaps('total characters')}: <b>{total:,}</b>
-{smallcaps('average per user')}: <b>{total/user_count:.1f}</b>
-</blockquote>
-
-<b>⸻ {smallcaps('chat analytics')} ⸻</b>
-"""
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data=f"chat_stats_{chat_id}"),
-             InlineKeyboardButton("ᴛᴏᴘ ᴜꜱᴇʀꜱ", callback_data=f"refresh_ctop_{chat_id}")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in chat_stats: {e}")
-
-async def stats(update: Update, context: CallbackContext) -> None:
-    """Bot statistics (Owner only)"""
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text(smallcaps("you are not authorized to view system statistics."))
-        return
+async def chat_stats(update: Update, context: CallbackContext, edit=False, cid=None):
+    q = update.callback_query if edit else None
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    cid = cid or update.effective_chat.id
+    if edit: await q.answer(sc("loading..."))
     
-    msg = await update.message.reply_text(smallcaps("loading..."))
-    
-    animation_task = asyncio.create_task(animate(msg, "computing system stats"))
-    
+    task = asyncio.create_task(anim(msg, "computing stats"))
     try:
-        users = await user_collection.count_documents({})
-        groups = len(await group_user_totals_collection.distinct('group_id'))
-        collectors = await user_collection.count_documents({"characters": {"$exists": True, "$type": "array"}})
+        try: chat = await context.bot.get_chat(cid); title = escape(chat.title)[:40]
+        except: title = "This Chat"
         
-        result = await user_collection.aggregate([
-            {"$match": {"characters": {"$exists": True, "$type": "array"}}},
-            {"$project": {"char_count": {"$size": "$characters"}}},
-            {"$group": {"_id": None, "total": {"$sum": "$char_count"}}}
-        ]).to_list(length=1)
-        total_chars = result[0]['total'] if result else 0
+        uc = await group_user_totals_collection.count_documents({"group_id": cid})
+        task.cancel()
+        if uc==0: return await msg.edit_text(sc("no activity."))
         
-        animation_task.cancel()
+        res = await group_user_totals_collection.aggregate([{"$match": {"group_id": cid}}, {"$group": {"_id": None, "total": {"$sum": "$count"}}}]).to_list(1)
+        tot = res[0]['total'] if res else 0
+        top = await group_user_totals_collection.find_one({"group_id": cid}, sort=[("count", -1)])
         
-        caption = f"""
-<b>⸻ {smallcaps('system statistics')} ⸻</b>
+        cap = f"<b>⸻ {sc('chat stats')} ⸻</b>\n\n<b>{sc('chat')}</b>\n<blockquote>{sc(title)}</blockquote>\n\n<b>{sc('data')}</b>\n<blockquote>\n{sc('users')}: <b>{uc:,}</b>\n{sc('chars')}: <b>{tot:,}</b>\n{sc('avg')}: <b>{tot/uc:.1f}</b>\n</blockquote>"
+        if top: cap += f"\n\n<b>{sc('top')}</b>\n<blockquote>{sc(escape(top.get('first_name', 'Unknown'))[:20])}\n{sc('count')}: <b>{top.get('count', 0):,}</b>\n</blockquote>"
+        cap += f"\n\n<b>⸻ {sc('analytics')} ⸻</b>"
+        
+        btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data=f"lb_cs_{cid}"), InlineKeyboardButton("👥 ᴛᴏᴘ", callback_data=f"lb_ct_{cid}")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-<b>{smallcaps('database overview')}</b>
-<blockquote>
-{smallcaps('total users')}: <b>{users:,}</b>
-{smallcaps('active collectors')}: <b>{collectors:,}</b>
-{smallcaps('total groups')}: <b>{groups:,}</b>
-{smallcaps('total characters')}: <b>{total_chars:,}</b>
-</blockquote>
-
-<b>{smallcaps('analytics')}</b>
-<blockquote>
-{smallcaps('avg per collector')}: <b>{total_chars/collectors:.1f}</b>
-</blockquote>
-
-<b>⸻ {smallcaps('bot system')} ⸻</b>
-"""
-        
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ʀᴇғʀᴇꜱʜ", callback_data="refresh_stats")],
-            [InlineKeyboardButton("ᴄʟᴏꜱᴇ", callback_data="close_menu")]
-        ])
-        
-        await msg.edit_text(caption.strip(), parse_mode='HTML', reply_markup=buttons)
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in stats: {e}")
-
-async def send_users_document(update: Update, context: CallbackContext) -> None:
-    """Export users (Sudo only)"""
-    if str(update.effective_user.id) not in SUDO_USERS:
-        await update.message.reply_text(smallcaps('you are not authorized to export users.'))
-        return
+async def stats(update: Update, context: CallbackContext, edit=False):
+    if update.effective_user.id != OWNER_ID: return await update.message.reply_text(sc("unauthorized."))
     
-    msg = await update.message.reply_text(smallcaps('preparing export...'))
+    q = update.callback_query if edit else None
+    msg = q.message if edit else await update.message.reply_text(sc("loading..."))
+    if edit: await q.answer(sc("refreshing..."))
     
-    animation_task = asyncio.create_task(animate(msg, "generating user database"))
-    
+    task = asyncio.create_task(anim(msg, "computing"))
     try:
-        users = await user_collection.find({}).to_list(length=None)
+        u = await user_collection.count_documents({})
+        g = len(await group_user_totals_collection.distinct('group_id'))
+        c = await user_collection.count_documents({"characters": {"$exists": True, "$type": "array"}})
+        res = await user_collection.aggregate([{"$match": {"characters": {"$exists": True, "$type": "array"}}}, {"$project": {"cc": {"$size": "$characters"}}}, {"$group": {"_id": None, "tot": {"$sum": "$cc"}}}]).to_list(1)
+        tc = res[0]['tot'] if res else 0
+        task.cancel()
         
-        animation_task.cancel()
+        cap = f"<b>⸻ {sc('system stats')} ⸻</b>\n\n<b>{sc('database')}</b>\n<blockquote>\n{sc('users')}: <b>{u:,}</b>\n{sc('collectors')}: <b>{c:,}</b>\n{sc('groups')}: <b>{g:,}</b>\n{sc('chars')}: <b>{tc:,}</b>\n</blockquote>\n\n<b>{sc('analytics')}</b>\n<blockquote>\n{sc('avg')}: <b>{tc/c:.1f}</b>\n{sc('rate')}: <b>{(c/u*100):.1f}%</b>\n</blockquote>\n\n<b>⸻ {sc('bot system')} ⸻</b>\n<i>{sc('updated')}: {datetime.now().strftime('%H:%M:%S')}</i>"
         
-        content = f"⸻ USER DATABASE EXPORT ⸻\n\n"
-        content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        content += f"Total Users: {len(users):,}\n"
-        content += f"{'='*50}\n\n"
-        
-        for u in users:
-            user_id = u.get('id', 'N/A')
-            first_name = u.get('first_name', 'Unknown')
-            username = u.get('username', 'N/A')
-            char_count = len(u.get('characters', []))
-            content += f"[{user_id}] {first_name} | @{username} | {char_count} characters\n"
-        
-        with open('users.txt', 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        await msg.edit_text(smallcaps("export complete! sending file..."))
-        
-        caption = f"""
-<b>⸻ {smallcaps('user database export')} ⸻</b>
+        btns = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇꜱʜ", callback_data="lb_st")], [InlineKeyboardButton("❌ ᴄʟᴏꜱᴇ", callback_data="lb_close")]])
+        await msg.edit_text(cap, parse_mode='HTML', reply_markup=btns)
+    except: pass
 
-<blockquote>
-{smallcaps('total users')}: <b>{len(users):,}</b>
-{smallcaps('generated')}: <b>{datetime.now().strftime('%H:%M:%S')}</b>
-</blockquote>
-"""
-        
-        with open('users.txt', 'rb') as f:
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id, 
-                document=f, 
-                caption=caption.strip(),
-                parse_mode='HTML'
-            )
-        
-        os.remove('users.txt')
-        await msg.delete()
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in send_users_document: {e}")
-
-async def send_groups_document(update: Update, context: CallbackContext) -> None:
-    """Export groups (Sudo only)"""
-    if str(update.effective_user.id) not in SUDO_USERS:
-        await update.message.reply_text(smallcaps('you are not authorized to export groups.'))
-        return
-    
-    msg = await update.message.reply_text(smallcaps('preparing export...'))
-    
-    animation_task = asyncio.create_task(animate(msg, "generating group database"))
-    
+async def export_users(update: Update, context: CallbackContext):
+    if str(update.effective_user.id) not in SUDO_USERS: return await update.message.reply_text(sc('unauthorized.'))
+    msg = await update.message.reply_text(sc('exporting...'))
+    task = asyncio.create_task(anim(msg, "generating"))
     try:
-        groups = await top_global_groups_collection.find({}).to_list(length=None)
-        groups.sort(key=lambda x: x.get('count', 0), reverse=True)
-        
-        animation_task.cancel()
-        
-        content = f"⸻ GROUP DATABASE EXPORT ⸻\n\n"
-        content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        content += f"Total Groups: {len(groups):,}\n"
-        content += f"{'='*50}\n\n"
-        
-        for i, g in enumerate(groups, 1):
-            group_name = g.get('group_name', 'Unknown')
-            count = g.get('count', 0)
-            content += f"[{i}] {group_name} | {count:,} characters\n"
-        
-        with open('groups.txt', 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        await msg.edit_text(smallcaps("export complete! sending file..."))
-        
-        caption = f"""
-<b>⸻ {smallcaps('group database export')} ⸻</b>
+        users = await user_collection.find({}).to_list(None)
+        task.cancel()
+        cont = f"⸻ USER EXPORT ⸻\n\n{datetime.now()}\nTotal: {len(users):,}\n{'='*50}\n\n"
+        for u in users: cont += f"[{u.get('id')}] {u.get('first_name')} | @{u.get('username')} | {len(u.get('characters', []))} chars\n"
+        with open('users.txt', 'w', encoding='utf-8') as f: f.write(cont)
+        await msg.edit_text(sc("✓ complete!"))
+        with open('users.txt', 'rb') as f: await context.bot.send_document(update.effective_chat.id, f, caption=f"<b>{sc('users')}</b>: {len(users):,}", parse_mode='HTML')
+        os.remove('users.txt'); await msg.delete()
+    except: pass
 
-<blockquote>
-{smallcaps('total groups')}: <b>{len(groups):,}</b>
-{smallcaps('generated')}: <b>{datetime.now().strftime('%H:%M:%S')}</b>
-</blockquote>
-"""
-        
-        with open('groups.txt', 'rb') as f:
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id, 
-                document=f, 
-                caption=caption.strip(),
-                parse_mode='HTML'
-            )
-        
-        os.remove('groups.txt')
-        await msg.delete()
-        
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        await msg.edit_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in send_groups_document: {e}")
-
-async def button_callback(update: Update, context: CallbackContext) -> None:
-    """Handle button clicks"""
-    query = update.callback_query
-    await query.answer()
-    
+async def export_groups(update: Update, context: CallbackContext):
+    if str(update.effective_user.id) not in SUDO_USERS: return await update.message.reply_text(sc('unauthorized.'))
+    msg = await update.message.reply_text(sc('exporting...'))
+    task = asyncio.create_task(anim(msg, "generating"))
     try:
-        if query.data == "refresh_global":
-            await query.message.delete()
-            update.message = query.message
-            await leaderboard(update, context)
-        
-        elif query.data == "my_rank":
-            await my_rank(update, context)
-        
-        elif query.data == "refresh_topgroups":
-            await query.message.delete()
-            update.message = query.message
-            await global_leaderboard(update, context)
-        
-        elif query.data.startswith("refresh_ctop_"):
-            chat_id = int(query.data.split("_")[2])
-            await query.message.delete()
-            update.message = query.message
-            await ctop(update, context)
-        
-        elif query.data.startswith("chat_stats_"):
-            chat_id = int(query.data.split("_")[2])
-            await query.message.delete()
-            update.message = query.message
-            await chat_stats(update, context)
-        
-        elif query.data == "refresh_stats":
-            await query.message.delete()
-            update.message = query.message
-            await stats(update, context)
-        
-        elif query.data == "close_menu":
-            await query.message.delete()
-    
-    except Exception as e:
-        await query.message.reply_text(smallcaps(f"error: {str(e)}"))
-        print(f"Error in button_callback: {e}")
+        grps = await top_global_groups_collection.find({}).to_list(None)
+        grps.sort(key=lambda x: x.get('count', 0), reverse=True)
+        task.cancel()
+        cont = f"⸻ GROUP EXPORT ⸻\n\n{datetime.now()}\nTotal: {len(grps):,}\n{'='*50}\n\n"
+        for i, g in enumerate(grps, 1): cont += f"[{i}] {g.get('group_name')} | {g.get('count', 0):,}\n"
+        with open('groups.txt', 'w', encoding='utf-8') as f: f.write(cont)
+        await msg.edit_text(sc("✓ complete!"))
+        with open('groups.txt', 'rb') as f: await context.bot.send_document(update.effective_chat.id, f, caption=f"<b>{sc('groups')}</b>: {len(grps):,}", parse_mode='HTML')
+        os.remove('groups.txt'); await msg.delete()
+    except: pass
 
-# Register handlers
+async def cb(update: Update, context: CallbackContext):
+    q = update.callback_query; await q.answer()
+    d = q.data
+    try:
+        if d=="lb_g": await leaderboard(update, context, True)
+        elif d=="lb_20": await leaderboard(update, context, True, 20)
+        elif d=="lb_tg": await global_leaderboard(update, context, True)
+        elif d=="lb_mr": await my_rank(update, context, True)
+        elif d.startswith("lb_ct_"): await ctop(update, context, True, int(d.split("_")[2]))
+        elif d.startswith("lb_cs_"): await chat_stats(update, context, True, int(d.split("_")[2]))
+        elif d=="lb_st": await stats(update, context, True)
+        elif d=="lb_close": await q.message.delete()
+    except: pass
+
 application.add_handler(CommandHandler('topgroups', global_leaderboard, block=False))
 application.add_handler(CommandHandler('topchat', ctop, block=False))
 application.add_handler(CommandHandler(['gstop', 'top'], leaderboard, block=False))
 application.add_handler(CommandHandler(['myrank', 'rank'], my_rank, block=False))
 application.add_handler(CommandHandler('chatstats', chat_stats, block=False))
 application.add_handler(CommandHandler('stats', stats, block=False))
-application.add_handler(CommandHandler('list', send_users_document, block=False))
-application.add_handler(CommandHandler('groups', send_groups_document, block=False))
-application.add_handler(CallbackQueryHandler(button_callback))
+application.add_handler(CommandHandler('list', export_users, block=False))
+application.add_handler(CommandHandler('groups', export_groups, block=False))
+application.add_handler(CallbackQueryHandler(cb, pattern="^lb_"))
