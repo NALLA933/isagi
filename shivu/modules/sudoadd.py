@@ -6,8 +6,8 @@ from shivu import application, sudo_users_collection
 
 # Static developers list
 DEVELOPERS = [
-    {"id": 8420981179, "name": "Lead Developer", "username": "username1"},
-    {"id": 5147822244, "name": "Co-Developer", "username": "username2"}
+    {"id": 5147822244, "name": "Lead ᴅᴇᴠᴇʟᴏᴘᴇʀ", "username": "username1"},
+    {"id": 8420981179, "name": "ᴏᴡɴᴇʀ", "username": "username2"}
 ]
 
 AUTHORIZED_USERS = [8420981179, 5147822244]
