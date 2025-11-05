@@ -14,7 +14,9 @@ SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 # Video URLs for random preview
 VIDEOS = [
     "https://files.catbox.moe/csqqb2.mp4",
-    "https://files.catbox.moe/dpeatb.mp4"
+    "https://files.catbox.moe/dpeatb.mp4", 
+ "https://files.catbox.moe/38b2an.mp4", 
+ "https://files.catbox.moe/x3k8vj.mp4"
 ]
 
 def sc(text): return text.translate(str.maketrans("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢABCDEFGHIJKLMNOPQRSTUVWXYZ"))
