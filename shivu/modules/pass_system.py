@@ -4,12 +4,12 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from html import escape
 from shivu import application, user_collection, collection, user_totals_collection, LOGGER
 
-OWNER_ID = 5147822244
+OWNER_ID = 8420981179
 
 PASS_CONFIG = {
     'free': {'name': 'ғʀᴇᴇ ᴘᴀss', 'weekly_reward': 1000, 'streak_bonus': 5000, 'mythic_characters': 0, 'grab_multiplier': 1.0},
     'premium': {'name': 'ᴘʀᴇᴍɪᴜᴍ ᴘᴀss', 'weekly_reward': 5000, 'streak_bonus': 25000, 'mythic_characters': 3, 'cost': 50000, 'grab_multiplier': 1.5},
-    'elite': {'name': 'ᴇʟɪᴛᴇ ᴘᴀss', 'weekly_reward': 15000, 'streak_bonus': 100000, 'mythic_characters': 5, 'cost_inr': 50, 'upi_id': 'looktouhid@oksbi', 'activation_bonus': 100000000, 'grab_multiplier': 2.0}
+    'elite': {'name': 'ᴇʟɪᴛᴇ ᴘᴀss', 'weekly_reward': 15000, 'streak_bonus': 100000, 'mythic_characters': 5, 'cost_inr': 50, 'upi_id': 'piyushrathod007@axl', 'activation_bonus': 100000000, 'grab_multiplier': 2.0}
 }
 
 MYTHIC_TASKS = {
