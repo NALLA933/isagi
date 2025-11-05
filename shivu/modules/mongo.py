@@ -7,9 +7,10 @@ from shivu import (
     user_collection,
     BANNED_USERS,
     sudo_users,
-    OWNER_ID,
     LOGGER
 )
+
+OWNER_ID = 5147822244
 
 async def db_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check MongoDB storage and statistics"""
