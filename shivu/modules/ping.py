@@ -30,7 +30,7 @@ async def ping(update: Update, context: CallbackContext) -> None:
     
     uptime_text = f"{days}d {hours}h {minutes}m {seconds}s"
     
-    response = f'<blockquotes>Pong! {elapsed_time}ms\n\n>**Bot Uptime:** {uptime_text}</blockquotes>'
+    response = f'<blockquote>Pong! {elapsed_time}ms\n\n>**Bot Uptime:** {uptime_text}</blockquote>'
     await message.edit_text(response)
 
 application.add_handler(CommandHandler("ping", ping))
