@@ -13,24 +13,24 @@ async def ping(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text("Nouu.. its Sudo user's Command..")
         return
-    
+
     start_time = time.time()
     message = await update.message.reply_text('Pong!')
     end_time = time.time()
     elapsed_time = round((end_time - start_time) * 1000, 3)
-    
+
     # Calculate uptime
     uptime_seconds = int(time.time() - bot_start_time)
     uptime = timedelta(seconds=uptime_seconds)
-    
+
     # Format uptime
     days = uptime.days
     hours, remainder = divmod(uptime.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    
+
     uptime_text = f"{days}d {hours}h {minutes}m {seconds}s"
-    
-    response = f'<blockquote> Pong! {elapsed_time}ms\n\n>**Bot Uptime:** {uptime_text} </blockquote>'
-    await message.edit_text(response)
+
+    response = f'<blockquote>Pong! {elapsed_time}ms\n\n<b>Bot Uptime:</b> {uptime_text}</blockquote>'
+    await message.edit_text(response, parse_mode='HTML')
 
 application.add_handler(CommandHandler("ping", ping))
