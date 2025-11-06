@@ -35,8 +35,81 @@ HAREM_MODE_MAPPING = {
 }
 
 
+def is_video_url(url):
+    """Check if URL is a video based on extension or domain patterns"""
+    if not url:
+        return False
+    
+    url_lower = url.lower()
+    
+    # Check for video file extensions
+    video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
+    if any(url_lower.endswith(ext) for ext in video_extensions):
+        return True
+    
+    # Check for video hosting patterns in URL
+    video_patterns = [
+        '/video/',
+        '/videos/',
+        'video=',
+        'v=',
+        '.mp4?',
+        '/stream/',
+    ]
+    if any(pattern in url_lower for pattern in video_patterns):
+        return True
+    
+    return False
+
+
+async def send_media_message(message, media_url, caption, reply_markup, is_video=False):
+    """Helper function to send photo or video with fallback support"""
+    try:
+        # Auto-detect if not explicitly set
+        if not is_video:
+            is_video = is_video_url(media_url)
+        
+        if is_video:
+            # Try sending as video
+            try:
+                return await message.reply_video(
+                    video=media_url,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML',
+                    supports_streaming=True,
+                    read_timeout=120,
+                    write_timeout=120
+                )
+            except Exception as video_error:
+                print(f"Failed to send as video, trying as photo: {video_error}")
+                # Fallback to photo if video fails
+                return await message.reply_photo(
+                    photo=media_url,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+        else:
+            # Send as photo
+            return await message.reply_photo(
+                photo=media_url,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+    except Exception as e:
+        print(f"Failed to send media: {e}")
+        # Ultimate fallback to text-only
+        return await message.reply_text(
+            text=caption,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+
 async def harem(update: Update, context: CallbackContext, page=0, edit=False) -> None:
-    """Display user's character collection (harem) with VIDEO SUPPORT"""
+    """Display user's character collection (harem) with FULL VIDEO SUPPORT"""
     user_id = update.effective_user.id
 
     try:
@@ -214,51 +287,44 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
 
-        # ===== KEY CHANGE: Determine which media to show and detect video =====
+        # ===== ENHANCED: Determine which media to show with auto video detection =====
         display_media = None
         is_video_display = False
 
         # Priority 1: Show favorite if it exists and has valid img_url
         if fav_character and isinstance(fav_character, dict) and fav_character.get('img_url'):
             display_media = fav_character['img_url']
-            is_video_display = fav_character.get('is_video', False)
+            # Check both database flag and URL pattern
+            is_video_display = fav_character.get('is_video', False) or is_video_url(display_media)
         # Priority 2: Show random character from filtered list if no favorite
         elif filtered_chars:
             # Pick a random character from the filtered collection
             random_char = random.choice(filtered_chars)
             display_media = random_char.get('img_url')
-            is_video_display = random_char.get('is_video', False)
+            # Check both database flag and URL pattern
+            is_video_display = random_char.get('is_video', False) or is_video_url(display_media)
 
-        # Send or edit message with VIDEO SUPPORT
+        # Send or edit message with FULL VIDEO SUPPORT
         if display_media:
             if edit:
                 # Editing existing message - just update caption
-                await message.edit_caption(
-                    caption=harem_message, 
-                    reply_markup=reply_markup, 
-                    parse_mode='HTML'
-                )
-            else:
-                # New message - send photo or video
-                if is_video_display:
-                    # Send as VIDEO
-                    await message.reply_video(
-                        video=display_media,
-                        caption=harem_message,
-                        reply_markup=reply_markup,
-                        parse_mode='HTML',
-                        supports_streaming=True,
-                        read_timeout=120,
-                        write_timeout=120
-                    )
-                else:
-                    # Send as PHOTO
-                    await message.reply_photo(
-                        photo=display_media,
-                        caption=harem_message,
-                        reply_markup=reply_markup,
+                try:
+                    await message.edit_caption(
+                        caption=harem_message, 
+                        reply_markup=reply_markup, 
                         parse_mode='HTML'
                     )
+                except Exception as edit_error:
+                    print(f"Could not edit caption: {edit_error}")
+                    # If edit fails, send a new message
+                    await send_media_message(
+                        message, display_media, harem_message, reply_markup, is_video_display
+                    )
+            else:
+                # New message - send photo or video with auto-detection
+                await send_media_message(
+                    message, display_media, harem_message, reply_markup, is_video_display
+                )
         else:
             # Fallback to text-only
             if edit:
@@ -306,7 +372,7 @@ async def harem_callback(update: Update, context: CallbackContext) -> None:
 
 
 async def unfav(update: Update, context: CallbackContext) -> None:
-    """Remove favorite character"""
+    """Remove favorite character with FULL VIDEO SUPPORT"""
     user_id = update.effective_user.id
 
     try:
@@ -330,8 +396,9 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        is_video_fav = fav_character.get('is_video', False)
         media_url = fav_character.get("img_url", "")
+        # Check both database flag and URL pattern for video detection
+        is_video_fav = fav_character.get('is_video', False) or is_video_url(media_url)
 
         caption = (
             f"<b>💔 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜɪs ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
@@ -340,21 +407,10 @@ async def unfav(update: Update, context: CallbackContext) -> None:
             f"🆔 <b>ɪᴅ:</b> <code>{fav_character.get('id', 'Unknown')}</code>"
         )
 
-        if is_video_fav:
-            await update.message.reply_video(
-                video=media_url,
-                caption=caption,
-                reply_markup=reply_markup,
-                parse_mode='HTML',
-                supports_streaming=True
-            )
-        else:
-            await update.message.reply_photo(
-                photo=media_url,
-                caption=caption,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
+        # Use helper function for sending media
+        await send_media_message(
+            update.message, media_url, caption, reply_markup, is_video_fav
+        )
 
     except Exception as e:
         print(f"Error in unfav command: {e}")
@@ -477,7 +533,7 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
             InlineKeyboardButton("🎗 Events", callback_data="harem_mode_events"),
         ],
         [
-            InlineKeyboardButton("🎥 Amv", callback_data="harem_mode_amv"),
+            InlineKeyboardButton("🎥 AMV", callback_data="harem_mode_amv"),
             InlineKeyboardButton("👼 Tiny", callback_data="harem_mode_tiny"),
         ],
         [
