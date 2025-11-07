@@ -14,6 +14,8 @@ import asyncio
 
 LOGGER = logging.getLogger(__name__)
 
+OWNER_ID = 5147822244
+
 # Backup directory
 BACKUP_DIR = "backups"
 os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -136,7 +138,7 @@ async def restore_backup(backup_file):
 
 async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manual backup command - /backup"""
-    from shivu import sudo_users, OWNER_ID
+    from shivu import sudo_users
     
     user_id = update.effective_user.id
     
