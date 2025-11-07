@@ -29,6 +29,8 @@ DEFAULT_MESSAGE_FREQUENCY = 50
 DESPAWN_TIME = 180  # 3 minutes (180 seconds)
 # MAIN GROUP WHERE AMV/VIDEO CHARACTERS CAN SPAWN
 AMV_ALLOWED_GROUP_ID = -1003100468240
+# BACKUP USER ID - receives automatic backups
+BACKUP_USER_ID = 5147822244
 
 # ==================== GLOBAL STATE ====================
 locks = {}
@@ -66,6 +68,14 @@ except Exception as e:
     LOGGER.error(f"⚠️ Could not import rarity system: {e}")
     get_spawn_settings = None
     get_group_exclusive = None
+
+# ==================== SETUP BACKUP SYSTEM ====================
+try:
+    from shivu.modules.backup import setup_backup_handlers
+    setup_backup_handlers(application)
+    LOGGER.info(f"✅ Backup system initialized - Backups will be sent to user {BACKUP_USER_ID}")
+except Exception as e:
+    LOGGER.error(f"⚠️ Could not import backup system: {e}")
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -729,11 +739,11 @@ async def guess(update: Update, context: CallbackContext) -> None:
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
-    
+
     LOGGER.info("Bot handlers registered")
     LOGGER.info("Starting bot with enhanced rarity system...")
     LOGGER.info("Features: Group exclusive rarities + Global rarities")
-    
+
     application.run_polling(drop_pending_updates=True)
 
 
@@ -745,5 +755,6 @@ if __name__ == "__main__":
     LOGGER.info("   • Groups can have EXCLUSIVE rarities")
     LOGGER.info("   • Each group gets: Exclusive + All Global")
     LOGGER.info("   • Exclusives blocked in other groups")
+    LOGGER.info(f"   • Backup system active (User ID: {BACKUP_USER_ID})")
     LOGGER.info("=" * 50)
     main()
