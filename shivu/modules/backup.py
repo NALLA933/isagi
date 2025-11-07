@@ -1,5 +1,5 @@
 """
-MongoDB Backup and Restore System
+MongoDB Backup and Restore System - COMPLETE FIXED VERSION
 Place this in shivu/modules/backup.py
 """
 
@@ -11,14 +11,27 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
+from bson import ObjectId
 
 LOGGER = logging.getLogger(__name__)
-
-OWNER_ID = 5147822244
 
 # Backup directory
 BACKUP_DIR = "backups"
 os.makedirs(BACKUP_DIR, exist_ok=True)
+
+# Owner ID
+OWNER_ID = 5147822244
+
+def convert_objectid(obj):
+    """Recursively convert ObjectId to string in nested structures"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_objectid(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_objectid(item) for item in obj]
+    else:
+        return obj
 
 async def create_backup(context=None):
     """Create a full backup of all MongoDB collections"""
@@ -55,20 +68,18 @@ async def create_backup(context=None):
                 collection = db[collection_name]
                 documents = await collection.find({}).to_list(length=None)
                 
-                # Convert ObjectId to string for JSON serialization
-                for doc in documents:
-                    if '_id' in doc:
-                        doc['_id'] = str(doc['_id'])
+                # Convert ALL ObjectIds to strings recursively
+                documents = [convert_objectid(doc) for doc in documents]
                 
                 backup_data[collection_name] = documents
                 LOGGER.info(f"Backed up {len(documents)} documents from {collection_name}")
             except Exception as e:
                 LOGGER.error(f"Error backing up {collection_name}: {e}")
         
-        # Save to file
+        # Save to file with proper encoding
         backup_file = os.path.join(BACKUP_DIR, f"backup_{timestamp}.json")
         with open(backup_file, 'w', encoding='utf-8') as f:
-            json.dump(backup_data, f, indent=2, ensure_ascii=False)
+            json.dump(backup_data, f, indent=2, ensure_ascii=False, default=str)
         
         # Get file size
         file_size = os.path.getsize(backup_file) / (1024 * 1024)  # MB
@@ -82,6 +93,8 @@ async def create_backup(context=None):
     
     except Exception as e:
         LOGGER.error(f"Backup failed: {e}")
+        import traceback
+        LOGGER.error(traceback.format_exc())
         return None, 0
 
 def cleanup_old_backups(keep=7):
@@ -132,6 +145,8 @@ async def restore_backup(backup_file):
     
     except Exception as e:
         LOGGER.error(f"Restore failed: {e}")
+        import traceback
+        LOGGER.error(traceback.format_exc())
         return False, []
 
 # Command Handlers
@@ -174,8 +189,6 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Restore from backup - /restore [filename]"""
-    from shivu import OWNER_ID
-    
     user_id = update.effective_user.id
     
     # Only owner can restore
@@ -223,7 +236,7 @@ async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_backups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List all available backups - /listbackups"""
-    from shivu import sudo_users, OWNER_ID
+    from shivu import sudo_users
     
     user_id = update.effective_user.id
     
@@ -253,32 +266,31 @@ async def auto_backup_job(context):
     backup_file, file_size = await create_backup(context)
     
     if backup_file:
-        # Send to specified user (5147822244)
-        BACKUP_USER_ID = 5147822244
+        # Send to owner
         try:
             with open(backup_file, 'rb') as f:
                 await context.bot.send_document(
-                    chat_id=BACKUP_USER_ID,
+                    chat_id=OWNER_ID,
                     document=f,
                     filename=os.path.basename(backup_file),
                     caption=f"🤖 **Automatic Backup**\n\n📊 Size: {file_size:.2f} MB\n🕐 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
-            LOGGER.info(f"Backup sent to user {BACKUP_USER_ID}")
+            LOGGER.info(f"Backup sent to user {OWNER_ID}")
         except Exception as e:
-            LOGGER.error(f"Failed to send backup to user {BACKUP_USER_ID}: {e}")
+            LOGGER.error(f"Failed to send backup to user {OWNER_ID}: {e}")
 
 def setup_backup_handlers(application):
     """Setup backup command handlers and scheduler"""
-    application.add_handler(CommandHandler("backup", backup_command))
-    application.add_handler(CommandHandler("restore", restore_command))
-    application.add_handler(CommandHandler("listbackups", list_backups_command))
+    application.add_handler(CommandHandler("backup", backup_command, block=False))
+    application.add_handler(CommandHandler("restore", restore_command, block=False))
+    application.add_handler(CommandHandler("listbackups", list_backups_command, block=False))
     
     # Setup automatic backup (daily at 3 AM)
     scheduler = AsyncIOScheduler()
     scheduler.add_job(auto_backup_job, 'cron', hour=3, minute=0, args=[application])
     scheduler.start()
     
-    LOGGER.info("Backup system initialized - Automatic backups at 3 AM daily")
+    LOGGER.info(f"Backup system initialized - Automatic backups at 3 AM daily to user {OWNER_ID}")
 
 # Call this in your main bot file
 # from shivu.modules.backup import setup_backup_handlers
