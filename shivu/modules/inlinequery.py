@@ -387,7 +387,7 @@ async def inline_show_owners(update: Update, context) -> None:
 
         caption += f"\n\n<b>🔮 {to_small_caps('total grabbed')}</b> <code>{global_count}x</code>"
 
-        # Back button
+        # Only back button
         keyboard = [[
             InlineKeyboardButton(f"⬅️ {to_small_caps('back')}", callback_data=f"back_to_card_{character_id}")
         ]]
@@ -454,7 +454,7 @@ async def inline_back_to_card(update: Update, context) -> None:
             f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
         )
 
-        # Show owners button
+        # Only show owners button
         keyboard = [[
             InlineKeyboardButton(f"🏆 {to_small_caps('show owners')}", callback_data=f"show_owners_{character_id}")
         ]]
