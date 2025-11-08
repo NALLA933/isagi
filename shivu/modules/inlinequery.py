@@ -84,6 +84,31 @@ async def get_anime_count(anime_name: str) -> int:
         return 0
 
 
+async def get_users_by_character(character_id: str) -> list:
+    """Get all users who own this character with counts"""
+    try:
+        cursor = user_collection.find(
+            {'characters.id': character_id}, 
+            {'_id': 0, 'id': 1, 'first_name': 1, 'username': 1, 'characters': 1}
+        )
+        users = await cursor.to_list(length=None)
+        
+        user_data = []
+        for user in users:
+            count = sum(1 for c in user.get('characters', []) if c.get('id') == character_id)
+            if count > 0:
+                user_data.append({
+                    'id': user.get('id'),
+                    'first_name': user.get('first_name', 'Unknown'),
+                    'username': user.get('username'),
+                    'count': count
+                })
+        return user_data
+    except Exception as e:
+        print(f"Error getting users by character: {e}")
+        return []
+
+
 async def inlinequery(update: Update, context) -> None:
     """Handle inline queries for character search with VIDEO SUPPORT and FAVORITE VALIDATION"""
     query = update.inline_query.query
@@ -126,26 +151,19 @@ async def inlinequery(update: Update, context) -> None:
                     if favorite_char_data:
                         if isinstance(favorite_char_data, dict):
                             fav_id = favorite_char_data.get('id')
-                            # Check if favorite still exists in collection
                             if any(c.get('id') == fav_id for c in all_characters):
                                 favorite_char = favorite_char_data
-                                LOGGER.info(f"[INLINE] Valid favorite found: {favorite_char.get('name')}")
                             else:
-                                # Favorite not in collection - remove from database
-                                LOGGER.info(f"[INLINE] Favorite {favorite_char_data.get('name')} not in collection - removing")
                                 await user_collection.update_one(
                                     {'id': user_id_int},
                                     {'$unset': {'favorites': ""}}
                                 )
                         elif isinstance(favorite_char_data, str):
-                            # Favorite stored as ID
                             favorite_char = next(
                                 (c for c in all_characters if c.get('id') == favorite_char_data),
                                 None
                             )
                             if not favorite_char:
-                                # Favorite not found - remove from database
-                                LOGGER.info(f"[INLINE] Favorite ID {favorite_char_data} not in collection - removing")
                                 await user_collection.update_one(
                                     {'id': user_id_int},
                                     {'$unset': {'favorites': ""}}
@@ -153,10 +171,7 @@ async def inlinequery(update: Update, context) -> None:
 
                     # If no search terms and user has valid favorite, show favorite FIRST
                     if not search_terms and favorite_char:
-                        LOGGER.info(f"[INLINE] Moving favorite to first: {favorite_char.get('name')}")
-                        # Remove from list if exists
                         all_characters = [c for c in all_characters if c.get('id') != favorite_char.get('id')]
-                        # Insert at beginning
                         all_characters.insert(0, favorite_char)
 
                     # Apply search filter
@@ -215,7 +230,7 @@ async def inlinequery(update: Update, context) -> None:
                 rarity_emoji = '🟢'
                 rarity_text = 'Common'
 
-            # Check if this is user's favorite (only if they own it)
+            # Check if this is user's favorite
             is_favorite = False
             if user and user.get('favorites'):
                 fav = user.get('favorites')
@@ -261,11 +276,11 @@ async def inlinequery(update: Update, context) -> None:
                     f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
                 )
 
-            # OPPOSITE APPROACH: Store character_id directly in callback_data
+            # MATCHING YOUR WORKING PATTERN: show_owners_{character_id}
             button = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
-                    f"🏆 {to_small_caps('view top grabbers')}", 
-                    callback_data=f"grabbers|{char_id}"
+                    f"🏆 {to_small_caps('show owners')}", 
+                    callback_data=f"show_owners_{char_id}"
                 )]
             ])
 
@@ -304,101 +319,164 @@ async def inlinequery(update: Update, context) -> None:
         await update.inline_query.answer([], next_offset="", cache_time=5)
 
 
-async def display_top_grabbers(update: Update, context) -> None:
+async def inline_show_owners(update: Update, context) -> None:
     """
-    OPPOSITE APPROACH: Show top grabbers in ALERT POPUP instead of editing message
-    Callback pattern: grabbers|CHARACTER_ID
+    Handle show_owners callback for INLINE results
+    EXACT COPY of your working handle_show_owners function
     """
     query = update.callback_query
-    
+    await query.answer()
+
     try:
-        # Parse callback data
-        if not query.data or '|' not in query.data:
-            await query.answer("❌ Invalid request!", show_alert=True)
-            return
+        # Parse character_id from callback_data
+        character_id = query.data.split('_')[2]
         
-        parts = query.data.split('|')
-        character_id = parts[1]
+        LOGGER.info(f"[INLINE_OWNERS] Loading owners for character: {character_id}")
         
-        LOGGER.info(f"[GRABBERS] Fetching top grabbers for: {character_id}")
-        
-        # Get character details
+        # Get character
         character = await collection.find_one({'id': character_id})
         if not character:
-            await query.answer("❌ Character not found in database!", show_alert=True)
+            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
+
+        # Get users who own this character
+        users = await get_users_by_character(character_id)
+
+        if not users:
+            await query.answer("ɴᴏ ᴏɴᴇ ᴏᴡɴs ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ʏᴇᴛ", show_alert=True)
+            return
+
+        # Sort by count
+        users.sort(key=lambda x: x['count'], reverse=True)
         
+        # Get global count
+        global_count = await get_global_count(character_id)
+        
+        # Build owners caption
         char_name = character.get('name', 'Unknown')
+        char_anime = character.get('anime', 'Unknown')
+        char_rarity = character.get('rarity', '🟢 Common')
+
+        if isinstance(char_rarity, str):
+            rarity_parts = char_rarity.split(' ', 1)
+            rarity_emoji = rarity_parts[0] if len(rarity_parts) > 0 else '🟢'
+            rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
+        else:
+            rarity_emoji = '🟢'
+            rarity_text = 'Common'
+
+        caption = f"""<b>╭━━━━━━━━━━━━━━━━━╮</b>
+<b>┃  🎴 {to_small_caps('character owners')}  ┃</b>
+<b>╰━━━━━━━━━━━━━━━━━╯</b>
+
+<b>🆔 {to_small_caps('id')}</b> : <code>{character_id}</code>
+<b>🧬 {to_small_caps('name')}</b> : <code>{escape(char_name)}</code>
+<b>📺 {to_small_caps('anime')}</b> : <code>{escape(char_anime)}</code>
+<b>{rarity_emoji} {to_small_caps('rarity')}</b> : <code>{to_small_caps(rarity_text)}</code>
+
+<b>━━━━━━━━━━━━━━━━━</b>
+"""
+
+        # Add top 10 owners
+        for i, user in enumerate(users[:10], 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            user_link = f"<a href='tg://user?id={user['id']}'>{escape(user['first_name'])}</a>"
+            if user.get('username'):
+                user_link += f" (@{escape(user['username'])})"
+            caption += f"\n{medal} {user_link} <code>x{user['count']}</code>"
+
+        caption += f"\n\n<b>🔮 {to_small_caps('total grabbed')}</b> <code>{global_count}x</code>"
+
+        # Back button
+        keyboard = [[
+            InlineKeyboardButton(f"⬅️ {to_small_caps('back')}", callback_data=f"back_to_card_{character_id}")
+        ]]
+
+        # Edit the caption
+        await query.edit_message_caption(
+            caption=caption, 
+            parse_mode='HTML', 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         
-        # Find all users with this character
-        users_with_char = await user_collection.find({
-            'characters.id': character_id
-        }).to_list(length=None)
-        
-        if not users_with_char:
-            await query.answer(
-                f"😔 {to_small_caps('no one has grabbed')} {char_name} {to_small_caps('yet')}!",
-                show_alert=True
-            )
-            return
-        
-        # Count per user
-        user_stats = []
-        for user in users_with_char:
-            count = sum(1 for c in user.get('characters', []) if c.get('id') == character_id)
-            if count > 0:
-                user_stats.append({
-                    'name': user.get('first_name', 'User'),
-                    'username': user.get('username'),
-                    'count': count
-                })
-        
-        # Sort by count descending
-        user_stats.sort(key=lambda x: x['count'], reverse=True)
-        
-        # Build leaderboard text for ALERT
-        top_10 = user_stats[:10]
-        total = sum(u['count'] for u in user_stats)
-        
-        leaderboard = f"🏆 {to_small_caps('top grabbers for')} {char_name}\n"
-        leaderboard += f"{'='*30}\n\n"
-        
-        for idx, user_info in enumerate(top_10, 1):
-            name = user_info['name']
-            username = user_info.get('username', '')
-            count = user_info['count']
-            
-            if idx == 1:
-                medal = "🥇"
-            elif idx == 2:
-                medal = "🥈"
-            elif idx == 3:
-                medal = "🥉"
-            else:
-                medal = f"#{idx}"
-            
-            username_display = f"(@{username})" if username else ""
-            leaderboard += f"{medal} {name} {username_display}\n"
-            leaderboard += f"   {to_small_caps('grabbed')} {count}x\n\n"
-        
-        leaderboard += f"{'='*30}\n"
-        leaderboard += f"📊 {to_small_caps('total grabs')}: {total}\n"
-        leaderboard += f"👥 {to_small_caps('unique owners')}: {len(user_stats)}"
-        
-        # Show in ALERT POPUP - no message editing
-        await query.answer(leaderboard, show_alert=True)
-        
-        LOGGER.info(f"[GRABBERS] Displayed leaderboard for {character_id}")
-        
+        LOGGER.info(f"[INLINE_OWNERS] Successfully displayed owners for {character_id}")
+
     except Exception as e:
-        LOGGER.error(f"[GRABBERS] Error: {e}")
+        LOGGER.error(f"[INLINE_OWNERS] Error: {e}")
         import traceback
         traceback.print_exc()
-        await query.answer("❌ Error loading top grabbers!", show_alert=True)
+        await query.answer("ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ᴏᴡɴᴇʀs", show_alert=True)
 
 
-# Register handlers with OPPOSITE pattern
+async def inline_back_to_card(update: Update, context) -> None:
+    """
+    Handle back_to_card callback for INLINE results
+    """
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        # Parse character_id
+        character_id = query.data.split('_')[3]
+        
+        LOGGER.info(f"[INLINE_BACK] Going back to card for: {character_id}")
+        
+        # Get character
+        character = await collection.find_one({'id': character_id})
+        if not character:
+            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+            return
+
+        # Rebuild original caption
+        char_name = character.get('name', 'Unknown')
+        char_anime = character.get('anime', 'Unknown')
+        char_rarity = character.get('rarity', '🟢 Common')
+        is_video = character.get('is_video', False)
+
+        if isinstance(char_rarity, str):
+            rarity_parts = char_rarity.split(' ', 1)
+            rarity_emoji = rarity_parts[0] if len(rarity_parts) > 0 else '🟢'
+            rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
+        else:
+            rarity_emoji = '🟢'
+            rarity_text = 'Common'
+
+        global_count = await get_global_count(character_id)
+        media_type = "🎥" if is_video else "🖼"
+
+        caption = (
+            f"<b>🔮 {to_small_caps('look at this waifu')}</b>\n\n"
+            f"<b>🆔 {to_small_caps('id')}</b> : <code>{character_id}</code>\n"
+            f"<b>🧬 {to_small_caps('name')}</b> : <code>{escape(char_name)}</code>\n"
+            f"<b>📺 {to_small_caps('anime')}</b> : <code>{escape(char_anime)}</code>\n"
+            f"<b>{rarity_emoji} {to_small_caps('rarity')}</b> : <code>{to_small_caps(rarity_text)}</code>\n"
+            f"<b>{media_type} {to_small_caps('type')}</b> : <code>{to_small_caps('video' if is_video else 'image')}</code>\n\n"
+            f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
+        )
+
+        # Show owners button
+        keyboard = [[
+            InlineKeyboardButton(f"🏆 {to_small_caps('show owners')}", callback_data=f"show_owners_{character_id}")
+        ]]
+
+        await query.edit_message_caption(
+            caption=caption, 
+            parse_mode='HTML', 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        LOGGER.info(f"[INLINE_BACK] Successfully returned to card for {character_id}")
+
+    except Exception as e:
+        LOGGER.error(f"[INLINE_BACK] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        await query.answer("ᴇʀʀᴏʀ", show_alert=True)
+
+
+# Register handlers with EXACT SAME patterns as your working code
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
-application.add_handler(CallbackQueryHandler(display_top_grabbers, pattern=r'^grabbers\|', block=False))
+application.add_handler(CallbackQueryHandler(inline_show_owners, pattern=r'^show_owners_', block=False))
+application.add_handler(CallbackQueryHandler(inline_back_to_card, pattern=r'^back_to_card_', block=False))
 
-LOGGER.info("[INLINE] ✅ OPPOSITE APPROACH - Alert Popup Leaderboard System Active! 🎯")
+LOGGER.info("[INLINE] ✅ Handlers registered with WORKING PATTERN from check.py! 🎯")
