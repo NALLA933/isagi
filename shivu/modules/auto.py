@@ -176,6 +176,10 @@ async def analyze_image_quality(image_bytes: bytes) -> Dict:
     Checks: resolution, compression, colors, etc.
     """
     try:
+        # Ensure bytes object
+        if isinstance(image_bytes, bytearray):
+            image_bytes = bytes(image_bytes)
+        
         image = Image.open(io.BytesIO(image_bytes))
         
         # Get image properties
@@ -259,10 +263,10 @@ async def smart_character_detection(
     Intelligently detect character name, anime name, and assign rarity.
     
     Priority:
-    1. Caption parsing (if provided)
-    2. Reverse image search (AI recognition)
-    3. OCR text extraction
-    4. Fallback to user input or default
+    1. Caption parsing (if provided) - MOST RELIABLE
+    2. OCR text extraction (fast)
+    3. Reverse image search (slower but accurate)
+    4. Fallback to generic naming
     
     Returns: (character_name, anime_name, rarity)
     """
@@ -271,62 +275,112 @@ async def smart_character_detection(
     anime_name = None
     rarity = '🟢 Common'
     
-    # Priority 1: Parse caption if provided
+    # Priority 1: Parse caption if provided (MOST RELIABLE!)
     if caption:
-        # Try to extract from caption using smart parsing
-        caption_text = caption.lower()
+        print(f"📝 Parsing caption: {caption[:50]}...")
+        caption_lower = caption.lower()
+        lines = [line.strip() for line in caption.split('\n') if line.strip()]
         
-        # Common patterns in forwarded messages
-        char_match = re.search(r'(?:character|char|name)[:\s]+([^\n]+)', caption_text, re.IGNORECASE)
-        anime_match = re.search(r'(?:anime|series|from)[:\s]+([^\n]+)', caption_text, re.IGNORECASE)
-        rarity_match = re.search(r'(?:rarity|rare)[:\s]+([^\n]+)', caption_text, re.IGNORECASE)
+        # Pattern 1: Standard format "ID: Name [emoji]\nAnime\nRarity"
+        if len(lines) >= 2:
+            # First line: character name
+            first_line = lines[0]
+            char_match = re.search(r'(?:\d+[:.]\s*)?(.+?)(?:\s*\[|$)', first_line)
+            if char_match:
+                character_name = char_match.group(1).strip()
+                character_name = re.sub(r'[^\w\s-]', '', character_name).strip()
+            
+            # Second line: anime name
+            anime_name = lines[1]
+            anime_name = re.sub(r'[^\w\s-]', '', anime_name).strip()
+            
+            # Find rarity in any line
+            for line in lines:
+                # Check for emoji
+                for rarity_key, (emoji, full_name, aliases) in RARITY_DEFINITIONS.items():
+                    if emoji in line:
+                        rarity = f"{emoji} {full_name}"
+                        break
+                
+                # Check for rarity text
+                if rarity == '🟢 Common':
+                    for alias in sum([v[2] for v in RARITY_DEFINITIONS.values()], []):
+                        if alias in line.lower():
+                            for rk, (em, fn, als) in RARITY_DEFINITIONS.items():
+                                if alias in als:
+                                    rarity = f"{em} {fn}"
+                                    break
+                
+                if rarity != '🟢 Common':
+                    break
         
-        if char_match:
-            character_name = char_match.group(1).strip()
-        if anime_match:
-            anime_name = anime_match.group(1).strip()
-        if rarity_match:
-            rarity = rarity_match.group(1).strip()
+        # Pattern 2: Key-value format "Character: X | Anime: Y"
+        if not character_name or not anime_name:
+            char_match = re.search(r'(?:character|char|name)[:\s]+([^\n|]+)', caption_lower)
+            anime_match = re.search(r'(?:anime|series|from)[:\s]+([^\n|]+)', caption_lower)
+            
+            if char_match:
+                character_name = char_match.group(1).strip()
+            if anime_match:
+                anime_name = anime_match.group(1).strip()
+        
+        if character_name and anime_name:
+            print(f"✅ Caption parsed: {character_name} from {anime_name}")
+            # Analyze image quality for rarity if not found in caption
+            if rarity == '🟢 Common':
+                quality_info = await analyze_image_quality(image_bytes)
+                rarity = assign_rarity_by_quality(quality_info['quality_score'], datetime.now())
+            return character_name, anime_name, rarity
     
-    # Priority 2: Reverse image search (most reliable)
-    if not character_name or not anime_name:
-        if ENABLE_REVERSE_IMAGE_SEARCH:
-            search_result = await reverse_image_search(image_bytes)
-            if search_result:
-                if not character_name and search_result.get('character'):
-                    character_name = search_result['character']
-                if not anime_name and search_result.get('anime'):
-                    anime_name = search_result['anime']
+    # Priority 2: OCR text extraction (fast and often works!)
+    if ENABLE_OCR and (not character_name or not anime_name):
+        print(f"📝 Attempting OCR text extraction...")
+        extracted_text = await extract_text_from_image(image_bytes)
+        if extracted_text and len(extracted_text) >= 2:
+            if not character_name:
+                character_name = extracted_text[0]
+                character_name = re.sub(r'[^\w\s-]', '', character_name).strip()
+            if not anime_name:
+                anime_name = extracted_text[1]
+                anime_name = re.sub(r'[^\w\s-]', '', anime_name).strip()
+            
+            if character_name and anime_name:
+                print(f"✅ OCR detected: {character_name} from {anime_name}")
     
-    # Priority 3: OCR text extraction
-    if not character_name or not anime_name:
-        if ENABLE_OCR:
-            extracted_text = await extract_text_from_image(image_bytes)
-            if extracted_text:
-                # First line often contains character name
-                # Second line often contains anime name
-                if not character_name and len(extracted_text) > 0:
-                    character_name = extracted_text[0]
-                if not anime_name and len(extracted_text) > 1:
-                    anime_name = extracted_text[1]
+    # Priority 3: Reverse image search (slower but accurate for known images)
+    if ENABLE_REVERSE_IMAGE_SEARCH and (not character_name or not anime_name):
+        print(f"🔍 Trying reverse image search...")
+        search_result = await reverse_image_search(image_bytes)
+        if search_result:
+            if not character_name and search_result.get('character'):
+                character_name = search_result['character']
+            if not anime_name and search_result.get('anime'):
+                anime_name = search_result['anime']
+            
+            if character_name and anime_name:
+                print(f"✅ Reverse search found: {character_name} from {anime_name}")
     
     # Analyze image quality for rarity assignment
     quality_info = await analyze_image_quality(image_bytes)
-    rarity = assign_rarity_by_quality(
-        quality_info['quality_score'],
-        datetime.now()
-    )
+    rarity = assign_rarity_by_quality(quality_info['quality_score'], datetime.now())
     
     # Clean up names
     if character_name:
         character_name = re.sub(r'[^\w\s-]', '', character_name).strip()
-        character_name = ' '.join(character_name.split())  # Remove extra spaces
+        character_name = ' '.join(character_name.split())[:50]  # Limit length
     
     if anime_name:
         anime_name = re.sub(r'[^\w\s-]', '', anime_name).strip()
-        anime_name = ' '.join(anime_name.split())
+        anime_name = ' '.join(anime_name.split())[:50]
     
-    return character_name, anime_name, rarity
+    # Final validation
+    if character_name and anime_name:
+        print(f"✅ Final result: {character_name} from {anime_name} - {rarity}")
+        return character_name, anime_name, rarity
+    
+    # If still no results, return None to mark for manual review
+    print(f"⚠️ Could not detect character - will mark for manual review")
+    return None, None, rarity
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -402,17 +456,23 @@ async def process_single_upload(
             
             # Validation - ensure we have at least basic info
             if not character_name or not anime_name:
-                # Try to generate generic names if AI fails
-                char_id_temp = f"Unknown_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                # Provide helpful feedback
+                feedback = "⚠️ AI Detection Failed\n\n"
+                feedback += "Could not identify character automatically.\n"
+                feedback += "💡 To fix this, include a caption like:\n\n"
+                feedback += "Character Name\n"
+                feedback += "Anime Name\n"
+                feedback += "Rarity (optional)\n\n"
+                feedback += "Example:\n"
+                feedback += "Naruto Uzumaki\n"
+                feedback += "Naruto\n"
+                feedback += "Legendary"
+                
                 return {
                     'success': False,
-                    'message': f"⚠️ AI couldn't identify character - saved for manual review",
+                    'message': feedback,
                     'char_id': None,
-                    'needs_manual': True,
-                    'temp_data': {
-                        'file_data': item['file_data'],
-                        'filename': item['filename']
-                    }
+                    'needs_manual': True
                 }
             
             # Check for duplicates
@@ -589,7 +649,7 @@ async def process_batch(user_id: int, context: ContextTypes.DEFAULT_TYPE):
         # Summary
         summary = f"🎉 AI AUTO-UPLOAD COMPLETE!\n\n"
         summary += f"📊 Results:\n"
-        summary += f"✅ Auto-detected: {success_count}\n"
+        summary += f"✅ Auto-detected: {success_count}/{total}\n"
         summary += f"⚠️ Duplicates: {duplicate_count}\n"
         summary += f"🔍 Manual review: {manual_needed}\n"
         summary += f"❌ Failed: {failed_count}\n\n"
@@ -600,6 +660,13 @@ async def process_batch(user_id: int, context: ContextTypes.DEFAULT_TYPE):
             summary += '\n'.join(success_results)
             if len([r for r in results if r['success']]) > 10:
                 summary += f"\n... and {success_count - 10} more!"
+            summary += "\n\n"
+        
+        if manual_needed > 0:
+            summary += f"💡 TIP: For better AI detection:\n"
+            summary += f"• Add simple captions (Name\\nAnime)\n"
+            summary += f"• Use high-quality images\n"
+            summary += f"• Try popular anime characters\n"
         
         if user_id in status_messages:
             try:
