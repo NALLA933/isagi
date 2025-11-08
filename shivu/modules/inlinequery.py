@@ -119,7 +119,7 @@ async def inlinequery(update: Update, context) -> None:
                             characters_dict[c.get('id')] = c
                     all_characters = list(characters_dict.values())
 
-                    # ===== FIX: Validate favorite exists in collection =====
+                    # Validate favorite exists in collection
                     favorite_char_data = user.get('favorites')
                     favorite_char = None
 
@@ -261,10 +261,11 @@ async def inlinequery(update: Update, context) -> None:
                     f"<b>🌍 {to_small_caps('globally grabbed')} {global_count} {to_small_caps('times')}</b>"
                 )
 
+            # NEW: Simplified button with just character ID
             button = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
                     f"🏆 {to_small_caps('top grabbers')}", 
-                    callback_data=f"show_smashers_{char_id}"
+                    callback_data=f"topgrab:{char_id}"
                 )]
             ])
 
@@ -303,40 +304,50 @@ async def inlinequery(update: Update, context) -> None:
         await update.inline_query.answer([], next_offset="", cache_time=5)
 
 
-async def show_smashers_callback(update: Update, context) -> None:
-    """Show top 10 users who grabbed this character"""
+async def top_grabbers_handler(update: Update, context) -> None:
+    """
+    NEW HANDLER: Show top 10 users who grabbed this character
+    Callback data format: topgrab:CHARACTER_ID
+    """
     query = update.callback_query
-
+    
     try:
-        await query.answer()
-
-        if not query.data or len(query.data.split('_')) < 3:
-            await query.answer(to_small_caps("invalid data"), show_alert=True)
+        # Answer callback immediately to remove loading state
+        await query.answer("Loading top grabbers...")
+        
+        # Parse callback data
+        callback_parts = query.data.split(':', 1)
+        if len(callback_parts) != 2:
+            await query.answer("❌ Invalid request", show_alert=True)
             return
-
-        character_id = query.data.split('_')[2]
-
+            
+        character_id = callback_parts[1]
+        LOGGER.info(f"[TOP_GRABBERS] Looking up character: {character_id}")
+        
+        # Get character info
         character = await collection.find_one({'id': character_id})
         if not character:
-            await query.answer(to_small_caps("character not found"), show_alert=True)
+            await query.answer("❌ Character not found", show_alert=True)
             return
-
+        
+        # Find all users who have this character
         users_with_char = await user_collection.find({
             'characters.id': character_id
         }).to_list(length=None)
-
+        
         if not users_with_char:
-            await query.answer(to_small_caps("no one has grabbed this character yet"), show_alert=True)
+            await query.answer("😔 No one has grabbed this character yet", show_alert=True)
             return
-
+        
+        # Count occurrences per user
         user_counts = []
         for user in users_with_char:
             user_id = user.get('id')
             first_name = user.get('first_name', 'User')
             username = user.get('username')
-
+            
             count = sum(1 for char in user.get('characters', []) if char.get('id') == character_id)
-
+            
             if count > 0:
                 user_counts.append({
                     'id': user_id,
@@ -344,26 +355,30 @@ async def show_smashers_callback(update: Update, context) -> None:
                     'username': username,
                     'count': count
                 })
-
+        
+        # Sort by count
         user_counts.sort(key=lambda x: x['count'], reverse=True)
         top_users = user_counts[:10]
-
+        
         if not top_users:
-            await query.answer(to_small_caps("no grabbers found"), show_alert=True)
+            await query.answer("😔 No grabbers found", show_alert=True)
             return
-
-        grabbers_list = []
+        
+        # Build leaderboard
+        leaderboard_lines = []
         for i, user_data in enumerate(top_users, 1):
-            user_id = user_data.get('id')
-            count = user_data.get('count', 0)
-            first_name = user_data.get('first_name', 'User')
+            user_id = user_data['id']
+            count = user_data['count']
+            first_name = user_data['first_name']
             username = user_data.get('username')
-
+            
+            # User link
             if username:
                 user_link = f"<a href='tg://user?id={user_id}'>{escape(first_name)}</a> (@{escape(username)})"
             else:
                 user_link = f"<a href='tg://user?id={user_id}'>{escape(first_name)}</a>"
-
+            
+            # Medal
             if i == 1:
                 medal = "🥇"
             elif i == 2:
@@ -371,83 +386,95 @@ async def show_smashers_callback(update: Update, context) -> None:
             elif i == 3:
                 medal = "🥉"
             else:
-                medal = f"{i}"
-
-            grabbers_list.append(f"{medal} {user_link} <b>x{count}</b>")
-
+                medal = f"#{i}"
+            
+            leaderboard_lines.append(f"{medal} {user_link} — <b>x{count}</b>")
+        
         total_grabbed = sum(u['count'] for u in user_counts)
-
-        smasher_text = (
-            f"\n\n<b>🏆 {to_small_caps('top 10 grabbers')}</b>\n"
-            f"<b>{to_small_caps('total grabbed')} {total_grabbed} {to_small_caps('times')}</b>\n\n"
-            + "\n".join(grabbers_list)
+        
+        # Build new caption
+        leaderboard_text = (
+            f"━━━━━━━━━━━━━━━\n"
+            f"<b>🏆 {to_small_caps('top grabbers')}</b>\n"
+            f"<b>📊 {to_small_caps('total')}: {total_grabbed} {to_small_caps('grabs')}</b>\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            + "\n".join(leaderboard_lines)
         )
-
-        if not query.message:
-            await query.answer(to_small_caps("message not found"), show_alert=True)
-            return
-
-        original_caption = query.message.caption if query.message.caption else query.message.text
-
-        if not original_caption:
-            await query.answer(to_small_caps("caption not found"), show_alert=True)
-            return
-
-        if '🏆' in original_caption:
-            original_caption = original_caption.split('\n\n🏆')[0]
-
-        new_caption = original_caption + smasher_text
-
+        
+        # Get original caption
+        original_caption = ""
+        if query.message.caption:
+            original_caption = query.message.caption
+        elif query.message.text:
+            original_caption = query.message.text
+        
+        # Remove old leaderboard if exists
+        if "━━━━━━━━━━━━━━━" in original_caption:
+            original_caption = original_caption.split("━━━━━━━━━━━━━━━")[0].strip()
+        
+        # Combine captions
+        new_caption = f"{original_caption}\n\n{leaderboard_text}"
+        
+        # Truncate if too long
         if len(new_caption) > 1020:
-            grabbers_list_short = grabbers_list[:5]
-            smasher_text = (
-                f"\n\n<b>🏆 {to_small_caps('top 5 grabbers')}</b>\n"
-                f"<b>{to_small_caps('total grabbed')} {total_grabbed} {to_small_caps('times')}</b>\n\n"
-                + "\n".join(grabbers_list_short)
+            # Show only top 5
+            leaderboard_lines_short = leaderboard_lines[:5]
+            leaderboard_text = (
+                f"━━━━━━━━━━━━━━━\n"
+                f"<b>🏆 {to_small_caps('top 5 grabbers')}</b>\n"
+                f"<b>📊 {to_small_caps('total')}: {total_grabbed} {to_small_caps('grabs')}</b>\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                + "\n".join(leaderboard_lines_short)
             )
-            new_caption = original_caption + smasher_text
-
+            new_caption = f"{original_caption}\n\n{leaderboard_text}"
+        
+        # Update message with new caption
         try:
             if query.message.caption:
                 await query.edit_message_caption(
-                    caption=new_caption, 
+                    caption=new_caption,
                     parse_mode='HTML',
                     reply_markup=query.message.reply_markup
                 )
             else:
                 await query.edit_message_text(
-                    text=new_caption, 
+                    text=new_caption,
                     parse_mode='HTML',
                     reply_markup=query.message.reply_markup
                 )
+            
+            LOGGER.info(f"[TOP_GRABBERS] Successfully updated leaderboard for {character_id}")
+            
         except Exception as edit_error:
-            print(f"Error editing message: {edit_error}")
+            LOGGER.error(f"[TOP_GRABBERS] Error editing message: {edit_error}")
+            # Try without reply markup
             try:
                 if query.message.caption:
                     await query.edit_message_caption(
-                        caption=new_caption, 
+                        caption=new_caption,
                         parse_mode='HTML'
                     )
                 else:
                     await query.edit_message_text(
-                        text=new_caption, 
+                        text=new_caption,
                         parse_mode='HTML'
                     )
-            except:
-                await query.answer(to_small_caps("could not update message"), show_alert=True)
-
+            except Exception as retry_error:
+                LOGGER.error(f"[TOP_GRABBERS] Retry failed: {retry_error}")
+                await query.answer("❌ Could not update message", show_alert=True)
+    
     except Exception as e:
-        print(f"Error showing grabbers: {e}")
+        LOGGER.error(f"[TOP_GRABBERS] Error: {e}")
         import traceback
         traceback.print_exc()
         try:
-            await query.answer(to_small_caps("error loading top grabbers"), show_alert=True)
+            await query.answer("❌ Error loading top grabbers", show_alert=True)
         except:
             pass
 
 
-# Add handlers
+# Register handlers
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
-application.add_handler(CallbackQueryHandler(show_smashers_callback, pattern=r'^show_smashers_', block=False))
+application.add_handler(CallbackQueryHandler(top_grabbers_handler, pattern=r'^topgrab:', block=False))
 
-LOGGER.info("[INLINE] Handlers registered with VIDEO SUPPORT & FAVORITE VALIDATION 🎥✅")
+LOGGER.info("[INLINE] ✅ Handlers registered with NEW TOP GRABBERS SYSTEM 🎥🏆")
