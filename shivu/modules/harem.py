@@ -109,7 +109,7 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
 
 
 async def harem(update: Update, context: CallbackContext, page=0, edit=False) -> None:
-    """Display user's character collection (harem) with FULL VIDEO SUPPORT"""
+    """Display user's character collection (harem) with enhanced format"""
     user_id = update.effective_user.id
 
     try:
@@ -189,15 +189,9 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         if page < 0 or page >= total_pages:
             page = 0
 
-        # Build message
+        # Build message with new format
         user_name = escape(update.effective_user.first_name)
-        harem_message = f"<b>🎴 {user_name}'s Collection ({rarity_filter})</b>\n"
-
-        # Add favorite indicator if exists
-        if fav_character:
-            harem_message += f"<b>💖 Favorite: {escape(fav_character.get('name', 'Unknown'))}</b>\n"
-
-        harem_message += f"<b>Page {page + 1}/{total_pages}</b>\n\n"
+        harem_message = f"<b>{user_name}'s ʜᴀʀᴇᴍ - ᴘᴀɢᴇ {page + 1}/{total_pages}</b>\n\n"
 
         # Get current page characters
         start_idx = page * 10
@@ -225,7 +219,8 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             # Count total characters in this anime
             total_anime_count = await collection.count_documents({"anime": anime})
 
-            harem_message += f'<b>➥ {anime} [{user_anime_count}/{total_anime_count}]</b>\n'
+            harem_message += f'<b>𖤍 {escape(anime)} ｛{user_anime_count}/{total_anime_count}｝</b>\n'
+            harem_message += '⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n'
 
             for char in chars:
                 char_id = char.get('id')
@@ -240,32 +235,26 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     else:
                         rarity_emoji = '🟢'
 
-                    # Add heart emoji if this is the favorite
+                    # Check if this is the favorite
                     fav_marker = ""
                     if fav_character and char_id == fav_character.get('id'):
-                        fav_marker = " 💖"
+                        fav_marker = " [🍁]"
 
-                    harem_message += f'  {rarity_emoji} <code>{char_id}</code> • <b>{escape(name)}</b> ×{count}{fav_marker}\n'
+                    harem_message += f'<b>𒄬 {char_id}</b> [ {rarity_emoji} ] <b>{escape(name)}</b>{fav_marker} ×{count}\n'
                     included.add(char_id)
 
-            harem_message += '\n'
+            harem_message += '⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n\n'
 
         # Calculate total character count
         total_char_count = len(filtered_chars)
         unique_char_count = len(character_counts)
 
-        # Create keyboard with character count
+        # Create keyboard with updated format
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "🎭 View All", 
+                    f"🎭 View All ({total_char_count})", 
                     switch_inline_query_current_chat=f"collection.{user_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"📊 Total: {total_char_count} | Unique: {unique_char_count}", 
-                    callback_data="harem_char_count"
                 )
             ]
         ]
@@ -287,7 +276,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
 
-        # ===== ENHANCED: Determine which media to show with auto video detection =====
+        # Determine which media to show with auto video detection
         display_media = None
         is_video_display = False
 
@@ -608,16 +597,6 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         await query.answer("Error updating mode", show_alert=True)
 
 
-async def handle_char_count_info(update: Update, context: CallbackContext) -> None:
-    """Handle character count info button"""
-    query = update.callback_query
-    await query.answer(
-        "📊 Total: All characters you own\n"
-        "🎯 Unique: Different characters (no duplicates)",
-        show_alert=True
-    )
-
-
 # Register handlers
 application.add_handler(CommandHandler(["harem"], harem, block=False))
 application.add_handler(CommandHandler("smode", set_hmode, block=False))
@@ -626,4 +605,3 @@ application.add_handler(CommandHandler("unfav", unfav, block=False))
 application.add_handler(CallbackQueryHandler(harem_callback, pattern='^harem_page:', block=False))
 application.add_handler(CallbackQueryHandler(mode_button, pattern='^harem_mode_', block=False))
 application.add_handler(CallbackQueryHandler(handle_unfav_callback, pattern="^harem_unfav_", block=False))
-application.add_handler(CallbackQueryHandler(handle_char_count_info, pattern="^harem_char_count$", block=False))
