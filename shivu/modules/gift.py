@@ -97,9 +97,14 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         receiver_id = message.reply_to_message.from_user.id
         receiver_username = message.reply_to_message.from_user.username or "N/A"
         receiver_first_name = message.reply_to_message.from_user.first_name
+        receiver_is_bot = message.reply_to_message.from_user.is_bot
 
         if sender_id == receiver_id:
             await message.reply_text("You can't gift to yourself", parse_mode='HTML')
+            return
+
+        if receiver_is_bot:
+            await message.reply_text("ᴀᴄʜᴀ ʟᴀᴜᴅᴇ ʙᴏᴛ ʟᴏ ᴅᴇɢᴀ!", parse_mode='HTML')
             return
 
         if len(context.args) != 1:
