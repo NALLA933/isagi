@@ -104,7 +104,7 @@ async def handle_gift_command(update: Update, context: CallbackContext):
             return
 
         if receiver_is_bot:
-            await message.reply_text("ᴀᴄʜᴀ ʟᴀᴜᴅᴇ ʙᴏᴛ ʟᴏ ᴅᴇɢᴀ!", parse_mode='HTML')
+            await message.reply_text("ᴀᴄʜᴀ ʟᴀᴜᴅᴇ ʙᴏᴛ ᴋᴏ ᴅᴇɢᴀ!\n sᴏᴊᴀ ᴍᴜᴛᴛʜɪ ᴍᴀʀ ʙʜᴀɪ", parse_mode='HTML')
             return
 
         if len(context.args) != 1:
