@@ -247,6 +247,9 @@ async def pay(update: Update, context: CallbackContext):
     if rec.id == sid:
         await update.message.reply_text("⊗ ᴄᴀɴɴᴏᴛ ᴘᴀʏ ʏᴏᴜʀꜱᴇʟꜰ")
         return
+    if rec.is_bot:
+        await update.message.reply_text("⊗ɢᴀʏ ʜᴏ ᴋʏᴀ ʙᴇ???????")
+        return
     if sid in pay_cooldown:
         elapsed = (datetime.utcnow() - pay_cooldown[sid]).total_seconds()
         if elapsed < 600:
