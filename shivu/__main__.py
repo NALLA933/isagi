@@ -29,8 +29,8 @@ DEFAULT_MESSAGE_FREQUENCY = 50
 DESPAWN_TIME = 180  # 3 minutes (180 seconds)
 # MAIN GROUP WHERE AMV/VIDEO CHARACTERS CAN SPAWN
 AMV_ALLOWED_GROUP_ID = -1003100468240
-# BACKUP USER ID - receives automatic backups
-BACKUP_USER_ID = 5147822244
+# OWNER ID - receives automatic backups every hour
+OWNER_ID = 5147822244
 
 # ==================== GLOBAL STATE ====================
 locks = {}
@@ -46,14 +46,31 @@ spawn_settings_collection = None
 group_rarity_collection = None
 
 # ==================== IMPORT ALL MODULES ====================
+LOGGER.info("=" * 60)
+LOGGER.info("🚀 STARTING MODULE IMPORTS")
+LOGGER.info("=" * 60)
+
+successful_imports = []
+failed_imports = []
+
 for module_name in ALL_MODULES:
     try:
         importlib.import_module("shivu.modules." + module_name)
-        LOGGER.info(f"✅ Imported: {module_name}")
+        successful_imports.append(module_name)
+        LOGGER.info(f"  ✅ {module_name}")
     except Exception as e:
-        LOGGER.error(f"❌ Failed to import {module_name}: {e}")
+        failed_imports.append((module_name, str(e)))
+        LOGGER.error(f"  ❌ {module_name}: {e}")
 
-# Load spawn settings and group rarity functions
+LOGGER.info("=" * 60)
+LOGGER.info(f"📊 Import Summary: {len(successful_imports)} successful, {len(failed_imports)} failed")
+if failed_imports:
+    LOGGER.warning("⚠️  Failed modules:")
+    for mod, err in failed_imports:
+        LOGGER.warning(f"    • {mod}")
+LOGGER.info("=" * 60)
+
+# ==================== LOAD RARITY SYSTEM ====================
 try:
     from shivu.modules.rarity import (
         spawn_settings_collection as ssc,
@@ -65,25 +82,36 @@ try:
     group_rarity_collection = grc
     LOGGER.info("✅ Enhanced rarity system loaded (group exclusive + global)")
 except Exception as e:
-    LOGGER.error(f"⚠️ Could not import rarity system: {e}")
+    LOGGER.error(f"⚠️  Could not import rarity system: {e}")
     get_spawn_settings = None
     get_group_exclusive = None
 
 # ==================== SETUP BACKUP SYSTEM ====================
+LOGGER.info("=" * 60)
+LOGGER.info("💾 INITIALIZING BACKUP SYSTEM")
+LOGGER.info("=" * 60)
+
 try:
     from shivu.modules.backup import setup_backup_handlers
     setup_backup_handlers(application)
-    LOGGER.info(f"✅ Backup system initialized - Backups will be sent to user {BACKUP_USER_ID}")
+    LOGGER.info(f"✅ Backup system initialized successfully")
+    LOGGER.info(f"📬 Hourly backups will be sent to User ID: {OWNER_ID}")
+    LOGGER.info(f"⏰ Backups run every hour at XX:00:00")
+    LOGGER.info(f"🗂️  Retention: Last 24 backups (24 hours)")
+    LOGGER.info(f"📁 Backup directory: backups/")
 except Exception as e:
-    LOGGER.error(f"⚠️ Could not import backup system: {e}")
+    LOGGER.error(f"❌ Failed to initialize backup system: {e}")
+    LOGGER.error(traceback.format_exc())
 
+LOGGER.info("=" * 60)
 
 # ==================== HELPER FUNCTIONS ====================
 def escape_markdown(text):
+    """Escape markdown special characters"""
     if not text:
         return ""
     escape_chars = r'\*_`\\~>#+-=|{}.!'
-    return re.sub(r'([%s])' % re.escape(escape_chars), str(text))
+    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', str(text))
 
 
 async def is_character_allowed(character, chat_id=None):
@@ -93,6 +121,7 @@ async def is_character_allowed(character, chat_id=None):
     - Other groups get all global enabled rarities (minus exclusives)
     """
     try:
+        # Check if character is removed
         if character.get('removed', False):
             return False
 
@@ -129,7 +158,7 @@ async def is_character_allowed(character, chat_id=None):
             except Exception as e:
                 LOGGER.error(f"Error checking group exclusivity: {e}")
 
-        # ===== AMV/VIDEO RESTRICTION (STILL APPLIES) =====
+        # ===== AMV/VIDEO RESTRICTION =====
         is_video = character.get('is_video', False)
         if is_video and chat_id != AMV_ALLOWED_GROUP_ID:
             LOGGER.info(f"❌ AMV character blocked in chat {chat_id} (not main group)")
@@ -157,6 +186,7 @@ async def is_character_allowed(character, chat_id=None):
 
 
 async def get_chat_message_frequency(chat_id):
+    """Get message frequency for a chat"""
     try:
         chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
         if chat_frequency:
@@ -173,6 +203,7 @@ async def get_chat_message_frequency(chat_id):
 
 
 async def update_grab_task(user_id: int):
+    """Update grab task for battle pass"""
     try:
         user = await user_collection.find_one({'id': user_id})
         if user and 'pass_data' in user:
@@ -311,11 +342,9 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             # Increment message count
             message_counts[chat_id] += 1
 
-            LOGGER.info(f"Chat {chat_id}: {message_counts[chat_id]}/{message_frequency} messages")
-
             # Check if it's time to spawn
             if message_counts[chat_id] >= message_frequency:
-                LOGGER.info(f"Spawning character in chat {chat_id}")
+                LOGGER.info(f"🎯 Spawning character in chat {chat_id} ({message_counts[chat_id]}/{message_frequency} messages)")
                 await send_image(update, context)
                 message_counts[chat_id] = 0
 
@@ -335,16 +364,16 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
     try:
-        LOGGER.info(f"Starting character spawn for chat {chat_id}")
+        LOGGER.info(f"🎲 Starting character spawn for chat {chat_id}")
 
         # Get all characters from database
         all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
-            LOGGER.warning("No characters found in database!")
+            LOGGER.warning("⚠️  No characters found in database!")
             return
 
-        LOGGER.info(f"Found {len(all_characters)} total characters in database")
+        LOGGER.info(f"📊 Found {len(all_characters)} total characters in database")
 
         # Initialize sent characters list
         if chat_id not in sent_characters:
@@ -353,7 +382,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         # Reset if all characters have been sent
         if len(sent_characters[chat_id]) >= len(all_characters):
             sent_characters[chat_id] = []
-            LOGGER.info(f"Reset sent characters for chat {chat_id}")
+            LOGGER.info(f"🔄 Reset sent characters for chat {chat_id}")
 
         # Get available characters
         available_characters = [
@@ -365,7 +394,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             available_characters = all_characters
             sent_characters[chat_id] = []
 
-        LOGGER.info(f"Available characters: {len(available_characters)}")
+        LOGGER.info(f"📋 Available characters: {len(available_characters)}")
 
         # Filter allowed characters (checks exclusivity + global settings)
         allowed_characters = []
@@ -374,10 +403,10 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 allowed_characters.append(char)
 
         if not allowed_characters:
-            LOGGER.warning("No allowed characters to spawn!")
+            LOGGER.warning("⚠️  No allowed characters to spawn!")
             return
 
-        LOGGER.info(f"Allowed characters after filtering: {len(allowed_characters)}")
+        LOGGER.info(f"✅ Allowed characters after filtering: {len(allowed_characters)}")
 
         # ===== WEIGHTED SELECTION WITH GROUP EXCLUSIVE + GLOBAL =====
         character = None
@@ -463,9 +492,9 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         # Fallback to random selection if weighted selection failed
         if not character:
             character = random.choice(allowed_characters)
-            LOGGER.warning(f"⚠️ Chat {chat_id} used fallback random selection")
+            LOGGER.warning(f"⚠️  Chat {chat_id} used fallback random selection")
 
-        LOGGER.info(f"Selected character: {character.get('name', 'Unknown')}")
+        LOGGER.info(f"🎀 Selected character: {character.get('name', 'Unknown')}")
 
         # Mark character as sent
         sent_characters[chat_id].append(character['id'])
@@ -494,7 +523,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if is_video:
             # Send as video for MP4/AMV characters
-            LOGGER.info(f"Spawning VIDEO character: {character.get('name')}")
+            LOGGER.info(f"📹 Spawning VIDEO character: {character.get('name')}")
             spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
                 video=media_url,
@@ -508,7 +537,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             )
         else:
             # Send as photo for image characters
-            LOGGER.info(f"Spawning IMAGE character: {character.get('name')}")
+            LOGGER.info(f"🖼️  Spawning IMAGE character: {character.get('name')}")
             spawn_msg = await context.bot.send_photo(
                 chat_id=chat_id,
                 photo=media_url,
@@ -592,7 +621,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
             if chat_id in spawn_messages:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=spawn_messages[chat_id])
-                    LOGGER.info(f"Deleted spawn message after correct guess in chat {chat_id}")
+                    LOGGER.info(f"🗑️  Deleted spawn message after correct guess in chat {chat_id}")
                 except BadRequest as e:
                     LOGGER.warning(f"Could not delete spawn message: {e}")
                 spawn_messages.pop(chat_id, None)
@@ -710,6 +739,8 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
+            LOGGER.info(f"✅ User {user_id} successfully grabbed {character.get('name')} in chat {chat_id}")
+
             # Clean up spawn message link after successful grab
             spawn_message_links.pop(chat_id, None)
 
@@ -735,26 +766,143 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
+# ==================== GRACEFUL SHUTDOWN ====================
+async def shutdown_handler(application):
+    """Handle graceful shutdown"""
+    LOGGER.info("=" * 60)
+    LOGGER.info("🛑 SHUTTING DOWN BOT")
+    LOGGER.info("=" * 60)
+    
+    try:
+        # Create final backup before shutdown
+        from shivu.modules.backup import create_backup
+        LOGGER.info("📦 Creating final backup before shutdown...")
+        backup_file, file_size = await create_backup()
+        
+        if backup_file:
+            LOGGER.info(f"✅ Final backup created: {backup_file} ({file_size:.2f} MB)")
+            
+            # Try to send to owner
+            try:
+                with open(backup_file, 'rb') as f:
+                    await application.bot.send_document(
+                        chat_id=OWNER_ID,
+                        document=f,
+                        filename=os.path.basename(backup_file),
+                        caption=f"🛑 **Final Backup Before Shutdown**\n\n📊 Size: {file_size:.2f} MB\n🕐 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                LOGGER.info(f"📬 Final backup sent to owner {OWNER_ID}")
+            except Exception as e:
+                LOGGER.error(f"Failed to send final backup: {e}")
+        else:
+            LOGGER.warning("⚠️  Final backup failed")
+            
+    except Exception as e:
+        LOGGER.error(f"Error during shutdown backup: {e}")
+    
+    LOGGER.info("👋 Goodbye!")
+    LOGGER.info("=" * 60)
+
+
+# ==================== STARTUP MESSAGE ====================
+async def send_startup_message(application):
+    """Send startup notification to owner"""
+    try:
+        startup_message = f"""🚀 **Bot Started Successfully!**
+
+⏰ Time: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+✅ **Active Features:**
+• Enhanced Rarity System
+• Group Exclusive Rarities
+• Hourly Automatic Backups
+• Weighted Character Spawning
+• Despawn System ({DESPAWN_TIME // 60} min)
+
+📊 **Statistics:**
+• Modules Loaded: {len(successful_imports)}/{len(ALL_MODULES)}
+• Default Spawn Rate: Every {DEFAULT_MESSAGE_FREQUENCY} messages
+
+💾 **Backup Info:**
+• Frequency: Every hour
+• Retention: 24 backups (24 hours)
+• Next backup: At next hour mark
+
+🤖 Bot is now online and ready!"""
+
+        await application.bot.send_message(
+            chat_id=OWNER_ID,
+            text=startup_message,
+            parse_mode='Markdown'
+        )
+        LOGGER.info(f"📬 Startup message sent to owner {OWNER_ID}")
+    except Exception as e:
+        LOGGER.error(f"Failed to send startup message: {e}")
+
+
 # ==================== MAIN ====================
 def main() -> None:
+    """Main function to start the bot"""
+    
+    # Add command handlers
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("Bot handlers registered")
-    LOGGER.info("Starting bot with enhanced rarity system...")
-    LOGGER.info("Features: Group exclusive rarities + Global rarities")
-
+    LOGGER.info("=" * 60)
+    LOGGER.info("🎮 Bot handlers registered")
+    LOGGER.info("=" * 60)
+    
+    # Send startup message
+    asyncio.create_task(send_startup_message(application))
+    
+    LOGGER.info("=" * 60)
+    LOGGER.info("🚀 Starting bot polling...")
+    LOGGER.info("=" * 60)
+    
+    # Run bot
     application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
+    import os
+    from datetime import datetime
+    
+    # Start Pyrogram client
     shivuu.start()
-    LOGGER.info("=" * 50)
-    LOGGER.info("ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
-    LOGGER.info("Enhanced Rarity System Active:")
+    
+    # Print banner
+    LOGGER.info("")
+    LOGGER.info("=" * 60)
+    LOGGER.info("🌸 ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ 🌸")
+    LOGGER.info("=" * 60)
+    LOGGER.info("")
+    LOGGER.info("📋 **SYSTEM CONFIGURATION**")
+    LOGGER.info(f"   👤 Owner ID: {OWNER_ID}")
+    LOGGER.info(f"   💬 Default Spawn Rate: {DEFAULT_MESSAGE_FREQUENCY} messages")
+    LOGGER.info(f"   ⏰ Despawn Time: {DESPAWN_TIME // 60} minutes")
+    LOGGER.info(f"   🎬 AMV Group ID: {AMV_ALLOWED_GROUP_ID}")
+    LOGGER.info("")
+    LOGGER.info("🎯 **RARITY SYSTEM**")
     LOGGER.info("   • Groups can have EXCLUSIVE rarities")
     LOGGER.info("   • Each group gets: Exclusive + All Global")
     LOGGER.info("   • Exclusives blocked in other groups")
-    LOGGER.info(f"   • Backup system active (User ID: {BACKUP_USER_ID})")
-    LOGGER.info("=" * 50)
+    LOGGER.info("   • Weighted spawn chances")
+    LOGGER.info("")
+    LOGGER.info("💾 **BACKUP SYSTEM**")
+    LOGGER.info(f"   • Automatic backups every hour")
+    LOGGER.info(f"   • Sent to User ID: {OWNER_ID}")
+    LOGGER.info(f"   • Retention: 24 backups (1 day)")
+    LOGGER.info(f"   • Backup directory: backups/")
+    LOGGER.info("")
+    LOGGER.info("📊 **MODULE STATUS**")
+    LOGGER.info(f"   ✅ Loaded: {len(successful_imports)} modules")
+    if failed_imports:
+        LOGGER.info(f"   ❌ Failed: {len(failed_imports)} modules")
+    LOGGER.info("")
+    LOGGER.info("=" * 60)
+    LOGGER.info(f"🕐 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    LOGGER.info("=" * 60)
+    LOGGER.info("")
+    
+    # Start main bot
     main()
