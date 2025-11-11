@@ -308,29 +308,6 @@ async def daily(update: Update, context: CallbackContext):
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': 2000}, '$set': {'last_daily': now}})
     await update.message.reply_text(f"╭────────────────╮\n│   ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅ   │\n╰────────────────╯\n\n⟡ ᴄʟᴀɪᴍᴇᴅ: <code>2000</code> ɢᴏʟᴅ", parse_mode="HTML")
 
-async def roll(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
-    try:
-        amt = int(context.args[0])
-        choice = context.args[1].upper()
-        if choice not in ['ODD', 'EVEN'] or amt <= 0:
-            raise ValueError
-    except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /roll <amount> <odd/even>")
-        return
-    user = await get_user(uid)
-    if not user or user.get('balance', 0) < amt:
-        await update.message.reply_text("⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ")
-        return
-    dice = await context.bot.send_dice(update.effective_chat.id, "🎲")
-    val = dice.dice.value
-    result = "ODD" if val % 2 != 0 else "EVEN"
-    won = choice == result
-    change = amt if won else -amt
-    xp = 4 if won else -2
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': change, 'user_xp': xp}})
-    await update.message.reply_text(f"╭────────────────╮\n│   {'✓ ᴡɪɴ' if won else '✗ ʟᴏꜱᴛ'}   │\n╰────────────────╯\n\n⟡ ᴅɪᴄᴇ: <code>{val}</code> ({result})\n⟡ ʙᴀʟᴀɴᴄᴇ: <code>{change:+d}</code>\n⟡ xᴘ: <code>{xp:+d}</code>", parse_mode="HTML")
-
 async def xp_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
@@ -392,13 +369,6 @@ async def bank_help(update: Update, context: CallbackContext):
    • ᴄᴏᴏʟᴅᴏᴡɴ: <code>10</code> ᴍɪɴᴜᴛᴇꜱ
    • ᴇxᴘɪʀᴇꜱ: <code>30</code> ꜱᴇᴄᴏɴᴅꜱ
 
-<b>🎲 GAMBLING</b>
-
-⟡ <code>/roll [amount] [odd/even]</code>
-   ʙᴇᴛ ᴏɴ ᴅɪᴄᴇ ʀᴏʟʟ
-   • ᴡɪɴ: +ᴀᴍᴏᴜɴᴛ & +4 xᴘ
-   • ʟᴏꜱᴇ: -ᴀᴍᴏᴜɴᴛ & -2 xᴘ
-
 <b>📬 NOTIFICATIONS</b>
 
 ⟡ <code>/notifications</code>
@@ -418,7 +388,6 @@ async def bank_help(update: Update, context: CallbackContext):
 ✓ ᴅᴇᴘᴏꜱɪᴛ ɪɴ ʙᴀɴᴋ ғᴏʀ ᴘᴀꜱꜱɪᴠᴇ ɪɴᴄᴏᴍᴇ
 ✓ ʀᴇᴘᴀʏ ʟᴏᴀɴꜱ ᴇᴀʀʟʏ ᴛᴏ ᴀᴠᴏɪᴅ ᴘᴇɴᴀʟᴛɪᴇꜱ
 ✓ ᴜꜱᴇ /bal ʙᴜᴛᴛᴏɴꜱ ғᴏʀ ǫᴜɪᴄᴋ ᴀᴄᴄᴇꜱꜱ
-✓ ɢᴀᴍʙʟᴇ ʀᴇꜱᴘᴏɴꜱɪʙʟʏ!
 
 ───────────────────"""
     
@@ -473,16 +442,7 @@ async def bank_example(update: Update, context: CallbackContext):
 3️⃣ ᴄʟɪᴄᴋ "✓ ᴄᴏɴꜰɪʀᴍ" ʙᴜᴛᴛᴏɴ
 4️⃣ ᴡᴀɪᴛ 10 ᴍɪɴ ᴄᴏᴏʟᴅᴏᴡɴ
 
-<b>🎲 SCENARIO 4: GAMBLING</b>
-
-1️⃣ <code>/roll 1000 odd</code>
-2️⃣ ᴅɪᴄᴇ ʀᴏʟʟꜱ 3 (ᴏᴅᴅ)
-3️⃣ ʏᴏᴜ ᴡɪɴ!
-4️⃣ ɢᴇᴛ +1000 ɢᴏʟᴅ & +4 xᴘ
-
-❌ <b>ɪғ ʟᴏꜱᴛ:</b> -1000 ɢᴏʟᴅ & -2 xᴘ
-
-<b>📊 SCENARIO 5: SMART BANKING</b>
+<b>📊 SCENARIO 4: SMART BANKING</b>
 
 ᴅᴀʏ 1: <code>/cclaim</code> → 2000 ɢᴏʟᴅ
 ᴅᴀʏ 1: <code>/deposit 2000</code>
@@ -540,7 +500,6 @@ async def callback_handler(update: Update, context: CallbackContext):
 
 <b>💸 OTHER</b>
 ⟡ <code>/pay [amount]</code> - ᴛʀᴀɴꜱғᴇʀ
-⟡ <code>/roll [amt] [odd/even]</code>
 ⟡ <code>/notifications</code>
 
 ᴜꜱᴇ /bankexample ғᴏʀ ᴇxᴀᴍᴘʟᴇꜱ"""
@@ -726,7 +685,6 @@ application.add_handler(CommandHandler("repay", repay, block=False))
 application.add_handler(CommandHandler("notifications", notifications, block=False))
 application.add_handler(CommandHandler("pay", pay, block=False))
 application.add_handler(CommandHandler("cclaim", daily, block=False))
-application.add_handler(CommandHandler("roll", roll, block=False))
 application.add_handler(CommandHandler("xp", xp_cmd, block=False))
 application.add_handler(CommandHandler("bankhelp", bank_help, block=False))
 application.add_handler(CommandHandler("bankexample", bank_example, block=False))
