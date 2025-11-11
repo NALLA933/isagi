@@ -102,8 +102,24 @@ async def check_loans():
                             await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None}, '$inc': {'permanent_debt': debt}})
                             seized.append(f"⚠️ ᴀᴅᴅᴇᴅ {debt} ᴛᴏ ᴘᴇʀᴍᴀɴᴇɴᴛ ᴅᴇʙᴛ")
 
-                    msg = f"╭────────────────╮\n│   ⚠️ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n\n<b>ꜱᴇɪᴢᴇᴅ ɪᴛᴇᴍꜱ:</b>\n" + "\n".join(f"  • {i}" for i in seized)
+                    # Format timestamp
+                    time_str = now.strftime("%d/%m/%Y %H:%M:%S UTC")
+                    
+                    msg = f"╭────────────────╮\n│   ⚠️ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n⟡ ᴛɪᴍᴇ: <code>{time_str}</code>\n\n<b>ꜱᴇɪᴢᴇᴅ ɪᴛᴇᴍꜱ:</b>\n" + "\n".join(f"  • {i}" for i in seized)
+                    
+                    # Save to notifications
                     await user_collection.update_one({'id': uid}, {'$push': {'notifications': {'type': 'loan_collection', 'message': msg, 'timestamp': now}}})
+                    
+                    # Send DM to user
+                    try:
+                        await application.bot.send_message(
+                            chat_id=uid,
+                            text=msg,
+                            parse_mode="HTML"
+                        )
+                    except Exception as dm_error:
+                        print(f"ᴄᴏᴜʟᴅɴ'ᴛ ꜱᴇɴᴅ ᴅᴍ ᴛᴏ {uid}: {dm_error}")
+                        
             except Exception as e:
                 print(f"ʟᴏᴀɴ ᴇʀʀᴏʀ: {e}")
             await asyncio.sleep(3600)
