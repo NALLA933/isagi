@@ -8,14 +8,14 @@ from shivu import application, db, user_collection
 collection = db['anime_characters_lol'] 
 luv_config_collection = db['luv_config'] 
 sudo_users = ["8297659126", "8420981179", "5147822244"] 
-super_admin = "8420981179"  # Only this user can use config commands
+super_admin = "8420981179"
 
 DEFAULT_CONFIG = { 
     "rarities": { 
-        "🟢 Common": {"weight": 60, "price": 2000}, 
-        "🟣 Rare": {"weight": 25, "price": 5000}, 
-        "🟡 Legendary": {"weight": 10, "price": 10000}, 
-        "💮 Special Edition": {"weight": 5, "price": 25000} 
+        "🟢 Common": {"weight": 60, "min_price": 1500, "max_price": 2500}, 
+        "🟣 Rare": {"weight": 25, "min_price": 4000, "max_price": 6000}, 
+        "🟡 Legendary": {"weight": 10, "min_price": 8000, "max_price": 12000}, 
+        "💮 Special Edition": {"weight": 5, "min_price": 20000, "max_price": 30000} 
     }, 
     "refresh_cost": 20000, 
     "refresh_limit": 2, 
@@ -23,8 +23,8 @@ DEFAULT_CONFIG = {
     "cooldown_hours": 24 
 } 
 
-# Store to track panel owners
 panel_owners = {}
+character_prices = {}
 
 async def get_config(): 
     cfg = await luv_config_collection.find_one({"_id": "luv_config"}) 
@@ -37,14 +37,26 @@ async def get_rarity(cfg):
     rarities = cfg['rarities'] 
     return random.choices(list(rarities.keys()), [rarities[r]['weight'] for r in rarities], k=1)[0] 
 
+def get_random_price(cfg, rarity):
+    rarity_data = cfg['rarities'].get(rarity, {})
+    min_price = rarity_data.get('min_price', 1000)
+    max_price = rarity_data.get('max_price', 5000)
+    return random.randint(min_price, max_price)
+
 async def generate_chars(uid, cfg): 
     chars = [] 
+    if uid not in character_prices:
+        character_prices[uid] = {}
+    
     for _ in range(cfg.get('store_items', 3)): 
         rarity = await get_rarity(cfg) 
         pipe = [{'$match': {'rarity': rarity}}, {'$sample': {'size': 1}}] 
         char = await collection.aggregate(pipe).to_list(length=1) 
         if char: 
-            chars.append(char[0]) 
+            char_data = char[0]
+            cid = str(char_data.get("id") or char_data.get("_id"))
+            character_prices[uid][cid] = get_random_price(cfg, rarity)
+            chars.append(char_data) 
     return chars 
 
 async def get_luv_data(uid): 
@@ -65,12 +77,16 @@ def time_left(target):
     h, m = int(diff.total_seconds() // 3600), int((diff.total_seconds() % 3600) // 60) 
     return f"{h}ʜ {m}ᴍ" 
 
-async def build_caption(char, cfg, page, total, luv_data, balance): 
-    cid = char.get("id") or char.get("_id") 
+async def build_caption(char, cfg, page, total, luv_data, balance, uid): 
+    cid = str(char.get("id") or char.get("_id"))
     name = char.get("name", "Unknown") 
     anime = char.get("anime", "Unknown") 
     rarity = char.get("rarity", "Unknown") 
-    price = cfg['rarities'].get(rarity, {}).get('price', 0) 
+    
+    price = character_prices.get(uid, {}).get(cid, 0)
+    if price == 0:
+        rarity_data = cfg['rarities'].get(rarity, {})
+        price = rarity_data.get('min_price', 1000)
 
     refresh_left = max(0, cfg.get('refresh_limit', 2) - luv_data.get('refresh_count', 0)) 
     last_reset = luv_data.get('last_reset') 
@@ -102,11 +118,9 @@ async def build_caption(char, cfg, page, total, luv_data, balance):
     ), char.get("img_url", ""), price, cid in purchased 
 
 async def delete_message_after_delay(context: CallbackContext, chat_id: int, message_id: int, delay: int = 1800):
-    """Delete message after specified delay (default 30 minutes)"""
     await asyncio.sleep(delay)
     try:
         await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        # Clean up panel owner tracking
         if message_id in panel_owners:
             del panel_owners[message_id]
     except:
@@ -150,8 +164,8 @@ async def luv(update: Update, context: CallbackContext):
     context.user_data['luv_chars'] = chars 
 
     char = chars[0] 
-    caption, img, price, owned = await build_caption(char, cfg, 1, len(chars), luv_data, balance) 
-    cid = char.get("id") or char.get("_id") 
+    caption, img, price, owned = await build_caption(char, cfg, 1, len(chars), luv_data, balance, uid) 
+    cid = str(char.get("id") or char.get("_id"))
 
     btns = [] 
     if not owned: 
@@ -174,12 +188,8 @@ async def luv(update: Update, context: CallbackContext):
     msg = await update.message.reply_photo(photo=img, caption=caption, parse_mode="HTML",  
                                            reply_markup=InlineKeyboardMarkup(btns)) 
     
-    # Track the owner of this panel
     panel_owners[msg.message_id] = uid
-    
     context.user_data['luv_msg_id'] = msg.message_id 
-    
-    # Schedule message deletion after 30 minutes
     asyncio.create_task(delete_message_after_delay(context, msg.chat_id, msg.message_id))
 
 async def luv_callback(update: Update, context: CallbackContext): 
@@ -188,7 +198,6 @@ async def luv_callback(update: Update, context: CallbackContext):
     data = q.data 
     cfg = await get_config() 
 
-    # Extract owner ID from callback data
     parts = data.split("_")
     if len(parts) >= 3:
         try:
@@ -198,17 +207,13 @@ async def luv_callback(update: Update, context: CallbackContext):
     else:
         owner_id = None
 
-    # Also check panel_owners dict
     msg_id = q.message.message_id
     if msg_id in panel_owners:
         owner_id = panel_owners[msg_id]
 
-    # Check if user is the owner of this store session
     if owner_id and owner_id != uid:
         await q.answer("⊗ ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛ!", show_alert=True)
         return
-    
-    await q.answer() 
 
     async def render_page(page): 
         chars = context.user_data.get('luv_chars', []) 
@@ -222,8 +227,8 @@ async def luv_callback(update: Update, context: CallbackContext):
         balance = user.get('balance', 0) if user else 0 
         luv_data = await get_luv_data(uid) 
 
-        caption, img, price, owned = await build_caption(char, cfg, page + 1, len(chars), luv_data, balance) 
-        cid = char.get("id") or char.get("_id") 
+        caption, img, price, owned = await build_caption(char, cfg, page + 1, len(chars), luv_data, balance, uid) 
+        cid = str(char.get("id") or char.get("_id"))
 
         btns = [] 
         if not owned: 
@@ -253,6 +258,7 @@ async def luv_callback(update: Update, context: CallbackContext):
                 pass 
 
     if data.startswith("luv_page_"): 
+        await q.answer()
         page_num = int(parts[-2])
         await render_page(page_num) 
 
@@ -276,6 +282,7 @@ async def luv_callback(update: Update, context: CallbackContext):
             await q.answer(f"⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\nʏᴏᴜ ɴᴇᴇᴅ: {cost} ɢᴏʟᴅ\nʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {balance} ɢᴏʟᴅ\nꜱʜᴏʀᴛ ʙʏ: {cost - balance} ɢᴏʟᴅ", show_alert=True) 
             return
 
+        await q.answer()
         btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_refok_{uid}"), 
                  InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"luv_cancel_{uid}")]] 
 
@@ -301,9 +308,9 @@ async def luv_callback(update: Update, context: CallbackContext):
             await q.answer("⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!", show_alert=True) 
             return 
 
+        await q.answer()
         await user_collection.update_one({"id": uid}, {"$inc": {"balance": -cost}}) 
 
-        # Refresh animation 
         await q.edit_message_caption( 
             caption="╭────────────────╮\n" 
                     "│   ⟲ ＲＥＦＲＥＳＨＩＮＧ...   │\n" 
@@ -329,6 +336,7 @@ async def luv_callback(update: Update, context: CallbackContext):
         await render_page(0) 
 
     elif data.startswith("luv_cancel_"):
+        await q.answer()
         await render_page(context.user_data.get('luv_page', 0)) 
 
     elif data.startswith("luv_nope_"):
@@ -348,8 +356,12 @@ async def luv_callback(update: Update, context: CallbackContext):
             await q.answer("⊗ ᴀʟʀᴇᴀᴅʏ ᴘᴜʀᴄʜᴀꜱᴇᴅ!", show_alert=True) 
             return 
 
+        await q.answer()
         rarity = char.get('rarity', 'Unknown') 
-        price = cfg['rarities'].get(rarity, {}).get('price', 0) 
+        price = character_prices.get(uid, {}).get(cid, 0)
+        if price == 0:
+            rarity_data = cfg['rarities'].get(rarity, {})
+            price = rarity_data.get('min_price', 1000)
 
         btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_ok_{cid}_{uid}"), 
                  InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"luv_buyno_{uid}")]] 
@@ -383,7 +395,11 @@ async def luv_callback(update: Update, context: CallbackContext):
             return 
 
         rarity = char.get('rarity', 'Unknown') 
-        price = cfg['rarities'].get(rarity, {}).get('price', 0) 
+        price = character_prices.get(uid, {}).get(cid, 0)
+        if price == 0:
+            rarity_data = cfg['rarities'].get(rarity, {})
+            price = rarity_data.get('min_price', 1000)
+        
         balance = user.get('balance', 0) 
 
         if balance < price: 
@@ -399,7 +415,7 @@ async def luv_callback(update: Update, context: CallbackContext):
             ) 
             return 
 
-        # Purchase 
+        await q.answer()
         await user_collection.update_one({"id": uid},  
                                          {"$inc": {"balance": -price}, "$push": {"characters": char}}) 
 
@@ -425,12 +441,15 @@ async def luv_callback(update: Update, context: CallbackContext):
         await q.answer("✓ ᴘᴜʀᴄʜᴀꜱᴇᴅ!") 
 
     elif data.startswith("luv_buyno_"):
+        await q.answer()
         await render_page(context.user_data.get('luv_page', 0)) 
 
     elif data.startswith("luv_main_"):
+        await q.answer()
         await render_page(0) 
 
     elif data.startswith("luv_close_"):
+        await q.answer()
         try: 
             msg_id = q.message.message_id
             if msg_id in panel_owners:
@@ -439,13 +458,12 @@ async def luv_callback(update: Update, context: CallbackContext):
         except: 
             await q.edit_message_caption("ꜱᴛᴏʀᴇ ᴄʟᴏꜱᴇᴅ") 
 
-# Admin commands 
 async def luv_view(update: Update, context: CallbackContext): 
     if str(update.effective_user.id) != super_admin: 
         await update.message.reply_text("⊗ ᴏɴʟʏ ꜱᴜᴘᴇʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!")
         return 
     cfg = await get_config() 
-    rarities = "\n".join([f"⟡ {r}: {d['weight']}% | {d['price']}g" for r, d in cfg['rarities'].items()]) 
+    rarities = "\n".join([f"⟡ {r}: {d['weight']}% | {d.get('min_price', 0)}-{d.get('max_price', 0)}g" for r, d in cfg['rarities'].items()]) 
     await update.message.reply_text( 
         f"╭────────────────╮\n│   ʟᴜᴠ ᴄᴏɴꜰɪɢ   │\n╰────────────────╯\n\n" 
         f"⟡ ʀᴇғʀᴇꜱʜ ᴄᴏꜱᴛ: {cfg.get('refresh_cost')}\n" 
@@ -493,6 +511,7 @@ async def luv_help(update: Update, context: CallbackContext):
         f"⟡ /pstats - ᴠɪᴇᴡ ꜱᴛᴀᴛꜱ\n\n" 
         f"<b>ʜᴏᴡ ɪᴛ ᴡᴏʀᴋꜱ:</b>\n" 
         f"⟡ ɢᴇᴛ 3 ʀᴀɴᴅᴏᴍ ᴄʜᴀʀᴀᴄᴛᴇʀꜱ ᴇᴠᴇʀʏ 24ʜ\n" 
+        f"⟡ ʀᴀɴᴅᴏᴍ ᴘʀɪᴄᴇꜱ ʙᴀꜱᴇᴅ ᴏɴ ʀᴀʀɪᴛʏ\n" 
         f"⟡ ʀᴇғʀᴇꜱʜ ᴜᴘ ᴛᴏ 2x (ᴄᴏꜱᴛꜱ ɢᴏʟᴅ)\n" 
         f"⟡ ʙᴜʏ ᴡɪᴛʜ ɢᴏʟᴅ\n" 
         f"⟡ ᴀᴜᴛᴏ ʀᴇꜱᴇᴛ ᴀꜰᴛᴇʀ ᴄᴏᴏʟᴅᴏᴡɴ\n"
@@ -505,8 +524,8 @@ async def luv_help(update: Update, context: CallbackContext):
             f"\n\n<b>ꜱᴜᴘᴇʀ ᴀᴅᴍɪɴ:</b>\n" 
             f"⟡ /pview - ᴠɪᴇᴡ ᴄᴏɴꜰɪɢ\n" 
             f"⟡ /pconfig <key> <val>\n" 
-            f"⟡ /prarity <n> <w> <p>\n" 
-            f"⟡ /prmrarity <n>\n" 
+            f"⟡ /prarity <name> <weight> <min> <max>\n" 
+            f"⟡ /prmrarity <name>\n" 
             f"⟡ /preset <uid>" 
         ) 
 
@@ -539,21 +558,27 @@ async def luv_rarity(update: Update, context: CallbackContext):
         await update.message.reply_text("⊗ ᴏɴʟʏ ꜱᴜᴘᴇʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!")
         return 
 
-    if len(context.args) < 3: 
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /prarity <n> <weight> <price>") 
+    if len(context.args) < 4: 
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /prarity <name> <weight> <min_price> <max_price>\nᴇxᴀᴍᴘʟᴇ: /prarity 🔥 Epic 15 5000 8000") 
         return 
 
     try: 
-        name = " ".join(context.args[:-2]) 
-        weight, price = int(context.args[-2]), int(context.args[-1]) 
+        name = " ".join(context.args[:-3]) 
+        weight = int(context.args[-3])
+        min_price = int(context.args[-2])
+        max_price = int(context.args[-1])
+        
+        if min_price >= max_price:
+            await update.message.reply_text("⊗ ᴍɪɴ ᴘʀɪᴄᴇ ᴍᴜꜱᴛ ʙᴇ ʟᴇꜱꜱ ᴛʜᴀɴ ᴍᴀx ᴘʀɪᴄᴇ!")
+            return
 
         cfg = await get_config() 
         if name not in cfg['rarities']: 
             cfg['rarities'][name] = {} 
-        cfg['rarities'][name] = {'weight': weight, 'price': price} 
+        cfg['rarities'][name] = {'weight': weight, 'min_price': min_price, 'max_price': max_price} 
 
         await luv_config_collection.update_one({"_id": "luv_config"}, {"$set": cfg}, upsert=True) 
-        await update.message.reply_text(f"✓ {name}: {weight}% | {price}g", parse_mode="HTML") 
+        await update.message.reply_text(f"✓ {name}: {weight}% | {min_price}-{max_price}g", parse_mode="HTML") 
     except: 
         await update.message.reply_text("⊗ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇꜱ") 
 
@@ -570,6 +595,8 @@ async def luv_reset(update: Update, context: CallbackContext):
         target_uid = int(context.args[0]) 
         luv_data = {'characters': [], 'last_reset': None, 'refresh_count': 0, 'purchased': []} 
         await update_luv_data(target_uid, luv_data) 
+        if target_uid in character_prices:
+            del character_prices[target_uid]
         await update.message.reply_text(f"✓ ʀᴇꜱᴇᴛ ᴜꜱᴇʀ {target_uid}") 
     except: 
         await update.message.reply_text("⊗ ɪɴᴠᴀʟɪᴅ ᴜɪᴅ") 
@@ -601,7 +628,6 @@ async def luv_rmrarity(update: Update, context: CallbackContext):
     except Exception as e: 
         await update.message.reply_text(f"⊗ ᴇʀʀᴏʀ: {str(e)}") 
 
-# Register handlers 
 application.add_handler(CommandHandler("ps", luv, block=False)) 
 application.add_handler(CommandHandler("pstats", luv_stats, block=False)) 
 application.add_handler(CommandHandler("phelp", luv_help, block=False)) 
