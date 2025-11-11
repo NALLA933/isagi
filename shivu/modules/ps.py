@@ -273,8 +273,8 @@ async def luv_callback(update: Update, context: CallbackContext):
         balance = user.get('balance', 0) 
 
         if balance < cost: 
-            await q.answer(f"⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\nɴᴇᴇᴅ: {cost} ɢᴏʟᴅ\nʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {balance} ɢᴏʟᴅ", show_alert=True) 
-            return 
+            await q.answer(f"⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\nʏᴏᴜ ɴᴇᴇᴅ: {cost} ɢᴏʟᴅ\nʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {balance} ɢᴏʟᴅ\nꜱʜᴏʀᴛ ʙʏ: {cost - balance} ɢᴏʟᴅ", show_alert=True) 
+            return
 
         btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"luv_refok_{uid}"), 
                  InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"luv_cancel_{uid}")]] 
