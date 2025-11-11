@@ -102,15 +102,12 @@ async def check_loans():
                             await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None}, '$inc': {'permanent_debt': debt}})
                             seized.append(f"⚠️ ᴀᴅᴅᴇᴅ {debt} ᴛᴏ ᴘᴇʀᴍᴀɴᴇɴᴛ ᴅᴇʙᴛ")
 
-                    # Format timestamp
                     time_str = now.strftime("%d/%m/%Y %H:%M:%S UTC")
                     
                     msg = f"╭────────────────╮\n│   ⚠️ ʟᴏᴀɴ ᴄᴏʟʟᴇᴄᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code> ɢᴏʟᴅ\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code> ɢᴏʟᴅ\n⟡ ᴛɪᴍᴇ: <code>{time_str}</code>\n\n<b>ꜱᴇɪᴢᴇᴅ ɪᴛᴇᴍꜱ:</b>\n" + "\n".join(f"  • {i}" for i in seized)
                     
-                    # Save to notifications
                     await user_collection.update_one({'id': uid}, {'$push': {'notifications': {'type': 'loan_collection', 'message': msg, 'timestamp': now}}})
                     
-                    # Send DM to user
                     try:
                         await application.bot.send_message(
                             chat_id=uid,
@@ -264,7 +261,7 @@ async def pay(update: Update, context: CallbackContext):
         await update.message.reply_text("⊗ ᴄᴀɴɴᴏᴛ ᴘᴀʏ ʏᴏᴜʀꜱᴇʟꜰ")
         return
     if rec.is_bot:
-        await update.message.reply_text("⊗ɢᴀʏ ʜᴏ ᴋʏᴀ ʙᴇ???????")
+        await update.message.reply_text("⊗ ᴄᴀɴɴᴏᴛ ᴘᴀʏ ʙᴏᴛꜱ")
         return
     if sid in pay_cooldown:
         elapsed = (datetime.utcnow() - pay_cooldown[sid]).total_seconds()
@@ -420,7 +417,7 @@ async def bank_help(update: Update, context: CallbackContext):
 
 ✓ ᴅᴇᴘᴏꜱɪᴛ ɪɴ ʙᴀɴᴋ ғᴏʀ ᴘᴀꜱꜱɪᴠᴇ ɪɴᴄᴏᴍᴇ
 ✓ ʀᴇᴘᴀʏ ʟᴏᴀɴꜱ ᴇᴀʀʟʏ ᴛᴏ ᴀᴠᴏɪᴅ ᴘᴇɴᴀʟᴛɪᴇꜱ
-✓ ᴜꜱᴇ /bal ʙᴜᴛᴛᴏɴꜱ ғᴏʀ Qᴜɪᴄᴋ ᴀᴄᴄᴇꜱꜱ
+✓ ᴜꜱᴇ /bal ʙᴜᴛᴛᴏɴꜱ ғᴏʀ ǫᴜɪᴄᴋ ᴀᴄᴄᴇꜱꜱ
 ✓ ɢᴀᴍʙʟᴇ ʀᴇꜱᴘᴏɴꜱɪʙʟʏ!
 
 ───────────────────"""
@@ -534,7 +531,7 @@ async def callback_handler(update: Update, context: CallbackContext):
 <b>🏦 BANK</b>
 ⟡ <code>/deposit [amount]</code>
 ⟡ <code>/withdraw [amount]</code>
-⟡ 5% ᴅᴀɪʟʹ ɪɴᴛᴇʀᴇꜱᴛ
+⟡ 5% ᴅᴀɪʟʏ ɪɴᴛᴇʀᴇꜱᴛ
 
 <b>💳 LOANS</b>
 ⟡ <code>/loan [amount]</code> - ᴍᴀx 100k
@@ -557,11 +554,14 @@ async def callback_handler(update: Update, context: CallbackContext):
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
-        interest = await calc_interest(uid)
+        
         user = await get_user(uid)
         if not user:
-            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            await q.answer("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ", show_alert=True)
             return
+            
+        interest = await calc_interest(uid)
+        user = await get_user(uid)
         wallet = int(user.get('balance', 0))
         bank = int(user.get('bank', 0))
         total = wallet + bank
@@ -584,77 +584,99 @@ async def callback_handler(update: Update, context: CallbackContext):
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
+        
         user = await get_user(uid)
         if not user:
-            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            await q.answer("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ", show_alert=True)
             return
+            
         bank = user.get('bank', 0)
-        msg = f"╭────────────────╮\n│   🏦 ʙᴀɴᴋ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ʙᴀʟᴀɴᴄᴇ: <code>{bank}</code> ɢᴏʟᴅ\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>5%</code> ᴅᴀɪʟʏ\n\nᴜꜱᴇ /deposit <amount>\nᴜꜱᴇ /withdraw <amount>"
+        wallet = user.get('balance', 0)
+        msg = f"╭────────────────╮\n│   🏦 ʙᴀɴᴋ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ʙᴀɴᴋ ʙᴀʟᴀɴᴄᴇ: <code>{bank}</code> ɢᴏʟᴅ\n⟡ ᴡᴀʟʟᴇᴛ: <code>{wallet}</code> ɢᴏʟᴅ\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>5%</code> ᴅᴀɪʟʏ\n\n<b>ᴄᴏᴍᴍᴀɴᴅꜱ:</b>\n• /deposit <amount> - ᴅᴇᴘᴏꜱɪᴛ ɢᴏʟᴅ\n• /withdraw <amount> - ᴡɪᴛʜᴅʀᴀᴡ ɢᴏʟᴅ\n\n💡 <b>ᴛɪᴘ:</b> ᴅᴇᴘᴏꜱɪᴛ ɢᴏʟᴅ ᴛᴏ ᴇᴀʀɴ ɪɴᴛᴇʀᴇꜱᴛ!"
         btns = [[InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+        await q.answer("🏦 ʙᴀɴᴋ ᴍᴇɴᴜ")
 
     elif data.startswith("loan_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
+        
         user = await get_user(uid)
         if not user:
-            await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
+            await q.answer("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ", show_alert=True)
             return
+            
         loan = user.get('loan_amount', 0)
         if loan > 0:
             due = user.get('loan_due_date')
             left = (due - datetime.utcnow()).total_seconds()
-            msg = f"╭────────────────╮\n│   💳 ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴅᴜᴇ ɪɴ: {fmt_time(left)}\n\nᴜꜱᴇ /repay"
+            msg = f"╭────────────────╮\n│   💳 ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ ᴀᴍᴏᴜɴᴛ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ᴅᴜᴇ ɪɴ: {fmt_time(left)}\n\n<b>ᴄᴏᴍᴍᴀɴᴅ:</b>\n• /repay - ʀᴇᴘᴀʏ ʟᴏᴀɴ\n\n⚠️ <b>ᴡᴀʀɴɪɴɢ:</b> ʟᴀᴛᴇ ᴘᴀʏᴍᴇɴᴛ = 20% ᴘᴇɴᴀʟᴛʏ!"
+            btns = [[InlineKeyboardButton("💰 ʀᴇᴘᴀʏ ɴᴏᴡ", callback_data=f"repay_{uid}")], [InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
+            await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+            await q.answer("💳 ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ")
         else:
-            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ᴍᴀx: <code>{BANK_CFG['max_loan']}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{int(BANK_CFG['loan_int']*100)}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: <code>{BANK_CFG['loan_days']}</code> ᴅᴀʏꜱ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{int(BANK_CFG['penalty']*100)}%</code>\n\nᴜꜱᴇ /loan <amount>"
-        btns = [[InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
-        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ ᴍᴇɴᴜ   │\n╰────────────────╯\n\n⟡ ᴍᴀx ʟᴏᴀɴ: <code>{BANK_CFG['max_loan']:,}</code> ɢᴏʟᴅ\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{int(BANK_CFG['loan_int']*100)}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: <code>{BANK_CFG['loan_days']}</code> ᴅᴀʏꜱ\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{int(BANK_CFG['penalty']*100)}%</code> ɪғ ᴏᴠᴇʀᴅᴜᴇ\n\n<b>ᴄᴏᴍᴍᴀɴᴅ:</b>\n• /loan <amount> - ᴛᴀᴋᴇ ᴀ ʟᴏᴀɴ\n\n💡 <b>ᴇxᴀᴍᴘʟᴇ:</b> /loan 50000"
+            btns = [[InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"bal_{uid}")]]
+            await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+            await q.answer("⊗ ɴᴏ ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ", show_alert=True)
 
     elif data.startswith("repay_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
+        
         user = await get_user(uid)
         if not user:
             await q.answer("⊗ ᴇʀʀᴏʀ", show_alert=True)
             return
+            
         loan = user.get('loan_amount', 0)
         if loan <= 0:
-            await q.answer("⊗ ɴᴏ ʟᴏᴀɴ", show_alert=True)
+            await q.answer("⊗ ɴᴏ ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ", show_alert=True)
             return
+            
         bal = user.get('balance', 0)
         if bal < loan:
-            await q.answer(f"⊗ ɴᴇᴇᴅ {loan}, ʜᴀᴠᴇ {bal}", show_alert=True)
+            await q.answer(f"⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅᴇᴅ: {loan}\nʏᴏᴜʀꜱ: {bal}", show_alert=True)
             return
+            
         await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
-        await q.edit_message_text(f"╭────────────────╮\n│   ✓ ʟᴏᴀɴ ʀᴇᴘᴀɪᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ɴᴇᴡ: <code>{bal - loan}</code>", parse_mode="HTML")
-        await q.answer("✓ ʀᴇᴘᴀɪᴅ")
+        new_bal = bal - loan
+        msg = f"╭────────────────╮\n│   ✓ ʟᴏᴀɴ ʀᴇᴘᴀɪᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{loan}</code> ɢᴏʟᴅ\n⟡ ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ: <code>{new_bal}</code> ɢᴏʟᴅ\n\n✅ ʟᴏᴀɴ ᴄʟᴇᴀʀᴇᴅ ꜱᴜᴄᴄᴇꜱꜱғᴜʟʟʏ!"
+        btns = [[InlineKeyboardButton("💰 ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{uid}")]]
+        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+        await q.answer("✓ ʀᴇᴘᴀɪᴅ ꜱᴜᴄᴄᴇꜱꜱғᴜʟʟʏ!")
 
     elif data.startswith("clr_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
+            
         await user_collection.update_one({'id': uid}, {'$set': {'notifications': []}})
-        await q.edit_message_text("✓ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ ᴄʟᴇᴀʀᴇᴅ")
-        await q.answer("✓ ᴄʟᴇᴀʀᴇᴅ")
+        await q.edit_message_text("╭────────────────╮\n│   ✓ ᴄʟᴇᴀʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴀʟʟ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ ᴄʟᴇᴀʀᴇᴅ")
+        await q.answer("✓ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ ᴄʟᴇᴀʀᴇᴅ")
 
     elif data.startswith("pok_"):
         pid = data.split("_", 1)[1]
         if pid not in pending_payments:
-            await q.edit_message_text("⊗ ᴇxᴘɪʀᴇᴅ")
+            await q.edit_message_text("╭────────────────╮\n│   ⊗ ᴇxᴘɪʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀʏᴍᴇɴᴛ ʀᴇǫᴜᴇꜱᴛ ᴇxᴘɪʀᴇᴅ\n⟡ ᴘʟᴇᴀꜱᴇ ᴛʀʏ ᴀɢᴀɪɴ")
+            await q.answer("⊗ ᴘᴀʏᴍᴇɴᴛ ᴇxᴘɪʀᴇᴅ", show_alert=True)
             return
+            
         payment = pending_payments[pid]
         if uid != payment['sender_id']:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
             return
+            
         sender = await get_user(payment['sender_id'])
         if not sender or sender.get('balance', 0) < payment['amount']:
-            await q.edit_message_text("⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ")
+            await q.edit_message_text("╭────────────────╮\n│   ⊗ ғᴀɪʟᴇᴅ   │\n╰────────────────╯\n\n⟡ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\n⟡ ᴘᴀʏᴍᴇɴᴛ ᴄᴀɴᴄᴇʟʟᴇᴅ")
             del pending_payments[pid]
+            await q.answer("⊗ ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ", show_alert=True)
             return
         
         # Ensure recipient exists
@@ -665,9 +687,20 @@ async def callback_handler(update: Update, context: CallbackContext):
         await user_collection.update_one({'id': payment['sender_id']}, {'$inc': {'balance': -payment['amount']}})
         await user_collection.update_one({'id': payment['recipient_id']}, {'$inc': {'balance': payment['amount']}})
         pay_cooldown[payment['sender_id']] = datetime.utcnow()
+        
+        # Get recipient info for display
+        try:
+            recipient_user = await context.bot.get_chat(payment['recipient_id'])
+            recipient_name = recipient_user.first_name
+        except:
+            recipient_name = "ᴜɴᴋɴᴏᴡɴ"
+        
         del pending_payments[pid]
-        await q.edit_message_text(f"╭────────────────╮\n│   ✓ ᴘᴀʏᴍᴇɴᴛ ꜱᴇɴᴛ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{payment['amount']}</code> ɢᴏʟᴅ", parse_mode="HTML")
-        await q.answer("✓ ᴘᴀɪᴅ")
+        
+        msg = f"╭────────────────╮\n│   ✓ ᴘᴀʏᴍᴇɴᴛ ꜱᴇɴᴛ   │\n╰────────────────╯\n\n⟡ ʀᴇᴄɪᴘɪᴇɴᴛ: <b>{recipient_name}</b>\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{payment['amount']}</code> ɢᴏʟᴅ\n⟡ ꜱᴛᴀᴛᴜꜱ: <b>ᴄᴏᴍᴘʟᴇᴛᴇᴅ</b>\n\n✅ ᴛʀᴀɴꜱᴀᴄᴛɪᴏɴ ꜱᴜᴄᴄᴇꜱꜱғᴜʟ!"
+        btns = [[InlineKeyboardButton("💰 ᴄʜᴇᴄᴋ ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{uid}")]]
+        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
+        await q.answer("✓ ᴘᴀʏᴍᴇɴᴛ ꜱᴜᴄᴄᴇꜱꜱғᴜʟ!")
 
     elif data.startswith("pno_"):
         pid = data.split("_", 1)[1]
@@ -677,8 +710,9 @@ async def callback_handler(update: Update, context: CallbackContext):
                 await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
                 return
             del pending_payments[pid]
-        await q.edit_message_text("⊗ ᴄᴀɴᴄᴇʟʟᴇᴅ")
-        await q.answer("✗ ᴄᴀɴᴄᴇʟʟᴇᴅ")
+            
+        await q.edit_message_text("╭────────────────╮\n│   ✗ ᴄᴀɴᴄᴇʟʟᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀʏᴍᴇɴᴛ ᴄᴀɴᴄᴇʟʟᴇᴅ\n⟡ ɴᴏ ɢᴏʟᴅ ᴡᴀꜱ ᴛʀᴀɴꜱғᴇʀʀᴇᴅ")
+        await q.answer("✗ ᴘᴀʏᴍᴇɴᴛ ᴄᴀɴᴄᴇʟʟᴇᴅ")
 
 # Set the post_init callback
 application.post_init = post_init
