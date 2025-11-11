@@ -1,173 +1,85 @@
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.errors import (
-    FloodWait, UserIsBlocked, ChatWriteForbidden, 
-    PeerIdInvalid, ChannelPrivate, UserDeactivated
-)
+from telegram import Update
+from telegram.ext import CallbackContext, CommandHandler
 import asyncio
-import logging
-from typing import List, Set, Tuple
-from datetime import datetime
+import traceback
 
-from shivu import app, top_global_groups_collection, user_collection
+from shivu import application, top_global_groups_collection, user_collection
 
-# Configuration
-OWNER_ID = 5147822244
-BATCH_SIZE = 50  # Higher batch size for pyrogram
-BATCH_DELAY = 0.5  # Shorter delay between batches
-MAX_RETRIES = 1
+async def broadcast(update: Update, context: CallbackContext) -> None:
+    OWNER_ID = 8420981179
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-async def send_to_chat(
-    client: Client,
-    chat_id: int,
-    from_chat_id: int,
-    message_id: int,
-    retry: int = 0
-) -> Tuple[bool, str]:
-    """Send message to single chat with retry logic."""
-    try:
-        await client.forward_messages(
-            chat_id=chat_id,
-            from_chat_id=from_chat_id,
-            message_ids=message_id
-        )
-        return (True, "success")
-    
-    except FloodWait as e:
-        if retry < MAX_RETRIES:
-            wait_time = min(e.value, 10)
-            await asyncio.sleep(wait_time)
-            try:
-                await client.forward_messages(
-                    chat_id=chat_id,
-                    from_chat_id=from_chat_id,
-                    message_ids=message_id
-                )
-                return (True, "success_retry")
-            except Exception:
-                return (False, "flood_wait")
-        return (False, "flood_wait")
-    
-    except (UserIsBlocked, ChatWriteForbidden, PeerIdInvalid, 
-            ChannelPrivate, UserDeactivated):
-        return (False, "permanent")
-    
-    except Exception as e:
-        logger.error(f"Error sending to {chat_id}: {e}")
-        return (False, "error")
-
-async def process_batch(
-    client: Client,
-    chat_ids: List[int],
-    from_chat_id: int,
-    message_id: int
-) -> Tuple[int, int]:
-    """Process batch concurrently."""
-    tasks = [
-        send_to_chat(client, chat_id, from_chat_id, message_id)
-        for chat_id in chat_ids
-    ]
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    success = sum(1 for r in results if not isinstance(r, Exception) and r[0])
-    failed = sum(1 for r in results if isinstance(r, Exception) or not r[0])
-    
-    return success, failed
-
-@app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
-async def broadcast_handler(client: Client, message: Message):
-    """Optimized broadcast using pyrogram."""
-    
-    # Validate reply
-    if not message.reply_to_message:
-        await message.reply_text("Reply to a message to broadcast.")
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
         return
-    
-    replied_msg = message.reply_to_message
-    status = await message.reply_text("Fetching recipients...")
-    
-    start_time = datetime.now()
-    
-    try:
-        # Fetch recipients concurrently
-        chats_task = top_global_groups_collection.distinct("group_id")
-        users_task = user_collection.distinct("id")
-        
-        all_chats, all_users = await asyncio.gather(chats_task, users_task)
-        
-        # Deduplicate
-        recipients: Set[int] = set(all_chats + all_users)
-        total = len(recipients)
-        
-        if total == 0:
-            await status.edit_text("No recipients found.")
-            return
-        
-        await status.edit_text(
-            f"Broadcasting to {total} recipients...\n"
-            f"Batch size: {BATCH_SIZE}"
-        )
-        
-    except Exception as e:
-        await status.edit_text(f"Error fetching recipients: {e}")
+
+    message_to_broadcast = update.message.reply_to_message
+    if message_to_broadcast is None:
+        await update.message.reply_text("Please reply to a message to broadcast.")
         return
-    
-    # Process batches
-    recipients_list = list(recipients)
-    total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
-    
-    success = 0
-    failed = 0
-    
-    for i in range(0, total, BATCH_SIZE):
-        batch = recipients_list[i:i + BATCH_SIZE]
-        current_batch = (i // BATCH_SIZE) + 1
-        
-        batch_success, batch_fail = await process_batch(
-            client,
-            batch,
-            replied_msg.chat.id,
-            replied_msg.id
-        )
-        
-        success += batch_success
-        failed += batch_fail
-        
-        # Update progress
-        if current_batch % 10 == 0 or current_batch == total_batches:
-            progress = (i + len(batch)) / total * 100
-            try:
-                await status.edit_text(
-                    f"Broadcasting... {progress:.1f}%\n\n"
-                    f"Sent: {success}\n"
-                    f"Failed: {failed}\n"
-                    f"Progress: {i + len(batch)}/{total}"
-                )
-            except Exception:
-                pass
-        
-        # Delay between batches
-        if current_batch < total_batches:
-            await asyncio.sleep(BATCH_DELAY)
-    
-    # Calculate duration
-    duration = (datetime.now() - start_time).total_seconds()
-    rate = success / duration if duration > 0 else 0
-    
-    # Final report
-    await status.edit_text(
-        f"Broadcast Complete\n\n"
-        f"Sent: {success}\n"
-        f"Failed: {failed}\n"
-        f"Total: {total}\n"
-        f"Success rate: {(success/total*100):.1f}%\n"
-        f"Duration: {duration:.1f}s\n"
-        f"Speed: {rate:.1f} msg/s"
+
+    # Fetch chats and users
+    all_chats = await top_global_groups_collection.distinct("group_id")
+    all_users = await user_collection.distinct("id")
+    shuyaa = list(set(all_chats + all_users))
+
+    failed_sends = 0
+    success_sends = 0
+
+    await update.message.reply_text(f"Broadcast started to {len(shuyaa)} chats/users...")
+
+    for index, chat_id in enumerate(shuyaa, start=1):
+        try:
+            await context.bot.forward_message(
+                chat_id=chat_id,
+                from_chat_id=message_to_broadcast.chat_id,
+                message_id=message_to_broadcast.message_id
+            )
+            success_sends += 1
+
+        except Exception as e:
+            # Retry once after delay if flood-wait or temporary issue
+            err_text = str(e).lower()
+
+            # Handle rate-limit (FloodWait)
+            if "flood" in err_text or "retry" in err_text:
+                wait_time = 3
+                print(f"[RateLimit] Waiting {wait_time}s before retry for {chat_id}")
+                await asyncio.sleep(wait_time)
+                try:
+                    await context.bot.forward_message(
+                        chat_id=chat_id,
+                        from_chat_id=message_to_broadcast.chat_id,
+                        message_id=message_to_broadcast.message_id
+                    )
+                    success_sends += 1
+                    continue
+                except Exception:
+                    pass
+
+            # Ignore deleted or blocked users
+            if any(x in err_text for x in [
+                "chat not found", "bot was blocked", "user is deactivated", "chat_write_forbidden"
+            ]):
+                print(f"Skipping invalid chat/user {chat_id}")
+                continue
+
+            failed_sends += 1
+            print(f"Failed to send message to {chat_id}: {e}")
+            traceback.print_exc()
+
+        # Small delay to avoid hitting flood limits
+        await asyncio.sleep(0.6)
+
+        # Periodic progress logs
+        if index % 50 == 0:
+            print(f"[Broadcast] Progress: {index}/{len(shuyaa)}")
+
+    await update.message.reply_text(
+        f"✅ Broadcast complete.\n\n"
+        f"📤 Sent successfully: {success_sends}\n"
+        f"❌ Failed: {failed_sends}\n"
+        f"👥 Total: {len(shuyaa)}"
     )
 
-logger.info("Broadcast module loaded with pyrogram")
+# Register command
+application.add_handler(CommandHandler("broadcast", broadcast, block=False))
