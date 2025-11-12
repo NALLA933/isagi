@@ -234,6 +234,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         user_id = update.effective_user.id
 
         if is_spam_user(user_id, chat_id):
+            LOGGER.debug(f"⏭️ Skipping spam user {user_id} in chat {chat_id}")
             return
 
         chat_id_str = str(chat_id)
@@ -250,7 +251,10 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
 
             message_counts[chat_id_str] += 1
             
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{message_frequency} | User: {user_id}")
+            msg_type = "command" if update.message.text and update.message.text.startswith('/') else "message"
+            sender_type = "bot" if update.effective_user.is_bot else "user"
+            
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{message_frequency} | {sender_type} {user_id} | type: {msg_type}")
 
             if message_counts[chat_id_str] >= message_frequency:
                 LOGGER.info(f"🎯 Spawning character in chat {chat_id} after {message_counts[chat_id_str]} messages")
@@ -608,7 +612,7 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("ᴍᴜᴛᴛʜɪ ᴍᴀʀʀ ʟᴀᴜᴅᴇᴇᴇ....")
+    LOGGER.info("ᴀᴊᴊ ᴍᴀɪɴᴇ ʙʜɪ ᴍᴜᴛʜ ᴍᴀʀɪ ʙʜᴀɪ....")
     application.run_polling(drop_pending_updates=True)
 
 
