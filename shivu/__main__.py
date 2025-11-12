@@ -222,48 +222,36 @@ async def despawn_character(chat_id, message_id, character, context):
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
+        # Only check if it's a group/supergroup
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
+        # Check if message exists
         if not update.message:
             return
 
-        if update.effective_user.is_bot:
-            return
-
+        # REMOVED: Bot check - now counts bot messages too
+        # REMOVED: Spam detection - now counts all messages
+        
         chat_id = str(update.effective_chat.id)
-        user_id = update.effective_user.id
 
+        # Initialize lock if not exists
         if chat_id not in locks:
             locks[chat_id] = asyncio.Lock()
         lock = locks[chat_id]
 
         async with lock:
+            # Get message frequency for this chat
             message_frequency = await get_chat_message_frequency(chat_id)
 
-            if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
-                last_user[chat_id]['count'] += 1
-                if last_user[chat_id]['count'] >= 10:
-                    if user_id in warned_users and time.time() - warned_users[user_id] < 600:
-                        return
-                    else:
-                        try:
-                            await update.message.reply_html(
-                                f"<b>ᴅᴏɴ'ᴛ sᴘᴀᴍ</b> {escape(update.effective_user.first_name)}...\n"
-                                "<b>ʏᴏᴜʀ ᴍᴇssᴀɢᴇs ᴡɪʟʟ ʙᴇ ɪɢɴᴏʀᴇᴅ ғᴏʀ 10 ᴍɪɴᴜᴛᴇs...!!</b>"
-                            )
-                        except:
-                            pass
-                        warned_users[user_id] = time.time()
-                        return
-            else:
-                last_user[chat_id] = {'user_id': user_id, 'count': 1}
-
+            # Initialize message count if not exists
             if chat_id not in message_counts:
                 message_counts[chat_id] = 0
 
+            # Increment count for EVERY message (bots, users, commands, everything)
             message_counts[chat_id] += 1
 
+            # Check if we've reached the spawn threshold
             if message_counts[chat_id] >= message_frequency:
                 await send_image(update, context)
                 message_counts[chat_id] = 0
