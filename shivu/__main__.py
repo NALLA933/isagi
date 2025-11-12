@@ -19,7 +19,7 @@ user_totals_collection = db['user_totals_lmaoooo']
 group_user_totals_collection = db['group_user_totalsssssss']
 top_global_groups_collection = db['top_global_groups']
 
-DEFAULT_MESSAGE_FREQUENCY = 30
+MESSAGE_FREQUENCY = 30
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
 SPAM_THRESHOLD = 10
@@ -138,16 +138,16 @@ async def get_chat_message_frequency(chat_id):
     try:
         chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
         if chat_frequency:
-            return chat_frequency.get('message_frequency', DEFAULT_MESSAGE_FREQUENCY)
+            return chat_frequency.get('message_frequency', MESSAGE_FREQUENCY)
         else:
             await user_totals_collection.insert_one({
                 'chat_id': str(chat_id),
-                'message_frequency': DEFAULT_MESSAGE_FREQUENCY
+                'message_frequency': MESSAGE_FREQUENCY
             })
-            return DEFAULT_MESSAGE_FREQUENCY
+            return MESSAGE_FREQUENCY
     except Exception as e:
         LOGGER.error(f"Error in get_chat_message_frequency: {e}")
-        return DEFAULT_MESSAGE_FREQUENCY
+        return MESSAGE_FREQUENCY
 
 
 async def update_grab_task(user_id: int):
@@ -244,8 +244,6 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         lock = locks[chat_id_str]
 
         async with lock:
-            message_frequency = await get_chat_message_frequency(chat_id_str)
-
             if chat_id_str not in message_counts:
                 message_counts[chat_id_str] = 0
 
@@ -254,9 +252,9 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             msg_type = "command" if update.message.text and update.message.text.startswith('/') else "message"
             sender_type = "bot" if update.effective_user.is_bot else "user"
             
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{message_frequency} | {sender_type} {user_id} | type: {msg_type}")
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | type: {msg_type}")
 
-            if message_counts[chat_id_str] >= message_frequency:
+            if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
                 LOGGER.info(f"🎯 Spawning character in chat {chat_id} after {message_counts[chat_id_str]} messages")
                 await send_image(update, context)
                 message_counts[chat_id_str] = 0
@@ -612,11 +610,11 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("ᴀᴊᴊ ᴍᴀɪɴᴇ ʙʜɪ ᴍᴜᴛʜ ᴍᴀʀɪ ʙʜᴀɪ....")
+    LOGGER.info("🚀 Bot starting...")
     application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
     shivuu.start()
-    LOGGER.info("ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+    LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
     main()
