@@ -1,20 +1,16 @@
 import importlib
-import time
+import asyncio
 import random
 import re
-import asyncio
 import traceback
 from html import escape
+from collections import deque
+from time import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters, CallbackQueryHandler
-from telegram.error import BadRequest, Forbidden
+from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters
+from telegram.error import BadRequest
 
-from shivu import (
-    db,
-    shivuu,
-    application,
-    LOGGER
-)
+from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 
 collection = db['anime_characters_lol']
@@ -26,26 +22,29 @@ top_global_groups_collection = db['top_global_groups']
 DEFAULT_MESSAGE_FREQUENCY = 30
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
-OWNER_ID = 5147822244
+SPAM_THRESHOLD = 10
+SPAM_TIME_WINDOW = 20
 
 locks = {}
 message_counts = {}
 sent_characters = {}
 last_characters = {}
 first_correct_guesses = {}
-last_user = {}
-warned_users = {}
 spawn_messages = {}
 spawn_message_links = {}
+user_message_times = {}
+
 spawn_settings_collection = None
 group_rarity_collection = None
+get_spawn_settings = None
+get_group_exclusive = None
 
 for module_name in ALL_MODULES:
     try:
         importlib.import_module("shivu.modules." + module_name)
-        LOGGER.info(f"✅ {module_name}")
+        LOGGER.info(f"✅ Module loaded: {module_name}")
     except Exception as e:
-        LOGGER.error(f"❌ {module_name}: {e}")
+        LOGGER.error(f"❌ Module failed: {module_name} - {e}")
 
 try:
     from shivu.modules.rarity import (
@@ -58,23 +57,32 @@ try:
     group_rarity_collection = grc
     LOGGER.info("✅ Rarity system loaded")
 except Exception as e:
-    LOGGER.error(f"⚠️ Rarity system: {e}")
-    get_spawn_settings = None
-    get_group_exclusive = None
+    LOGGER.warning(f"⚠️ Rarity system not available: {e}")
 
 try:
     from shivu.modules.backup import setup_backup_handlers
     setup_backup_handlers(application)
-    LOGGER.info(f"✅ Backup system initialized")
+    LOGGER.info("✅ Backup system initialized")
 except Exception as e:
-    LOGGER.error(f"⚠️ Backup system: {e}")
+    LOGGER.warning(f"⚠️ Backup system not available: {e}")
 
 
-def escape_markdown(text):
-    if not text:
-        return ""
-    escape_chars = r'\*_`\\~>#+-=|{}.!'
-    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', str(text))
+def is_spam_user(user_id, chat_id):
+    key = f"{chat_id}:{user_id}"
+    current_time = time()
+    
+    if key not in user_message_times:
+        user_message_times[key] = deque(maxlen=SPAM_THRESHOLD)
+    
+    user_message_times[key].append(current_time)
+    
+    if len(user_message_times[key]) >= SPAM_THRESHOLD:
+        time_diff = current_time - user_message_times[key][0]
+        if time_diff <= SPAM_TIME_WINDOW:
+            LOGGER.warning(f"🚫 Spam detected: User {user_id} in chat {chat_id} - {SPAM_THRESHOLD} messages in {time_diff:.2f}s")
+            return True
+    
+    return False
 
 
 async def is_character_allowed(character, chat_id=None):
@@ -83,10 +91,7 @@ async def is_character_allowed(character, chat_id=None):
             return False
 
         char_rarity = character.get('rarity', '🟢 Common')
-        if isinstance(char_rarity, str) and ' ' in char_rarity:
-            rarity_emoji = char_rarity.split(' ')[0]
-        else:
-            rarity_emoji = char_rarity
+        rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
 
         if group_rarity_collection is not None and chat_id:
             try:
@@ -94,7 +99,6 @@ async def is_character_allowed(character, chat_id=None):
                     'chat_id': chat_id,
                     'rarity_emoji': rarity_emoji
                 })
-
                 if current_group_exclusive:
                     return True
 
@@ -102,10 +106,8 @@ async def is_character_allowed(character, chat_id=None):
                     'rarity_emoji': rarity_emoji,
                     'chat_id': {'$ne': chat_id}
                 })
-
                 if other_group_exclusive:
                     return False
-
             except Exception as e:
                 LOGGER.error(f"Error checking group exclusivity: {e}")
 
@@ -222,39 +224,38 @@ async def despawn_character(chat_id, message_id, character, context):
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
-        # Only check if it's a group/supergroup
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        # Check if message exists
         if not update.message:
             return
 
-        # REMOVED: Bot check - now counts bot messages too
-        # REMOVED: Spam detection - now counts all messages
-        
-        chat_id = str(update.effective_chat.id)
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
 
-        # Initialize lock if not exists
-        if chat_id not in locks:
-            locks[chat_id] = asyncio.Lock()
-        lock = locks[chat_id]
+        if is_spam_user(user_id, chat_id):
+            return
+
+        chat_id_str = str(chat_id)
+
+        if chat_id_str not in locks:
+            locks[chat_id_str] = asyncio.Lock()
+        lock = locks[chat_id_str]
 
         async with lock:
-            # Get message frequency for this chat
-            message_frequency = await get_chat_message_frequency(chat_id)
+            message_frequency = await get_chat_message_frequency(chat_id_str)
 
-            # Initialize message count if not exists
-            if chat_id not in message_counts:
-                message_counts[chat_id] = 0
+            if chat_id_str not in message_counts:
+                message_counts[chat_id_str] = 0
 
-            # Increment count for EVERY message (bots, users, commands, everything)
-            message_counts[chat_id] += 1
+            message_counts[chat_id_str] += 1
+            
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{message_frequency} | User: {user_id}")
 
-            # Check if we've reached the spawn threshold
-            if message_counts[chat_id] >= message_frequency:
+            if message_counts[chat_id_str] >= message_frequency:
+                LOGGER.info(f"🎯 Spawning character in chat {chat_id} after {message_counts[chat_id_str]} messages")
                 await send_image(update, context)
-                message_counts[chat_id] = 0
+                message_counts[chat_id_str] = 0
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
@@ -268,6 +269,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
+            LOGGER.warning(f"No characters available for spawn in chat {chat_id}")
             return
 
         if chat_id not in sent_characters:
@@ -291,6 +293,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 allowed_characters.append(char)
 
         if not allowed_characters:
+            LOGGER.warning(f"No allowed characters for spawn in chat {chat_id}")
             return
 
         character = None
@@ -373,6 +376,8 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             rarity_emoji = rarity.split(' ')[0]
         else:
             rarity_emoji = '🟢'
+
+        LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
@@ -458,6 +463,8 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
         if is_correct:
             first_correct_guesses[chat_id] = user_id
+
+            LOGGER.info(f"✅ User {user_id} grabbed {character_name} in chat {chat_id}")
 
             if chat_id in spawn_messages:
                 try:
@@ -601,7 +608,7 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("Bot starting...")
+    LOGGER.info("ᴍᴜᴛᴛʜɪ ᴍᴀʀʀ ʟᴀᴜᴅᴇᴇᴇ....")
     application.run_polling(drop_pending_updates=True)
 
 
