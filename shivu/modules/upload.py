@@ -1,13 +1,12 @@
-# otaku bolte bc code kholte or bot owner ki gand bhi 
 
-
+# test 
 
 import io
 from typing import Optional, Tuple
 
 import aiohttp
 from pymongo import ReturnDocument
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import CommandHandler, ContextTypes
 
 from shivu import application, collection, db, CHARA_CHANNEL_ID, SUPPORT_CHAT, sudo_users
@@ -143,7 +142,8 @@ async def create_character_entry(
     user_id: str,
     user_name: str,
     context: ContextTypes.DEFAULT_TYPE,
-    is_video_file: bool = False
+    is_video_file: bool = False,
+    file_bytes: Optional[bytes] = None
 ) -> Tuple[bool, str]:
     char_id = str(await get_next_sequence_number('character_id')).zfill(2)
     character = {
@@ -163,31 +163,79 @@ async def create_character_entry(
         f'𝑴𝒂𝒅𝒆 𝑩𝒚 ➥ <a href="tg://user?id={user_id}">{user_name}</a>'
     )
     try:
-        if is_video_file:
-            message = await context.bot.send_video(
-                chat_id=CHARA_CHANNEL_ID,
-                video=media_url,
-                caption=caption,
-                parse_mode='HTML',
-                supports_streaming=True,
-                read_timeout=300,
-                write_timeout=300,
-                connect_timeout=60,
-                pool_timeout=60
-            )
-            character['file_id'] = message.video.file_id
-            character['file_unique_id'] = message.video.file_unique_id
+        if file_bytes:
+            fp = io.BytesIO(file_bytes)
+            if is_video_file:
+                fp.name = "upload.mp4"
+                message = await context.bot.send_video(
+                    chat_id=CHARA_CHANNEL_ID,
+                    video=InputFile(fp),
+                    caption=caption,
+                    parse_mode='HTML',
+                    supports_streaming=True,
+                    read_timeout=300,
+                    write_timeout=300
+                )
+                character['file_id'] = message.video.file_id
+                character['file_unique_id'] = message.video.file_unique_id
+            else:
+                fp.name = "upload.jpg"
+                message = await context.bot.send_photo(
+                    chat_id=CHARA_CHANNEL_ID,
+                    photo=InputFile(fp),
+                    caption=caption,
+                    parse_mode='HTML',
+                    read_timeout=180,
+                    write_timeout=180
+                )
+                character['file_id'] = message.photo[-1].file_id
+                character['file_unique_id'] = message.photo[-1].file_unique_id
         else:
-            message = await context.bot.send_photo(
-                chat_id=CHARA_CHANNEL_ID,
-                photo=media_url,
-                caption=caption,
-                parse_mode='HTML',
-                read_timeout=180,
-                write_timeout=180
-            )
-            character['file_id'] = message.photo[-1].file_id
-            character['file_unique_id'] = message.photo[-1].file_unique_id
+            if is_video_file:
+                try:
+                    message = await context.bot.send_video(
+                        chat_id=CHARA_CHANNEL_ID,
+                        video=media_url,
+                        caption=caption,
+                        parse_mode='HTML',
+                        supports_streaming=True,
+                        read_timeout=300,
+                        write_timeout=300,
+                        connect_timeout=60,
+                        pool_timeout=60
+                    )
+                    character['file_id'] = message.video.file_id
+                    character['file_unique_id'] = message.video.file_unique_id
+                except Exception:
+                    message = await context.bot.send_document(
+                        chat_id=CHARA_CHANNEL_ID,
+                        document=media_url,
+                        caption=caption,
+                        parse_mode='HTML'
+                    )
+                    character['file_id'] = message.document.file_id
+                    character['file_unique_id'] = message.document.file_unique_id
+            else:
+                try:
+                    message = await context.bot.send_photo(
+                        chat_id=CHARA_CHANNEL_ID,
+                        photo=media_url,
+                        caption=caption,
+                        parse_mode='HTML',
+                        read_timeout=180,
+                        write_timeout=180
+                    )
+                    character['file_id'] = message.photo[-1].file_id
+                    character['file_unique_id'] = message.photo[-1].file_unique_id
+                except Exception:
+                    message = await context.bot.send_document(
+                        chat_id=CHARA_CHANNEL_ID,
+                        document=media_url,
+                        caption=caption,
+                        parse_mode='HTML'
+                    )
+                    character['file_id'] = message.document.file_id
+                    character['file_unique_id'] = message.document.file_unique_id
         character['message_id'] = message.message_id
         await collection.insert_one(character)
         return True, (
@@ -232,7 +280,7 @@ async def handle_reply_upload(
             is_video_file = True
     file_bytes = await file.download_as_bytearray()
     await processing_msg.edit_text('⏳ Uploading to Catbox... (This may take a while for videos)')
-    media_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
+    media_url = await upload_to_catbox(bytes(file_bytes), filename)
     if not media_url:
         await processing_msg.edit_text('❌ Failed to upload to Catbox. Please try again.')
         return
@@ -253,7 +301,8 @@ async def handle_reply_upload(
         str(update.effective_user.id),
         update.effective_user.first_name,
         context,
-        is_video_file
+        is_video_file,
+        file_bytes=bytes(file_bytes)
     )
     await processing_msg.edit_text(message)
 
@@ -274,7 +323,7 @@ async def handle_url_upload(
     is_video_file = is_video(media_url)
     filename = media_url.split('/')[-1] or ('video.mp4' if is_video_file else 'image.jpg')
     await processing_msg.edit_text('⏳ Uploading to Catbox... (This may take a while for large files)')
-    new_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
+    new_url = await upload_to_catbox(file_bytes, filename)
     if not new_url:
         await processing_msg.edit_text('❌ Failed to upload to Catbox. File might be too large or invalid.')
         return
@@ -293,7 +342,8 @@ async def handle_url_upload(
         str(update.effective_user.id),
         update.effective_user.first_name,
         context,
-        is_video_file
+        is_video_file,
+        file_bytes=file_bytes
     )
     await processing_msg.edit_text(message)
 
@@ -379,7 +429,7 @@ async def update_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         is_video_file = is_video(new_value)
         filename = new_value.split('/')[-1] or ('video.mp4' if is_video_file else 'image.jpg')
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
-        new_url = await upload_to_catbox(io.BytesIO(file_bytes), filename)
+        new_url = await upload_to_catbox(file_bytes, filename)
         if not new_url:
             await processing_msg.edit_text('❌ Failed to upload to Catbox.')
             return
