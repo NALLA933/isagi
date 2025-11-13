@@ -10,8 +10,8 @@ from shivu import application, user_collection, collection
 PROPOSAL_COST = 2000 
 DICE_COOLDOWN = 1800  # 30 minutes 
 PROPOSE_COOLDOWN = 300  # 5 minutes 
-SUPPORT_GROUP_USERNAME = "PICK_X_UPDATE"  # Support group username 
-SUPPORT_GROUP_LINK = "https://t.me/PICK_X_UPDATE" 
+SUPPORT_GROUP_USERNAME = "PICK_X_SUPPORT"  # Support group username 
+SUPPORT_GROUP_LINK = "https://t.me/PICK_X_SUPPORT" 
  
 # Cooldown storage 
 cooldowns = {'dice': {}, 'propose': {}} 
