@@ -1,22 +1,12 @@
 import re
 import time
-import asyncio
 from html import escape
 from typing import List, Dict, Optional, Tuple
 from cachetools import TTLCache
 from pymongo import ASCENDING, DESCENDING
 from functools import lru_cache
-from datetime import datetime
 
-from telegram import (
-    Update, 
-    InlineQueryResultPhoto,
-    InlineQueryResultVideo,
-    InlineKeyboardButton, 
-    InlineKeyboardMarkup,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
-)
+from telegram import Update, InlineQueryResultPhoto, InlineQueryResultVideo, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import InlineQueryHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
 
@@ -25,50 +15,20 @@ from shivu import application, db
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 
-HAREM_MODE_MAPPING = {
-    "common": "🟢 Common",
-    "rare": "🟣 Rare",
-    "legendary": "🟡 Legendary",
-    "special": "💮 Special Edition",
-    "neon": "💫 Neon",
-    "manga": "✨ Manga",
-    "cosplay": "🎭 Cosplay",
-    "celestial": "🎐 Celestial",
-    "premium": "🔮 Premium Edition",
-    "erotic": "💋 Erotic",
-    "summer": "🌤 Summer",
-    "winter": "☃️ Winter",
-    "monsoon": "☔️ Monsoon",
-    "valentine": "💝 Valentine",
-    "halloween": "🎃 Halloween",
-    "christmas": "🎄 Christmas",
-    "mythic": "🏵 Mythic",
-    "events": "🎗 Special Events",
-    "amv": "🎥 AMV",
-    "tiny": "👼 Tiny",
-    "default": None
+HAREM_RARITY = {
+    "common": "🟢 Common", "rare": "🟣 Rare", "legendary": "🟡 Legendary",
+    "special": "💮 Special Edition", "neon": "💫 Neon", "manga": "✨ Manga",
+    "cosplay": "🎭 Cosplay", "celestial": "🎐 Celestial", "premium": "🔮 Premium Edition",
+    "erotic": "💋 Erotic", "summer": "🌤 Summer", "winter": "☃️ Winter",
+    "monsoon": "☔️ Monsoon", "valentine": "💝 Valentine", "halloween": "🎃 Halloween",
+    "christmas": "🎄 Christmas", "mythic": "🏵 Mythic", "events": "🎗 Special Events",
+    "amv": "🎥 AMV", "tiny": "👼 Tiny", "default": None
 }
 
-RARITY_PRIORITY = {
-    "🏵": 1, "🔮": 2, "🟡": 3, "🎗": 4, "💫": 5,
-    "✨": 6, "🎐": 7, "🎭": 8, "💮": 9, "🎥": 10,
-    "💋": 11, "👼": 12, "💝": 13, "🎃": 14, "🎄": 15,
-    "🌤": 16, "☃️": 17, "☔️": 18, "🟣": 19, "🟢": 20
-}
-
-FILTER_TYPES = {
-    'all': '🌟 All',
-    'fav': '💖 Favorites',
-    'rare': '💎 Rare+',
-    'video': '🎥 Videos',
-    'recent': '🆕 Recent'
-}
-
-SORT_TYPES = {
-    'rarity': '💎 Rarity',
-    'name': '🔤 Name',
-    'anime': '📺 Anime',
-    'recent': '🕐 Recent'
+RARITY_ORDER = {
+    "🏵": 1, "🔮": 2, "🟡": 3, "🎗": 4, "💫": 5, "✨": 6, "🎐": 7,
+    "🎭": 8, "💮": 9, "🎥": 10, "💋": 11, "👼": 12, "💝": 13, "🎃": 14,
+    "🎄": 15, "🌤": 16, "☃️": 17, "☔️": 18, "🟣": 19, "🟢": 20
 }
 
 try:
@@ -76,787 +36,400 @@ try:
     collection.create_index([('anime', ASCENDING)])
     collection.create_index([('name', ASCENDING)])
     collection.create_index([('rarity', ASCENDING)])
-    collection.create_index([('name', 'text'), ('anime', 'text')])
-    collection.create_index([('is_video', ASCENDING)])
     user_collection.create_index([('id', ASCENDING)])
     user_collection.create_index([('characters.id', ASCENDING)])
-    user_collection.create_index([('first_name', ASCENDING)])
-    user_collection.create_index([('username', ASCENDING)])
 except:
     pass
 
-all_characters_cache = TTLCache(maxsize=20000, ttl=43200)
-user_collection_cache = TTLCache(maxsize=20000, ttl=300)
-character_count_cache = TTLCache(maxsize=20000, ttl=900)
-anime_count_cache = TTLCache(maxsize=10000, ttl=2400)
-owners_cache = TTLCache(maxsize=10000, ttl=600)
-search_cache = TTLCache(maxsize=3000, ttl=120)
-stats_cache = TTLCache(maxsize=2000, ttl=1800)
-leaderboard_cache = TTLCache(maxsize=500, ttl=3600)
+char_cache = TTLCache(maxsize=25000, ttl=7200)
+user_cache = TTLCache(maxsize=25000, ttl=600)
+count_cache = TTLCache(maxsize=25000, ttl=1800)
+owner_cache = TTLCache(maxsize=15000, ttl=900)
+search_cache = TTLCache(maxsize=5000, ttl=180)
 
-SMALL_CAPS = str.maketrans(
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
-    'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ'
-)
+CAPS = str.maketrans('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ')
 
+@lru_cache(maxsize=4096)
+def sc(t: str) -> str:
+    return t.translate(CAPS)
 
 @lru_cache(maxsize=2048)
-def to_small_caps(text: str) -> str:
-    return text.translate(SMALL_CAPS)
-
-
-@lru_cache(maxsize=1024)
-def parse_rarity(char_rarity: str) -> Tuple[str, str]:
-    if isinstance(char_rarity, str) and ' ' in char_rarity:
-        parts = char_rarity.split(' ', 1)
-        return parts[0], parts[1] if len(parts) > 1 else 'Common'
+def parse_rar(r: str) -> Tuple[str, str]:
+    if ' ' in r:
+        p = r.split(' ', 1)
+        return p[0], p[1] if len(p) > 1 else 'Common'
     return '🟢', 'Common'
 
+def trunc(t: str, l: int = 25) -> str:
+    return t[:l-2] + '..' if len(t) > l else t
 
-def truncate(text: str, length: int = 35) -> str:
-    return text if len(text) <= length else f"{text[:length-3]}..."
+def rar_val(c: Dict) -> int:
+    r = c.get('rarity', '🟢 Common')
+    e = r.split(' ')[0] if ' ' in r else '🟢'
+    return RARITY_ORDER.get(e, 99)
 
+async def g_count(cid: str) -> int:
+    k = f"gc{cid}"
+    if k in count_cache:
+        return count_cache[k]
+    c = await user_collection.count_documents({'characters.id': cid})
+    count_cache[k] = c
+    return c
 
-def get_rarity_priority(char: Dict) -> int:
-    rarity = char.get('rarity', '🟢 Common')
-    emoji = rarity.split(' ')[0] if ' ' in rarity else '🟢'
-    return RARITY_PRIORITY.get(emoji, 99)
+async def a_count(anime: str) -> int:
+    k = f"ac{anime}"
+    if k in count_cache:
+        return count_cache[k]
+    c = await collection.count_documents({'anime': anime})
+    count_cache[k] = c
+    return c
 
-
-def is_rare_or_above(rarity: str) -> bool:
-    emoji = rarity.split(' ')[0] if ' ' in rarity else '🟢'
-    return RARITY_PRIORITY.get(emoji, 99) <= 12
-
-
-async def get_global_count(character_id: str) -> int:
-    key = f"gc_{character_id}"
-    if key in character_count_cache:
-        return character_count_cache[key]
-    count = await user_collection.count_documents({'characters.id': character_id})
-    character_count_cache[key] = count
-    return count
-
-
-async def get_anime_count(anime: str) -> int:
-    key = f"ac_{anime}"
-    if key in anime_count_cache:
-        return anime_count_cache[key]
-    count = await collection.count_documents({'anime': anime})
-    anime_count_cache[key] = count
-    return count
-
-
-async def get_user_stats(user_id: int) -> Dict:
-    key = f"stats_{user_id}"
-    if key in stats_cache:
-        return stats_cache[key]
+async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
+    k = f"ow{cid}{lim}"
+    if k in owner_cache:
+        return owner_cache[k]
     
-    user = await user_collection.find_one({'id': user_id})
-    if not user:
-        return {}
-    
-    chars = user.get('characters', [])
-    unique_ids = set(c.get('id') for c in chars if c.get('id'))
-    unique_animes = set(c.get('anime') for c in chars if c.get('anime'))
-    
-    rarity_counts = {}
-    for c in chars:
-        rarity = c.get('rarity', '🟢 Common')
-        emoji = rarity.split(' ')[0] if ' ' in rarity else '🟢'
-        rarity_counts[emoji] = rarity_counts.get(emoji, 0) + 1
-    
-    stats = {
-        'total': len(chars),
-        'unique': len(unique_ids),
-        'animes': len(unique_animes),
-        'rarity': rarity_counts
-    }
-    stats_cache[key] = stats
-    return stats
-
-
-async def get_owners(character_id: str, limit: int = 50) -> List[Dict]:
-    key = f"own_{character_id}_{limit}"
-    if key in owners_cache:
-        return owners_cache[key]
-    
-    pipeline = [
-        {'$match': {'characters.id': character_id}},
+    pipe = [
+        {'$match': {'characters.id': cid}},
         {'$project': {
-            '_id': 0,
-            'id': 1,
-            'first_name': 1,
-            'username': 1,
-            'count': {
-                '$size': {
-                    '$filter': {
-                        'input': '$characters',
-                        'as': 'char',
-                        'cond': {'$eq': ['$$char.id', character_id]}
-                    }
-                }
-            }
+            'id': 1, 'first_name': 1, 'username': 1,
+            'count': {'$size': {'$filter': {'input': '$characters', 'as': 'c', 'cond': {'$eq': ['$$c.id', cid]}}}}
         }},
         {'$sort': {'count': DESCENDING}},
-        {'$limit': limit}
+        {'$limit': lim}
     ]
     
-    users = await user_collection.aggregate(pipeline).to_list(length=limit)
-    owners_cache[key] = users
-    return users
+    u = await user_collection.aggregate(pipe).to_list(length=lim)
+    owner_cache[k] = u
+    return u
 
+async def get_user(uid: int) -> Optional[Dict]:
+    k = f"u{uid}"
+    if k in user_cache:
+        return user_cache[k]
+    u = await user_collection.find_one({'id': uid})
+    if u:
+        user_cache[k] = u
+    return u
 
-async def get_user_data(user_id: int) -> Optional[Dict]:
-    key = str(user_id)
-    if key in user_collection_cache:
-        return user_collection_cache[key]
-    user = await user_collection.find_one({'id': user_id})
-    if user:
-        user_collection_cache[key] = user
-    return user
-
-
-async def get_anime_leaderboard(anime: str, limit: int = 10) -> List[Dict]:
-    key = f"lb_anime_{anime}_{limit}"
-    if key in leaderboard_cache:
-        return leaderboard_cache[key]
+async def search_char(q: str, lim: int = 300) -> List[Dict]:
+    k = f"s{q}{lim}"
+    if k in search_cache:
+        return search_cache[k]
     
-    pipeline = [
-        {'$match': {'characters.anime': anime}},
-        {'$project': {
-            '_id': 0,
-            'id': 1,
-            'first_name': 1,
-            'username': 1,
-            'count': {
-                '$size': {
-                    '$filter': {
-                        'input': '$characters',
-                        'as': 'char',
-                        'cond': {'$eq': ['$$char.anime', anime]}
-                    }
-                }
-            }
-        }},
-        {'$sort': {'count': DESCENDING}},
-        {'$limit': limit}
-    ]
-    
-    users = await user_collection.aggregate(pipeline).to_list(length=limit)
-    leaderboard_cache[key] = users
-    return users
+    rx = re.compile(re.escape(q), re.IGNORECASE)
+    ch = await collection.find({'$or': [{'name': rx}, {'anime': rx}, {'id': rx}]}).limit(lim).to_list(length=lim)
+    search_cache[k] = ch
+    return ch
 
+async def get_all(lim: int = 300) -> List[Dict]:
+    if 'all' in char_cache:
+        return char_cache['all']
+    ch = await collection.find({}).limit(lim).to_list(length=lim)
+    char_cache['all'] = ch
+    return ch
 
-async def get_global_leaderboard(limit: int = 10) -> List[Dict]:
-    key = f"lb_global_{limit}"
-    if key in leaderboard_cache:
-        return leaderboard_cache[key]
+async def col_caption(ch: Dict, u: Dict, fav: bool) -> str:
+    cid = ch.get('id', '?')
+    nm = ch.get('name', '?')
+    an = ch.get('anime', '?')
+    rar = ch.get('rarity', '🟢 Common')
+    vid = ch.get('is_video', False)
     
-    pipeline = [
-        {'$project': {
-            '_id': 0,
-            'id': 1,
-            'first_name': 1,
-            'username': 1,
-            'count': {'$size': {'$ifNull': ['$characters', []]}}
-        }},
-        {'$sort': {'count': DESCENDING}},
-        {'$limit': limit}
-    ]
+    e, t = parse_rar(rar)
+    uc = sum(1 for c in u.get('characters', []) if c.get('id') == cid)
+    ua = sum(1 for c in u.get('characters', []) if c.get('anime') == an)
+    at = await a_count(an)
     
-    users = await user_collection.aggregate(pipeline).to_list(length=limit)
-    leaderboard_cache[key] = users
-    return users
-
-
-async def search_characters(query: str, limit: int = 250) -> List[Dict]:
-    key = f"srch_{query}_{limit}"
-    if key in search_cache:
-        return search_cache[key]
+    fn = u.get('first_name', 'User')
+    uid = u.get('id')
     
-    regex = re.compile(re.escape(query), re.IGNORECASE)
-    chars = await collection.find({
-        '$or': [
-            {'name': regex},
-            {'anime': regex},
-            {'id': regex},
-            {'rarity': regex}
-        ]
-    }).limit(limit).to_list(length=limit)
+    chars = u.get('characters', [])
+    unique = len(set(c.get('id') for c in chars if c.get('id')))
+    total = len(chars)
     
-    search_cache[key] = chars
-    return chars
-
-
-async def get_all_characters(limit: int = 250) -> List[Dict]:
-    if 'all_chars' in all_characters_cache:
-        return all_characters_cache['all_chars']
-    chars = await collection.find({}).limit(limit).to_list(length=limit)
-    all_characters_cache['all_chars'] = chars
-    return chars
-
-
-def apply_filters(chars: List[Dict], filter_type: str, user: Optional[Dict] = None) -> List[Dict]:
-    if filter_type == 'fav' and user:
-        fav = user.get('favorites')
-        if fav:
-            fav_id = fav.get('id') if isinstance(fav, dict) else fav
-            return [c for c in chars if c.get('id') == fav_id]
-    
-    elif filter_type == 'rare':
-        return [c for c in chars if is_rare_or_above(c.get('rarity', '🟢 Common'))]
-    
-    elif filter_type == 'video':
-        return [c for c in chars if c.get('is_video', False)]
-    
-    elif filter_type == 'recent':
-        return sorted(chars, key=lambda x: x.get('_id', ''), reverse=True)[:100]
-    
-    return chars
-
-
-def apply_sort(chars: List[Dict], sort_type: str) -> List[Dict]:
-    if sort_type == 'rarity':
-        return sorted(chars, key=get_rarity_priority)
-    elif sort_type == 'name':
-        return sorted(chars, key=lambda x: x.get('name', '').lower())
-    elif sort_type == 'anime':
-        return sorted(chars, key=lambda x: x.get('anime', '').lower())
-    elif sort_type == 'recent':
-        return sorted(chars, key=lambda x: x.get('_id', ''), reverse=True)
-    return chars
-
-
-async def build_collection_caption(char: Dict, user: Dict, is_fav: bool) -> str:
-    cid = char.get('id', 'Unknown')
-    name = char.get('name', 'Unknown')
-    anime = char.get('anime', 'Unknown')
-    rarity = char.get('rarity', '🟢 Common')
-    is_vid = char.get('is_video', False)
-    
-    emoji, text = parse_rarity(rarity)
-    user_char_count = sum(1 for c in user.get('characters', []) if c.get('id') == cid)
-    user_anime_count = sum(1 for c in user.get('characters', []) if c.get('anime') == anime)
-    anime_total = await get_anime_count(anime)
-    
-    fname = user.get('first_name', 'User')
-    uid = user.get('id')
-    fav = "💖 " if is_fav else ""
-    media = "🎥" if is_vid else "🖼"
-    
-    stats = await get_user_stats(uid)
-    
-    caption = (
-        f"<b>{fav}🔮 {to_small_caps('look at')} "
-        f"<a href='tg://user?id={uid}'>{escape(fname)}</a>"
-        f"{to_small_caps('s waifu')}</b>\n\n"
-        f"<b>🆔 {to_small_caps('id')}</b> <code>{cid}</code>\n"
-        f"<b>🧬 {to_small_caps('name')}</b> <code>{escape(name)}</code> <code>x{user_char_count}</code>\n"
-        f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(truncate(anime, 25))}</code> <code>{user_anime_count}/{anime_total}</code>\n"
-        f"<b>{emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(text)}</code>\n"
-        f"<b>{media} {to_small_caps('type')}</b> <code>{to_small_caps('video' if is_vid else 'image')}</code>\n\n"
-        f"<b>📊 {to_small_caps('collection')}</b> <code>{stats.get('unique', 0)}/{stats.get('total', 0)}</code> • "
-        f"<b>🎴 {to_small_caps('animes')}</b> <code>{stats.get('animes', 0)}</code>"
+    cap = (
+        f"<b>{'💖 ' if fav else ''}{escape(nm)}</b>\n"
+        f"<a href='tg://user?id={uid}'>{escape(fn)}</a> {sc('harem')} {unique}/{total}\n\n"
+        f"{sc('id')} <code>{cid}</code>\n"
+        f"{sc('anime')} <code>{trunc(escape(an))}</code> {ua}/{at}\n"
+        f"{e} {sc(t)} {'🎥' if vid else '🖼'} x{uc}"
     )
     
-    if is_fav:
-        caption += f"\n\n💖 <b>{to_small_caps('favorite character')}</b>"
+    if fav:
+        cap += f"\n💖 {sc('favorite')}"
     
-    return caption
+    return cap
 
-
-async def build_global_caption(char: Dict) -> str:
-    cid = char.get('id', 'Unknown')
-    name = char.get('name', 'Unknown')
-    anime = char.get('anime', 'Unknown')
-    rarity = char.get('rarity', '🟢 Common')
-    is_vid = char.get('is_video', False)
+async def glob_caption(ch: Dict) -> str:
+    cid = ch.get('id', '?')
+    nm = ch.get('name', '?')
+    an = ch.get('anime', '?')
+    rar = ch.get('rarity', '🟢 Common')
+    vid = ch.get('is_video', False)
     
-    emoji, text = parse_rarity(rarity)
-    gcount = await get_global_count(cid)
-    media = "🎥" if is_vid else "🖼"
-    anime_total = await get_anime_count(anime)
+    e, t = parse_rar(rar)
+    gc = await g_count(cid)
+    at = await a_count(an)
     
     return (
-        f"<b>🔮 {to_small_caps('look at this waifu')}</b>\n\n"
-        f"<b>🆔 {to_small_caps('id')}</b> <code>{cid}</code>\n"
-        f"<b>🧬 {to_small_caps('name')}</b> <code>{escape(name)}</code>\n"
-        f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(truncate(anime, 25))}</code>\n"
-        f"<b>{emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(text)}</code>\n"
-        f"<b>{media} {to_small_caps('type')}</b> <code>{to_small_caps('video' if is_vid else 'image')}</code>\n\n"
-        f"<b>🌍 {to_small_caps('grabbed')}</b> <code>{gcount}x</code> • "
-        f"<b>🎴 {to_small_caps('in anime')}</b> <code>{anime_total}</code>"
+        f"<b>{escape(nm)}</b>\n\n"
+        f"{sc('id')} <code>{cid}</code>\n"
+        f"{sc('anime')} <code>{trunc(escape(an))}</code>\n"
+        f"{e} {sc(t)} {'🎥' if vid else '🖼'}\n"
+        f"{sc('grabbed')} {gc}x {sc('in')} {at}"
     )
 
+async def own_caption(ch: Dict, us: List[Dict]) -> str:
+    cid = ch.get('id', '?')
+    nm = ch.get('name', '?')
+    an = ch.get('anime', '?')
+    e, t = parse_rar(ch.get('rarity', '🟢 Common'))
+    gc = await g_count(cid)
+    
+    cap = f"<b>{escape(nm)} {sc('owners')}</b>\n\n{sc('id')} <code>{cid}</code>\n{sc('anime')} <code>{trunc(escape(an))}</code>\n{e} {sc(t)}\n\n"
+    
+    med = {1: "🥇", 2: "🥈", 3: "🥉"}
+    for i, u in enumerate(us[:25], 1):
+        m = med.get(i, f"{i}.")
+        link = f"<a href='tg://user?id={u['id']}'>{trunc(escape(u.get('first_name', 'User')), 18)}</a>"
+        cap += f"{m} {link} x{u.get('count', 0)}\n"
+    
+    cap += f"\n{sc('total')} {gc}x"
+    if len(us) > 25:
+        cap += f" +{len(us)-25}"
+    
+    return cap
 
-async def build_owners_caption(char: Dict, users: List[Dict]) -> str:
-    cid = char.get('id', 'Unknown')
-    name = char.get('name', 'Unknown')
-    anime = char.get('anime', 'Unknown')
-    rarity = char.get('rarity', '🟢 Common')
+async def stat_caption(ch: Dict, us: List[Dict]) -> str:
+    cid = ch.get('id', '?')
+    nm = ch.get('name', '?')
+    an = ch.get('anime', '?')
+    e, t = parse_rar(ch.get('rarity', '🟢 Common'))
+    gc = await g_count(cid)
+    at = await a_count(an)
+    uo = len(us)
+    avg = round(gc / uo, 1) if uo > 0 else 0
     
-    emoji, text = parse_rarity(rarity)
-    gcount = await get_global_count(cid)
+    cap = f"<b>{escape(nm)} {sc('stats')}</b>\n\n{sc('id')} <code>{cid}</code>\n{sc('anime')} <code>{trunc(escape(an))}</code>\n{e} {sc(t)}\n\n{sc('grabs')} {gc}x\n{sc('owners')} {uo}\n{sc('avg')} {avg}x\n{sc('in anime')} {at}\n"
     
-    caption = (
-        f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
-        f"<b>┃  🎴 {to_small_caps('character owners')}  ┃</b>\n"
-        f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
-        f"<b>🆔 {to_small_caps('id')}</b> <code>{cid}</code>\n"
-        f"<b>🧬 {to_small_caps('name')}</b> <code>{escape(name)}</code>\n"
-        f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(truncate(anime, 25))}</code>\n"
-        f"<b>{emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(text)}</code>\n\n"
-        f"<b>━━━━━━━━━━━━━━━━━</b>\n"
-    )
+    if us:
+        cap += f"\n{sc('top collectors')}\n"
+        for i, u in enumerate(us[:8], 1):
+            cap += f"{i}. {trunc(escape(u.get('first_name', 'User')), 15)} x{u.get('count', 0)}\n"
     
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    for i, u in enumerate(users[:20], 1):
-        medal = medals.get(i, f"{i}.")
-        link = f"<a href='tg://user?id={u['id']}'>{escape(truncate(u.get('first_name', 'User'), 20))}</a>"
-        if u.get('username'):
-            link += f" <code>@{escape(u['username'])}</code>"
-        caption += f"\n{medal} {link} <code>×{u.get('count', 0)}</code>"
-    
-    caption += f"\n\n<b>🔮 {to_small_caps('total grabbed')}</b> <code>{gcount}×</code>"
-    
-    if len(users) > 20:
-        caption += f" • <i>+{len(users) - 20} {to_small_caps('more')}</i>"
-    
-    return caption
-
-
-async def build_stats_caption(char: Dict, users: List[Dict]) -> str:
-    cid = char.get('id', 'Unknown')
-    name = char.get('name', 'Unknown')
-    anime = char.get('anime', 'Unknown')
-    rarity = char.get('rarity', '🟢 Common')
-    
-    emoji, text = parse_rarity(rarity)
-    gcount = await get_global_count(cid)
-    anime_total = await get_anime_count(anime)
-    unique_owners = len(users)
-    
-    avg_per_owner = round(gcount / unique_owners, 2) if unique_owners > 0 else 0
-    
-    caption = (
-        f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
-        f"<b>┃  📊 {to_small_caps('character stats')}  ┃</b>\n"
-        f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
-        f"<b>🆔 {to_small_caps('id')}</b> <code>{cid}</code>\n"
-        f"<b>🧬 {to_small_caps('name')}</b> <code>{escape(name)}</code>\n"
-        f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(truncate(anime, 25))}</code>\n"
-        f"<b>{emoji} {to_small_caps('rarity')}</b> <code>{to_small_caps(text)}</code>\n\n"
-        f"<b>━━━━━━━━━━━━━━━━━</b>\n\n"
-        f"<b>🌍 {to_small_caps('global grabs')}</b> <code>{gcount}×</code>\n"
-        f"<b>👥 {to_small_caps('unique owners')}</b> <code>{unique_owners}</code>\n"
-        f"<b>📈 {to_small_caps('avg per owner')}</b> <code>{avg_per_owner}×</code>\n"
-        f"<b>🎴 {to_small_caps('anime total')}</b> <code>{anime_total}</code>\n"
-    )
-    
-    if users:
-        caption += f"\n<b>🏆 {to_small_caps('top collectors')}</b>\n"
-        for i, u in enumerate(users[:5], 1):
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            fname = escape(truncate(u.get('first_name', 'User'), 18))
-            count = u.get('count', 0)
-            caption += f"{medal} {fname} <code>×{count}</code>\n"
-    
-    return caption
-
-
-async def build_anime_leaderboard_caption(anime: str, users: List[Dict]) -> str:
-    anime_total = await get_anime_count(anime)
-    
-    caption = (
-        f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
-        f"<b>┃  🏆 {to_small_caps('anime leaderboard')}  ┃</b>\n"
-        f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
-        f"<b>📺 {to_small_caps('anime')}</b> <code>{escape(truncate(anime, 25))}</code>\n"
-        f"<b>🎴 {to_small_caps('total characters')}</b> <code>{anime_total}</code>\n\n"
-        f"<b>━━━━━━━━━━━━━━━━━</b>\n"
-    )
-    
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    for i, u in enumerate(users[:15], 1):
-        medal = medals.get(i, f"{i}.")
-        link = f"<a href='tg://user?id={u['id']}'>{escape(truncate(u.get('first_name', 'User'), 18))}</a>"
-        count = u.get('count', 0)
-        caption += f"\n{medal} {link} <code>×{count}</code>"
-    
-    return caption
-
+    return cap
 
 async def inlinequery(update: Update, context) -> None:
-    query = update.inline_query.query
-    offset = int(update.inline_query.offset) if update.inline_query.offset else 0
+    q = update.inline_query.query
+    off = int(update.inline_query.offset) if update.inline_query.offset else 0
     uid = update.inline_query.from_user.id
     
     try:
-        all_chars = []
-        user = None
-        is_collection = False
-        filter_type = 'all'
-        sort_type = 'rarity'
+        all_ch = []
+        usr = None
+        is_col = False
         
-        if query.startswith('collection.'):
-            is_collection = True
-            parts = query.split(' ', 1)
-            target_id = parts[0].split('.')[1]
+        if q.startswith('collection.'):
+            is_col = True
+            pts = q.split(' ', 1)
+            tid = pts[0].split('.')[1]
+            srch = pts[1].strip() if len(pts) > 1 else ''
             
-            remaining = parts[1].strip() if len(parts) > 1 else ''
-            search = remaining
-            
-            for ft in FILTER_TYPES.keys():
-                if remaining.startswith(f'-{ft}'):
-                    filter_type = ft
-                    search = remaining.replace(f'-{ft}', '').strip()
-                    break
-            
-            for st in SORT_TYPES.keys():
-                if search.startswith(f'-{st}'):
-                    sort_type = st
-                    search = search.replace(f'-{st}', '').strip()
-                    break
-            
-            if not target_id.isdigit():
+            if not tid.isdigit():
                 await update.inline_query.answer([], cache_time=5)
                 return
             
-            tid = int(target_id)
-            user = await get_user_data(tid)
+            ti = int(tid)
+            usr = await get_user(ti)
             
-            if not user:
+            if not usr:
                 await update.inline_query.answer([
                     InlineQueryResultArticle(
-                        id="no_user",
-                        title="❌ User Not Found",
-                        description="This user hasn't started collecting yet",
-                        input_message_content=InputTextMessageContent(
-                            f"<b>❌ {to_small_caps('user not found')}</b>",
-                            parse_mode=ParseMode.HTML
-                        )
+                        id="nouser",
+                        title="User Not Found",
+                        input_message_content=InputTextMessageContent("User not found", parse_mode=ParseMode.HTML)
                     )
                 ], cache_time=5)
                 return
             
-            chars_dict = {}
-            for c in user.get('characters', []):
+            cd = {}
+            for c in usr.get('characters', []):
                 if isinstance(c, dict) and c.get('id'):
-                    cid = c.get('id')
-                    if cid not in chars_dict:
-                        chars_dict[cid] = c
+                    ci = c.get('id')
+                    if ci not in cd:
+                        cd[ci] = c
             
-            all_chars = list(chars_dict.values())
+            all_ch = list(cd.values())
             
-            fav_data = user.get('favorites')
-            fav_char = None
+            fv = usr.get('favorites')
+            fvc = None
             
-            if fav_data:
-                if isinstance(fav_data, dict):
-                    fid = fav_data.get('id')
-                    if any(c.get('id') == fid for c in all_chars):
-                        fav_char = fav_data
+            if fv:
+                if isinstance(fv, dict):
+                    fi = fv.get('id')
+                    if any(c.get('id') == fi for c in all_ch):
+                        fvc = fv
                     else:
-                        await user_collection.update_one(
-                            {'id': tid},
-                            {'$unset': {'favorites': ""}}
-                        )
-                        user_collection_cache.pop(str(tid), None)
-                elif isinstance(fav_data, str):
-                    fav_char = next((c for c in all_chars if c.get('id') == fav_data), None)
-                    if not fav_char:
-                        await user_collection.update_one(
-                            {'id': tid},
-                            {'$unset': {'favorites': ""}}
-                        )
-                        user_collection_cache.pop(str(tid), None)
+                        await user_collection.update_one({'id': ti}, {'$unset': {'favorites': ""}})
+                        user_cache.pop(f"u{ti}", None)
+                elif isinstance(fv, str):
+                    fvc = next((c for c in all_ch if c.get('id') == fv), None)
+                    if not fvc:
+                        await user_collection.update_one({'id': ti}, {'$unset': {'favorites': ""}})
+                        user_cache.pop(f"u{ti}", None)
             
-            all_chars = apply_filters(all_chars, filter_type, user)
+            if srch:
+                rx = re.compile(re.escape(srch), re.IGNORECASE)
+                all_ch = [c for c in all_ch if rx.search(c.get('name', '')) or rx.search(c.get('anime', '')) or rx.search(c.get('id', ''))]
             
-            if search:
-                regex = re.compile(re.escape(search), re.IGNORECASE)
-                all_chars = [
-                    c for c in all_chars 
-                    if regex.search(c.get('name', ''))
-                    or regex.search(c.get('anime', ''))
-                    or regex.search(c.get('id', ''))
-                    or regex.search(c.get('rarity', ''))
-                ]
-            
-            if not search and fav_char and filter_type == 'all':
-                all_chars = [c for c in all_chars if c.get('id') != fav_char.get('id')]
-                all_chars.insert(0, fav_char)
+            if not srch and fvc:
+                all_ch = [c for c in all_ch if c.get('id') != fvc.get('id')]
+                all_ch.insert(0, fvc)
             else:
-                all_chars = apply_sort(all_chars, sort_type)
-        
+                all_ch.sort(key=rar_val)
         else:
-            search = query
-            for ft in FILTER_TYPES.keys():
-                if query.startswith(f'-{ft}'):
-                    filter_type = ft
-                    search = query.replace(f'-{ft}', '').strip()
-                    break
-            
-            for st in SORT_TYPES.keys():
-                if search.startswith(f'-{st}'):
-                    sort_type = st
-                    search = search.replace(f'-{st}', '').strip()
-                    break
-            
-            all_chars = await search_characters(search) if search else await get_all_characters()
-            all_chars = apply_filters(all_chars, filter_type)
-            all_chars = apply_sort(all_chars, sort_type)
+            all_ch = await search_char(q) if q else await get_all()
+            all_ch.sort(key=rar_val)
         
-        chars = all_chars[offset:offset+50]
-        has_more = len(all_chars) > offset + 50
-        next_off = str(offset + 50) if has_more else ""
+        chs = all_ch[off:off+50]
+        more = len(all_ch) > off + 50
+        nxt = str(off + 50) if more else ""
         
-        results = []
-        for char in chars:
-            cid = char.get('id')
-            if not cid:
+        res = []
+        for ch in chs:
+            ci = ch.get('id')
+            if not ci:
                 continue
             
-            name = char.get('name', 'Unknown')
-            anime = char.get('anime', 'Unknown')
-            img = char.get('img_url', '')
-            is_vid = char.get('is_video', False)
-            rarity = char.get('rarity', '🟢 Common')
+            nm = ch.get('name', '?')
+            an = ch.get('anime', '?')
+            img = ch.get('img_url', '')
+            vid = ch.get('is_video', False)
+            e, _ = parse_rar(ch.get('rarity', '🟢 Common'))
             
-            emoji, _ = parse_rarity(rarity)
+            fav = False
+            if is_col and usr and usr.get('favorites'):
+                fv = usr.get('favorites')
+                if isinstance(fv, dict) and fv.get('id') == ci:
+                    fav = True
+                elif isinstance(fv, str) and fv == ci:
+                    fav = True
             
-            is_fav = False
-            if is_collection and user and user.get('favorites'):
-                fav = user.get('favorites')
-                if isinstance(fav, dict) and fav.get('id') == cid:
-                    is_fav = True
-                elif isinstance(fav, str) and fav == cid:
-                    is_fav = True
-            
-            caption = await build_collection_caption(char, user, is_fav) if is_collection and user else await build_global_caption(char)
+            cap = await col_caption(ch, usr, fav) if is_col and usr else await glob_caption(ch)
             
             kbd = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(f"🏆 {to_small_caps('owners')}", callback_data=f"show_owners_{cid}"),
-                    InlineKeyboardButton(f"📊 {to_small_caps('stats')}", callback_data=f"char_stats_{cid}")
-                ],
-                [
-                    InlineKeyboardButton(f"🎴 {to_small_caps('anime lb')}", callback_data=f"anime_lb_{cid}"),
-                    InlineKeyboardButton(f"🔗 {to_small_caps('share')}", switch_inline_query=f"{cid}")
-                ]
+                [InlineKeyboardButton(f"{sc('owners')}", callback_data=f"o.{ci}"),
+                 InlineKeyboardButton(f"{sc('stats')}", callback_data=f"s.{ci}")],
+                [InlineKeyboardButton(f"{sc('share')}", switch_inline_query=f"{ci}")]
             ])
             
-            rid = f"{cid}_{offset}_{int(time.time() * 1000)}"
-            title = f"{'💖 ' if is_fav else ''}{emoji} {truncate(name)}"
-            desc = f"{truncate(anime, 30)} • {'🎥' if is_vid else '🖼'}"
+            rid = f"{ci}{off}{int(time.time()*1000)}"
+            ttl = f"{'💖' if fav else ''}{e} {trunc(nm, 30)}"
+            dsc = f"{trunc(an, 25)} {'🎥' if vid else '🖼'}"
             
-            if is_vid:
-                results.append(InlineQueryResultVideo(
-                    id=rid, video_url=img, mime_type="video/mp4",
-                    thumbnail_url=img, title=title, description=desc,
-                    caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd
+            if vid:
+                res.append(InlineQueryResultVideo(
+                    id=rid, video_url=img, mime_type="video/mp4", thumbnail_url=img,
+                    title=ttl, description=dsc, caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd
                 ))
             else:
-                results.append(InlineQueryResultPhoto(
+                res.append(InlineQueryResultPhoto(
                     id=rid, photo_url=img, thumbnail_url=img,
-                    title=title, description=desc, caption=caption,
-                    parse_mode=ParseMode.HTML, reply_markup=kbd
+                    title=ttl, description=dsc, caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd
                 ))
         
-        await update.inline_query.answer(
-            results, next_offset=next_off, cache_time=5, is_personal=is_collection
-        )
+        await update.inline_query.answer(res, next_offset=nxt, cache_time=5, is_personal=is_col)
     
-    except Exception as e:
+    except:
         import traceback
         traceback.print_exc()
         await update.inline_query.answer([], cache_time=5)
 
-
-async def inline_show_owners(update: Update, context) -> None:
-    query = update.callback_query
-    await query.answer()
+async def show_owners(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer()
     
     try:
-        cid = query.data.split('_', 2)[2]
-        char = await collection.find_one({'id': cid})
+        ci = q.data.split('.')[1]
+        ch = await collection.find_one({'id': ci})
         
-        if not char:
-            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+        if not ch:
+            await q.answer("Character not found", show_alert=True)
             return
         
-        users = await get_owners(cid, limit=100)
+        us = await get_owners(ci)
         
-        if not users:
-            await query.answer("ɴᴏ ᴏɴᴇ ᴏᴡɴs ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ʏᴇᴛ", show_alert=True)
+        if not us:
+            await q.answer("No owners yet", show_alert=True)
             return
         
-        caption = await build_owners_caption(char, users)
+        cap = await own_caption(ch, us)
         kbd = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(f"⬅️ {to_small_caps('back')}", callback_data=f"back_to_card_{cid}"),
-                InlineKeyboardButton(f"📊 {to_small_caps('stats')}", callback_data=f"char_stats_{cid}")
-            ],
-            [
-                InlineKeyboardButton(f"🎴 {to_small_caps('anime lb')}", callback_data=f"anime_lb_{cid}"),
-                InlineKeyboardButton(f"🌍 {to_small_caps('global lb')}", callback_data=f"global_lb")
-            ]
+            [InlineKeyboardButton(f"{sc('back')}", callback_data=f"b.{ci}"),
+             InlineKeyboardButton(f"{sc('stats')}", callback_data=f"s.{ci}")],
+            [InlineKeyboardButton(f"{sc('share')}", switch_inline_query=f"{ci}")]
         ])
         
-        await query.edit_message_caption(caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    
-    except Exception as e:
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    except:
         import traceback
         traceback.print_exc()
-        await query.answer("ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ᴏᴡɴᴇʀs", show_alert=True)
+        await q.answer("Error", show_alert=True)
 
-
-async def inline_back_to_card(update: Update, context) -> None:
-    query = update.callback_query
-    await query.answer()
+async def back_card(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer()
     
     try:
-        cid = query.data.split('_', 3)[3]
-        char = await collection.find_one({'id': cid})
+        ci = q.data.split('.')[1]
+        ch = await collection.find_one({'id': ci})
         
-        if not char:
-            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+        if not ch:
+            await q.answer("Character not found", show_alert=True)
             return
         
-        caption = await build_global_caption(char)
+        cap = await glob_caption(ch)
         kbd = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(f"🏆 {to_small_caps('owners')}", callback_data=f"show_owners_{cid}"),
-                InlineKeyboardButton(f"📊 {to_small_caps('stats')}", callback_data=f"char_stats_{cid}")
-            ],
-            [
-                InlineKeyboardButton(f"🎴 {to_small_caps('anime lb')}", callback_data=f"anime_lb_{cid}"),
-                InlineKeyboardButton(f"🔗 {to_small_caps('share')}", switch_inline_query=f"{cid}")
-            ]
+            [InlineKeyboardButton(f"{sc('owners')}", callback_data=f"o.{ci}"),
+             InlineKeyboardButton(f"{sc('stats')}", callback_data=f"s.{ci}")],
+            [InlineKeyboardButton(f"{sc('share')}", switch_inline_query=f"{ci}")]
         ])
         
-        await query.edit_message_caption(caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    
-    except Exception as e:
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    except:
         import traceback
         traceback.print_exc()
-        await query.answer("ᴇʀʀᴏʀ", show_alert=True)
+        await q.answer("Error", show_alert=True)
 
-
-async def inline_char_stats(update: Update, context) -> None:
-    query = update.callback_query
-    await query.answer()
+async def show_stats(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer()
     
     try:
-        cid = query.data.split('_', 2)[2]
-        char = await collection.find_one({'id': cid})
+        ci = q.data.split('.')[1]
+        ch = await collection.find_one({'id': ci})
         
-        if not char:
-            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+        if not ch:
+            await q.answer("Character not found", show_alert=True)
             return
         
-        users = await get_owners(cid, limit=100)
-        caption = await build_stats_caption(char, users)
+        us = await get_owners(ci)
+        cap = await stat_caption(ch, us)
         
         kbd = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(f"⬅️ {to_small_caps('back')}", callback_data=f"back_to_card_{cid}"),
-                InlineKeyboardButton(f"🏆 {to_small_caps('owners')}", callback_data=f"show_owners_{cid}")
-            ],
-            [
-                InlineKeyboardButton(f"🎴 {to_small_caps('anime lb')}", callback_data=f"anime_lb_{cid}"),
-                InlineKeyboardButton(f"🔗 {to_small_caps('share')}", switch_inline_query=f"{cid}")
-            ]
+            [InlineKeyboardButton(f"{sc('back')}", callback_data=f"b.{ci}"),
+             InlineKeyboardButton(f"{sc('owners')}", callback_data=f"o.{ci}")],
+            [InlineKeyboardButton(f"{sc('share')}", switch_inline_query=f"{ci}")]
         ])
         
-        await query.edit_message_caption(caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    
-    except Exception as e:
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    except:
         import traceback
         traceback.print_exc()
-        await query.answer("ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ sᴛᴀᴛs", show_alert=True)
-
-
-async def inline_anime_leaderboard(update: Update, context) -> None:
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        cid = query.data.split('_', 2)[2]
-        char = await collection.find_one({'id': cid})
-        
-        if not char:
-            await query.answer("ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
-            return
-        
-        anime = char.get('anime', 'Unknown')
-        users = await get_anime_leaderboard(anime, limit=50)
-        
-        if not users:
-            await query.answer("ɴᴏ ᴅᴀᴛᴀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
-            return
-        
-        caption = await build_anime_leaderboard_caption(anime, users)
-        kbd = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(f"⬅️ {to_small_caps('back')}", callback_data=f"back_to_card_{cid}"),
-                InlineKeyboardButton(f"📊 {to_small_caps('stats')}", callback_data=f"char_stats_{cid}")
-            ],
-            [
-                InlineKeyboardButton(f"🏆 {to_small_caps('owners')}", callback_data=f"show_owners_{cid}"),
-                InlineKeyboardButton(f"🌍 {to_small_caps('global lb')}", callback_data=f"global_lb")
-            ]
-        ])
-        
-        await query.edit_message_caption(caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        await query.answer("ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", show_alert=True)
-
-
-async def inline_global_leaderboard(update: Update, context) -> None:
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        users = await get_global_leaderboard(limit=50)
-        
-        if not users:
-            await query.answer("ɴᴏ ᴅᴀᴛᴀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
-            return
-        
-        caption = (
-            f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
-            f"<b>┃  🌍 {to_small_caps('global leaderboard')}  ┃</b>\n"
-            f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
-            f"<b>{to_small_caps('top collectors worldwide')}</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━</b>\n"
-        )
-        
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        for i, u in enumerate(users[:20], 1):
-            medal = medals.get(i, f"{i}.")
-            link = f"<a href='tg://user?id={u['id']}'>{escape(truncate(u.get('first_name', 'User'), 18))}</a>"
-            count = u.get('count', 0)
-            caption += f"\n{medal} {link} <code>×{count}</code>"
-        
-        kbd = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"🔄 {to_small_caps('refresh')}", callback_data=f"global_lb")
-        ]])
-        
-        await query.edit_message_caption(caption=caption, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        await query.answer("ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ɢʟᴏʙᴀʟ ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", show_alert=True)
-
+        await q.answer("Error", show_alert=True)
 
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
-application.add_handler(CallbackQueryHandler(inline_show_owners, pattern=r'^show_owners_', block=False))
-application.add_handler(CallbackQueryHandler(inline_back_to_card, pattern=r'^back_to_card_', block=False))
-application.add_handler(CallbackQueryHandler(inline_char_stats, pattern=r'^char_stats_', block=False))
-application.add_handler(CallbackQueryHandler(inline_anime_leaderboard, pattern=r'^anime_lb_', block=False))
-application.add_handler(CallbackQueryHandler(inline_global_leaderboard, pattern=r'^global_lb', block=False))
+application.add_handler(CallbackQueryHandler(show_owners, pattern=r'^o\.', block=False))
+application.add_handler(CallbackQueryHandler(back_card, pattern=r'^b\.', block=False))
+application.add_handler(CallbackQueryHandler(show_stats, pattern=r'^s\.', block=False))
