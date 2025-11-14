@@ -1,13 +1,10 @@
-import base64
 import httpx
 import os
 import re
+import json
 from pyrogram import filters
 from pyrogram.types import Message
 from shivu import shivuu as app
-
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "YOUR_RAPIDAPI_KEY_HERE")
-RAPIDAPI_HOST = "instagram-downloader-download-instagram-videos-stories.p.rapidapi.com"
 
 def extract_instagram_url(text: str) -> str:
     patterns = [
@@ -20,25 +17,76 @@ def extract_instagram_url(text: str) -> str:
             return match.group(0)
     return None
 
-async def download_instagram_video(url: str) -> dict:
+async def get_instagram_video(url: str) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             headers = {
-                "X-RapidAPI-Key": RAPIDAPI_KEY,
-                "X-RapidAPI-Host": RAPIDAPI_HOST
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             }
-            params = {"url": url}
-            response = await client.get(
-                f"https://{RAPIDAPI_HOST}/instagram",
-                headers=headers,
-                params=params
-            )
-            if response.status_code == 200:
-                return response.json()
+            
+            response = await client.get(url, headers=headers)
+            
+            if response.status_code != 200:
+                return {"error": f"Failed to fetch URL: {response.status_code}"}
+            
+            html = response.text
+            
+            patterns = [
+                r'"video_url":"([^"]+)"',
+                r'"video_versions":\[{"url":"([^"]+)"',
+                r'<meta property="og:video" content="([^"]+)"',
+                r'"playback_url":"([^"]+)"',
+            ]
+            
+            video_url = None
+            for pattern in patterns:
+                match = re.search(pattern, html)
+                if match:
+                    video_url = match.group(1).replace('\\u0026', '&').replace('\/', '/')
+                    break
+            
+            if video_url:
+                return {"video_url": video_url}
             else:
-                return {"error": f"API returned status code {response.status_code}"}
+                return {"error": "Could not extract video URL from page"}
+                
     except Exception as e:
         return {"error": str(e)}
+
+async def download_with_api(url: str) -> dict:
+    apis = [
+        {
+            "url": "https://v3.saveig.app/api/ajaxSearch",
+            "method": "POST",
+            "data": {"q": url, "t": "media", "lang": "en"},
+            "extract": lambda r: re.search(r'href="([^"]+)"[^>]*>Download', r).group(1) if re.search(r'href="([^"]+)"[^>]*>Download', r) else None
+        },
+        {
+            "url": "https://api.downloadgram.org/media",
+            "method": "GET",
+            "params": lambda u: {"url": u},
+            "extract": lambda r: json.loads(r).get("video") or json.loads(r).get("url")
+        }
+    ]
+    
+    for api in apis:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                if api["method"] == "POST":
+                    response = await client.post(api["url"], data=api["data"])
+                else:
+                    params = api["params"](url)
+                    response = await client.get(api["url"], params=params)
+                
+                if response.status_code == 200:
+                    video_url = api["extract"](response.text)
+                    if video_url:
+                        return {"video_url": video_url}
+        except:
+            continue
+    
+    return {"error": "All APIs failed"}
 
 @app.on_message(filters.command(["insta", "instagram", "igdl"]))
 async def instagram_downloader(client, message: Message):
@@ -66,34 +114,16 @@ async def instagram_downloader(client, message: Message):
     status_msg = await message.reply_text("Downloading video...")
     
     try:
-        result = await download_instagram_video(instagram_url)
+        result = await download_with_api(instagram_url)
+        
+        if "error" in result:
+            result = await get_instagram_video(instagram_url)
         
         if "error" in result:
             await status_msg.edit_text(f"Error: {result['error']}")
             return
         
-        video_url = None
-        caption_text = "Downloaded from Instagram"
-        
-        if isinstance(result, dict):
-            if "url" in result:
-                video_url = result["url"]
-            elif "video_url" in result:
-                video_url = result["video_url"]
-            elif "download_url" in result:
-                video_url = result["download_url"]
-            elif "result" in result and isinstance(result["result"], str):
-                video_url = result["result"]
-            elif "data" in result:
-                if isinstance(result["data"], dict):
-                    video_url = result["data"].get("url") or result["data"].get("video_url")
-                elif isinstance(result["data"], list) and len(result["data"]) > 0:
-                    video_url = result["data"][0].get("url")
-            
-            if "title" in result:
-                caption_text = result['title']
-            elif "caption" in result:
-                caption_text = result['caption'][:100]
+        video_url = result.get("video_url")
         
         if not video_url:
             await status_msg.edit_text("Could not extract video URL")
@@ -112,12 +142,13 @@ async def instagram_downloader(client, message: Message):
                 
                 await message.reply_video(
                     video=temp_file,
-                    caption=caption_text,
+                    caption="Downloaded from Instagram",
                     supports_streaming=True
                 )
                 
                 await status_msg.delete()
-                os.remove(temp_file)
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
             else:
                 await status_msg.edit_text(f"Failed to download video. Status: {video_response.status_code}")
     
