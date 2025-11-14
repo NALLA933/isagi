@@ -1,7 +1,7 @@
 import re
 import time
 from html import escape
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from cachetools import TTLCache
 from pymongo import ASCENDING, DESCENDING
 from functools import lru_cache
@@ -36,37 +36,49 @@ try:
     collection.create_index([('anime', ASCENDING)])
     collection.create_index([('name', ASCENDING)])
     collection.create_index([('rarity', ASCENDING)])
+    collection.create_index([('img_url', ASCENDING)])
     user_collection.create_index([('id', ASCENDING)])
     user_collection.create_index([('characters.id', ASCENDING)])
 except:
     pass
 
-char_cache = TTLCache(maxsize=25000, ttl=7200)
-user_cache = TTLCache(maxsize=25000, ttl=600)
-count_cache = TTLCache(maxsize=25000, ttl=1800)
-owner_cache = TTLCache(maxsize=15000, ttl=900)
-search_cache = TTLCache(maxsize=5000, ttl=180)
+char_cache = TTLCache(maxsize=30000, ttl=10800)
+user_cache = TTLCache(maxsize=30000, ttl=900)
+count_cache = TTLCache(maxsize=30000, ttl=2400)
+owner_cache = TTLCache(maxsize=20000, ttl=1200)
+search_cache = TTLCache(maxsize=8000, ttl=300)
+seen_cache = TTLCache(maxsize=5000, ttl=60)
 
 CAPS = str.maketrans('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ')
 
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=8192)
 def sc(t: str) -> str:
     return t.translate(CAPS)
 
-@lru_cache(maxsize=2048)
+@lru_cache(maxsize=4096)
 def parse_rar(r: str) -> Tuple[str, str]:
     if ' ' in r:
         p = r.split(' ', 1)
         return p[0], p[1] if len(p) > 1 else 'Common'
     return '🟢', 'Common'
 
-def trunc(t: str, l: int = 25) -> str:
+def trunc(t: str, l: int = 22) -> str:
     return t[:l-2] + '..' if len(t) > l else t
 
 def rar_val(c: Dict) -> int:
     r = c.get('rarity', '🟢 Common')
     e = r.split(' ')[0] if ' ' in r else '🟢'
     return RARITY_ORDER.get(e, 99)
+
+def dedupe_chars(chars: List[Dict]) -> List[Dict]:
+    seen = {}
+    result = []
+    for c in chars:
+        cid = c.get('id')
+        if cid and cid not in seen:
+            seen[cid] = True
+            result.append(c)
+    return result
 
 async def g_count(cid: str) -> int:
     k = f"gc{cid}"
@@ -112,7 +124,34 @@ async def get_user(uid: int) -> Optional[Dict]:
         user_cache[k] = u
     return u
 
-async def search_char(q: str, lim: int = 300) -> List[Dict]:
+async def get_user_stats(uid: int) -> Dict:
+    k = f"st{uid}"
+    if k in count_cache:
+        return count_cache[k]
+    
+    usr = await get_user(uid)
+    if not usr:
+        return {'unique': 0, 'total': 0, 'animes': 0}
+    
+    chars = usr.get('characters', [])
+    uids = set()
+    animes = set()
+    
+    for c in chars:
+        if c.get('id'):
+            uids.add(c.get('id'))
+        if c.get('anime'):
+            animes.add(c.get('anime'))
+    
+    stats = {
+        'unique': len(uids),
+        'total': len(chars),
+        'animes': len(animes)
+    }
+    count_cache[k] = stats
+    return stats
+
+async def search_char(q: str, lim: int = 350) -> List[Dict]:
     k = f"s{q}{lim}"
     if k in search_cache:
         return search_cache[k]
@@ -122,14 +161,14 @@ async def search_char(q: str, lim: int = 300) -> List[Dict]:
     search_cache[k] = ch
     return ch
 
-async def get_all(lim: int = 300) -> List[Dict]:
+async def get_all(lim: int = 350) -> List[Dict]:
     if 'all' in char_cache:
         return char_cache['all']
     ch = await collection.find({}).limit(lim).to_list(length=lim)
     char_cache['all'] = ch
     return ch
 
-async def col_caption(ch: Dict, u: Dict, fav: bool) -> str:
+async def col_caption(ch: Dict, u: Dict, fav: bool, stats: Dict) -> str:
     cid = ch.get('id', '?')
     nm = ch.get('name', '?')
     an = ch.get('anime', '?')
@@ -144,24 +183,25 @@ async def col_caption(ch: Dict, u: Dict, fav: bool) -> str:
     fn = u.get('first_name', 'User')
     uid = u.get('id')
     
-    chars = u.get('characters', [])
-    unique = len(set(c.get('id') for c in chars if c.get('id')))
-    total = len(chars)
+    unique = stats.get('unique', 0)
+    total = stats.get('total', 0)
+    animes = stats.get('animes', 0)
     
     cap = (
         f"<b>{'💖 ' if fav else ''}{escape(nm)}</b>\n"
-        f"<a href='tg://user?id={uid}'>{escape(fn)}</a> {sc('harem')} {unique}/{total}\n\n"
-        f"{sc('id')} <code>{cid}</code>\n"
-        f"{sc('anime')} <code>{trunc(escape(an))}</code> {ua}/{at}\n"
-        f"{e} {sc(t)} {'🎥' if vid else '🖼'} x{uc}"
+        f"<a href='tg://user?id={uid}'>{escape(fn)}</a> "
+        f"<code>{unique}/{total}</code> • <code>{animes}</code> {sc('animes')}\n\n"
+        f"{sc('id')} <code>{cid}</code> • {e} {sc(t)}\n"
+        f"{sc('anime')} <code>{trunc(escape(an), 20)}</code> <code>{ua}/{at}</code>\n"
+        f"{'🎥' if vid else '🖼'} x<code>{uc}</code>"
     )
     
     if fav:
-        cap += f"\n💖 {sc('favorite')}"
+        cap += f" 💖"
     
     return cap
 
-async def glob_caption(ch: Dict) -> str:
+async def glob_caption(ch: Dict, total_chars: int) -> str:
     cid = ch.get('id', '?')
     nm = ch.get('name', '?')
     an = ch.get('anime', '?')
@@ -173,11 +213,11 @@ async def glob_caption(ch: Dict) -> str:
     at = await a_count(an)
     
     return (
-        f"<b>{escape(nm)}</b>\n\n"
-        f"{sc('id')} <code>{cid}</code>\n"
-        f"{sc('anime')} <code>{trunc(escape(an))}</code>\n"
-        f"{e} {sc(t)} {'🎥' if vid else '🖼'}\n"
-        f"{sc('grabbed')} {gc}x {sc('in')} {at}"
+        f"<b>{escape(nm)}</b>\n"
+        f"<code>{total_chars}</code> {sc('characters available')}\n\n"
+        f"{sc('id')} <code>{cid}</code> • {e} {sc(t)}\n"
+        f"{sc('anime')} <code>{trunc(escape(an), 20)}</code> <code>{at}</code>\n"
+        f"{'🎥' if vid else '🖼'} • {sc('grabbed')} <code>{gc}x</code>"
     )
 
 async def own_caption(ch: Dict, us: List[Dict]) -> str:
@@ -187,17 +227,17 @@ async def own_caption(ch: Dict, us: List[Dict]) -> str:
     e, t = parse_rar(ch.get('rarity', '🟢 Common'))
     gc = await g_count(cid)
     
-    cap = f"<b>{escape(nm)} {sc('owners')}</b>\n\n{sc('id')} <code>{cid}</code>\n{sc('anime')} <code>{trunc(escape(an))}</code>\n{e} {sc(t)}\n\n"
+    cap = f"<b>{escape(nm)}</b>\n{sc('top owners')}\n\n{sc('id')} <code>{cid}</code> • {e} {sc(t)}\n{sc('anime')} <code>{trunc(escape(an), 20)}</code>\n\n"
     
     med = {1: "🥇", 2: "🥈", 3: "🥉"}
-    for i, u in enumerate(us[:25], 1):
+    for i, u in enumerate(us[:30], 1):
         m = med.get(i, f"{i}.")
-        link = f"<a href='tg://user?id={u['id']}'>{trunc(escape(u.get('first_name', 'User')), 18)}</a>"
-        cap += f"{m} {link} x{u.get('count', 0)}\n"
+        fn = trunc(escape(u.get('first_name', 'User')), 15)
+        cap += f"{m} {fn} <code>x{u.get('count', 0)}</code>\n"
     
-    cap += f"\n{sc('total')} {gc}x"
-    if len(us) > 25:
-        cap += f" +{len(us)-25}"
+    cap += f"\n{sc('total')} <code>{gc}x</code>"
+    if len(us) > 30:
+        cap += f" • <i>+{len(us)-30}</i>"
     
     return cap
 
@@ -211,14 +251,32 @@ async def stat_caption(ch: Dict, us: List[Dict]) -> str:
     uo = len(us)
     avg = round(gc / uo, 1) if uo > 0 else 0
     
-    cap = f"<b>{escape(nm)} {sc('stats')}</b>\n\n{sc('id')} <code>{cid}</code>\n{sc('anime')} <code>{trunc(escape(an))}</code>\n{e} {sc(t)}\n\n{sc('grabs')} {gc}x\n{sc('owners')} {uo}\n{sc('avg')} {avg}x\n{sc('in anime')} {at}\n"
+    cap = (
+        f"<b>{escape(nm)}</b>\n{sc('statistics')}\n\n"
+        f"{sc('id')} <code>{cid}</code> • {e} {sc(t)}\n"
+        f"{sc('anime')} <code>{trunc(escape(an), 20)}</code>\n\n"
+        f"{sc('grabbed')} <code>{gc}x</code> • {sc('owners')} <code>{uo}</code>\n"
+        f"{sc('average')} <code>{avg}x</code> • {sc('in anime')} <code>{at}</code>\n"
+    )
     
     if us:
-        cap += f"\n{sc('top collectors')}\n"
-        for i, u in enumerate(us[:8], 1):
-            cap += f"{i}. {trunc(escape(u.get('first_name', 'User')), 15)} x{u.get('count', 0)}\n"
+        cap += f"\n{sc('collectors')}\n"
+        for i, u in enumerate(us[:10], 1):
+            fn = trunc(escape(u.get('first_name', 'User')), 12)
+            cap += f"{i}. {fn} <code>x{u.get('count', 0)}</code>\n"
     
     return cap
+
+def get_seen_key(uid: int, offset: int) -> str:
+    return f"seen{uid}{offset}"
+
+def mark_seen(uid: int, offset: int, char_ids: Set[str]):
+    k = get_seen_key(uid, offset)
+    seen_cache[k] = char_ids
+
+def get_seen(uid: int, offset: int) -> Set[str]:
+    k = get_seen_key(uid, offset)
+    return seen_cache.get(k, set())
 
 async def inlinequery(update: Update, context) -> None:
     q = update.inline_query.query
@@ -229,6 +287,7 @@ async def inlinequery(update: Update, context) -> None:
         all_ch = []
         usr = None
         is_col = False
+        stats = None
         
         if q.startswith('collection.'):
             is_col = True
@@ -252,6 +311,8 @@ async def inlinequery(update: Update, context) -> None:
                     )
                 ], cache_time=5)
                 return
+            
+            stats = await get_user_stats(ti)
             
             cd = {}
             for c in usr.get('characters', []):
@@ -292,8 +353,25 @@ async def inlinequery(update: Update, context) -> None:
             all_ch = await search_char(q) if q else await get_all()
             all_ch.sort(key=rar_val)
         
-        chs = all_ch[off:off+50]
-        more = len(all_ch) > off + 50
+        all_ch = dedupe_chars(all_ch)
+        
+        seen = get_seen(uid, off)
+        filtered = [c for c in all_ch if c.get('id') not in seen]
+        
+        if not filtered and off > 0:
+            filtered = all_ch
+            seen.clear()
+        
+        total_chars = len(all_ch)
+        chs = filtered[off:off+50]
+        
+        new_seen = seen.copy()
+        for c in chs:
+            if c.get('id'):
+                new_seen.add(c.get('id'))
+        mark_seen(uid, off + 50, new_seen)
+        
+        more = len(filtered) > off + 50
         nxt = str(off + 50) if more else ""
         
         res = []
@@ -316,7 +394,10 @@ async def inlinequery(update: Update, context) -> None:
                 elif isinstance(fv, str) and fv == ci:
                     fav = True
             
-            cap = await col_caption(ch, usr, fav) if is_col and usr else await glob_caption(ch)
+            if is_col and usr and stats:
+                cap = await col_caption(ch, usr, fav, stats)
+            else:
+                cap = await glob_caption(ch, total_chars)
             
             kbd = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"{sc('owners')}", callback_data=f"o.{ci}"),
@@ -325,8 +406,8 @@ async def inlinequery(update: Update, context) -> None:
             ])
             
             rid = f"{ci}{off}{int(time.time()*1000)}"
-            ttl = f"{'💖' if fav else ''}{e} {trunc(nm, 30)}"
-            dsc = f"{trunc(an, 25)} {'🎥' if vid else '🖼'}"
+            ttl = f"{'💖' if fav else ''}{e} {trunc(nm, 28)}"
+            dsc = f"{trunc(an, 23)} {'🎥' if vid else '🖼'}"
             
             if vid:
                 res.append(InlineQueryResultVideo(
@@ -389,7 +470,8 @@ async def back_card(update: Update, context) -> None:
             await q.answer("Character not found", show_alert=True)
             return
         
-        cap = await glob_caption(ch)
+        total = len(await get_all())
+        cap = await glob_caption(ch, total)
         kbd = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"{sc('owners')}", callback_data=f"o.{ci}"),
              InlineKeyboardButton(f"{sc('stats')}", callback_data=f"s.{ci}")],
