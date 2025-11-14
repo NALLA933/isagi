@@ -18,11 +18,11 @@ def extract_instagram_url(text: str) -> str:
             return match.group(0)
     return None
 
-async def download_with_fastdl(url: str) -> dict:
-    """Using FastDL API - Most Reliable"""
+async def download_with_api1(url: str) -> dict:
+    """Using SocialMediaSaver API"""
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            api_url = "https://v3.fastdl.app/api/convert"
+            api_url = "https://api.socialmediasaver.com/download"
             
             headers = {
                 "Content-Type": "application/json",
@@ -35,143 +35,67 @@ async def download_with_fastdl(url: str) -> dict:
             
             if response.status_code == 200:
                 data = response.json()
-                # Check for video URL in various response formats
-                video_url = (data.get("url") or 
-                           data.get("video_url") or 
-                           data.get("download_url") or
-                           (data.get("media", [{}])[0].get("url") if data.get("media") else None))
-                
-                if video_url:
-                    return {"video_url": video_url, "source": "FastDL"}
+                if data.get("status") == "success" and data.get("url"):
+                    return {"video_url": data["url"], "source": "SocialMediaSaver"}
     except Exception as e:
-        print(f"FastDL error: {e}")
-    return {"error": "FastDL failed"}
+        print(f"API1 error: {e}")
+    return {"error": "API1 failed"}
 
-async def download_with_saveinsta(url: str) -> dict:
-    """Using SaveInsta API"""
+async def download_with_instaloader_scraper(url: str) -> dict:
+    """Direct scraping method"""
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            api_url = "https://saveinsta.app/core/ajax.php"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0"
+            }
+            
+            response = await client.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # Try to find video URL in page source
+                patterns = [
+                    r'"video_url":"(https://[^"]+)"',
+                    r'"src":"(https://[^"]+\.mp4[^"]*)"',
+                    r'property="og:video"\s+content="([^"]+)"',
+                    r'"playback_url":"(https://[^"]+)"',
+                    r'"video_versions":\[{"url":"([^"]+)"'
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, html)
+                    if match:
+                        video_url = match.group(1).replace('\\u0026', '&').replace('\\/', '/')
+                        if video_url.startswith('http'):
+                            return {"video_url": video_url, "source": "DirectScrape"}
+    except Exception as e:
+        print(f"DirectScrape error: {e}")
+    return {"error": "DirectScrape failed"}
+
+async def download_with_snapinsta(url: str) -> dict:
+    """Using SnapInsta API - Updated"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            api_url = "https://snapinsta.app/api/ajaxSearch"
             
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-            
-            data = {
-                "url": url,
-                "action": "post"
-            }
-            
-            response = await client.post(api_url, headers=headers, data=data)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("data"):
-                    html = result.get("data")
-                    # Extract video URL from response
-                    video_match = re.search(r'href="([^"]+)"[^>]*download[^>]*>.*?MP4', html, re.IGNORECASE)
-                    if video_match:
-                        video_url = video_match.group(1).replace("&amp;", "&")
-                        return {"video_url": video_url, "source": "SaveInsta"}
-    except Exception as e:
-        print(f"SaveInsta error: {e}")
-    return {"error": "SaveInsta failed"}
-
-async def download_with_indown(url: str) -> dict:
-    """Using Indown.io API"""
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            api_url = "https://indown.io/download"
-            
-            headers = {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            data = {"url": url}
-            
-            response = await client.post(api_url, headers=headers, data=data)
-            
-            if response.status_code == 200:
-                html = response.text
-                # Extract video URL from response
-                video_match = re.search(r'href="([^"]+)"[^>]*class="download-btn', html)
-                if video_match:
-                    video_url = video_match.group(1)
-                    return {"video_url": video_url, "source": "Indown"}
-    except Exception as e:
-        print(f"Indown error: {e}")
-    return {"error": "Indown failed"}
-
-async def download_with_downloadgram(url: str) -> dict:
-    """Using DownloadGram API"""
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            api_url = "https://downloadgram.org/"
-            
-            headers = {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            data = {
-                "url": url,
-                "submit": ""
-            }
-            
-            response = await client.post(api_url, headers=headers, data=data)
-            
-            if response.status_code == 200:
-                html = response.text
-                # Extract video download URL
-                video_match = re.search(r'href="([^"]+)"[^>]*download[^>]*video', html, re.IGNORECASE)
-                if video_match:
-                    video_url = video_match.group(1)
-                    return {"video_url": video_url, "source": "DownloadGram"}
-    except Exception as e:
-        print(f"DownloadGram error: {e}")
-    return {"error": "DownloadGram failed"}
-
-async def download_with_savefrom(url: str) -> dict:
-    """Using SaveFrom.net API"""
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            # Extract shortcode
-            shortcode_match = re.search(r'/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
-            if not shortcode_match:
-                return {"error": "Invalid URL"}
-            
-            shortcode = shortcode_match.group(1)
-            api_url = f"https://www.savefrom.net/download?url=https://www.instagram.com/p/{shortcode}/"
-            
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            response = await client.get(api_url, headers=headers)
-            
-            if response.status_code == 200:
-                html = response.text
-                # Extract video URL
-                video_match = re.search(r'href="([^"]+)"[^>]*class="[^"]*download', html)
-                if video_match:
-                    video_url = video_match.group(1)
-                    return {"video_url": video_url, "source": "SaveFrom"}
-    except Exception as e:
-        print(f"SaveFrom error: {e}")
-    return {"error": "SaveFrom failed"}
-
-async def download_with_igdownloader(url: str) -> dict:
-    """Using IGDownloader API"""
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            api_url = "https://igdownloader.app/api/ajaxSearch"
-            
-            headers = {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "X-Requested-With": "XMLHttpRequest",
+                "Origin": "https://snapinsta.app",
+                "Referer": "https://snapinsta.app/"
             }
             
             data = {
@@ -186,24 +110,133 @@ async def download_with_igdownloader(url: str) -> dict:
                 result = response.json()
                 if result.get("data"):
                     html = result.get("data")
-                    # Extract video URL
-                    video_match = re.search(r'href="([^"]+)"[^>]*>[\s]*Download[\s]*Video', html, re.IGNORECASE)
+                    # Extract video download link
+                    video_match = re.search(r'href="([^"]+)"[^>]*class="[^"]*abutton[^"]*"[^>]*>.*?Download', html, re.IGNORECASE | re.DOTALL)
                     if video_match:
                         video_url = video_match.group(1).replace("&amp;", "&")
-                        return {"video_url": video_url, "source": "IGDownloader"}
+                        return {"video_url": video_url, "source": "SnapInsta"}
     except Exception as e:
-        print(f"IGDownloader error: {e}")
-    return {"error": "IGDownloader failed"}
+        print(f"SnapInsta error: {e}")
+    return {"error": "SnapInsta failed"}
+
+async def download_with_instasave_web(url: str) -> dict:
+    """Using InstaSave Web Scraping"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            # Extract shortcode from URL
+            shortcode_match = re.search(r'/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+            if not shortcode_match:
+                return {"error": "Invalid URL"}
+            
+            shortcode = shortcode_match.group(1)
+            api_url = f"https://api.instasave.website/media?url=https://www.instagram.com/p/{shortcode}/"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            
+            response = await client.get(api_url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    media = data.get("data", {}).get("media", [])
+                    if media and len(media) > 0:
+                        video_url = media[0].get("video_url") or media[0].get("url")
+                        if video_url:
+                            return {"video_url": video_url, "source": "InstaSave"}
+    except Exception as e:
+        print(f"InstaSave error: {e}")
+    return {"error": "InstaSave failed"}
+
+async def download_with_rapidapi_backup(url: str) -> dict:
+    """Using public Instagram downloader endpoint"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            # Extract shortcode
+            shortcode_match = re.search(r'/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+            if not shortcode_match:
+                return {"error": "Invalid URL"}
+            
+            shortcode = shortcode_match.group(1)
+            
+            # Try multiple endpoints
+            endpoints = [
+                f"https://instagram-downloader-download-instagram-videos-stories.p.rapidapi.com/index?url={url}",
+                f"https://instagram-media-downloader.p.rapidapi.com/rapid/post.php?url={url}",
+            ]
+            
+            for api_url in endpoints:
+                try:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    }
+                    
+                    response = await client.get(api_url, headers=headers)
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            video_url = (data.get("video_url") or 
+                                       data.get("url") or 
+                                       data.get("download_url") or
+                                       (data.get("media", [{}])[0].get("url") if data.get("media") else None))
+                            
+                            if video_url and video_url.startswith('http'):
+                                return {"video_url": video_url, "source": "RapidAPI"}
+                        except:
+                            continue
+                except:
+                    continue
+    except Exception as e:
+        print(f"RapidAPI error: {e}")
+    return {"error": "RapidAPI failed"}
+
+
+
+async def download_with_v3_saveig(url: str) -> dict:
+    """Using V3 SaveIG API"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            api_url = "https://v3.saveig.app/api/ajaxSearch"
+            
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Origin": "https://saveig.app",
+                "Referer": "https://saveig.app/en"
+            }
+            
+            data = {
+                "q": url,
+                "t": "media",
+                "lang": "en"
+            }
+            
+            response = await client.post(api_url, headers=headers, data=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("data"):
+                    html = result.get("data")
+                    # Extract download link
+                    video_match = re.search(r'href="([^"]+)"[^>]*download="[^"]*"', html)
+                    if video_match:
+                        video_url = video_match.group(1).replace("&amp;", "&")
+                        return {"video_url": video_url, "source": "SaveIG"}
+    except Exception as e:
+        print(f"SaveIG error: {e}")
+    return {"error": "SaveIG failed"}
 
 async def try_all_apis(url: str) -> dict:
     """Try all APIs in sequence until one works"""
     apis = [
-        download_with_fastdl,
-        download_with_saveinsta,
-        download_with_igdownloader,
-        download_with_indown,
-        download_with_downloadgram,
-        download_with_savefrom,
+        download_with_snapinsta,
+        download_with_v3_saveig,
+        download_with_instaloader_scraper,
+        download_with_api1,
+        download_with_instasave_web,
+        download_with_rapidapi_backup,
     ]
     
     for api_func in apis:
