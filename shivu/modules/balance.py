@@ -1470,7 +1470,7 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
     help_text = """<b>💰 Vault System Commands</b>
 
 <b>📊 Basic</b>
-/balance - View balance
+/bal - View balance
 /deposit - Deposit to bank
 /withdraw - Withdraw from bank
 /dailyreward - Claim daily reward
@@ -1512,9 +1512,9 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
 /txhistory - Transaction history
 /sendgold - Send gold (reply to user)
 /userlevel - View level and rank
-/leaderboard - Top 10 richest
+/leaders - Top 10 richest
 /referral - Referral info
-/gamble - Gamble gold
+/bgamble - Gamble gold
 /notifications - View alerts"""
 
     btns = [[InlineKeyboardButton("💰 View Balance", callback_data=f"bal_{update.effective_user.id}")]]
