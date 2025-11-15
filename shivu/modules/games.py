@@ -173,19 +173,17 @@ class GameUI:
 
     @staticmethod
     def format_result(result: GameResult, game_emoji: str, user_name: str) -> str:
-        header = f"╭─────────────────╮\n│   {game_emoji} GAME RESULT   │\n╰─────────────────╯\n\n"
+        status = "✅ <b>WIN</b>" if result.won else "❌ <b>LOSE</b>"
+        
+        msg = f"<b>{game_emoji} Game Result</b>\n\n{status}\n\n"
         
         if result.display_outcome:
-            header += f"<blockquote>🎯 Outcome: <b>{result.display_outcome}</b></blockquote>\n\n"
+            msg += f"<blockquote>Outcome: <b>{result.display_outcome}</b></blockquote>\n\n"
         
-        status_emoji = "✅" if result.won else "❌"
-        status_text = "<b>WIN</b>" if result.won else "<b>LOSE</b>"
-        
-        msg = f"{header}<b>{status_emoji} {status_text}</b>\n\n"
         msg += f"<blockquote expandable>{result.message}</blockquote>"
         
         if result.tokens_gained > 0:
-            msg += f"\n\n<blockquote>🎁 <b>Bonus:</b> +{result.tokens_gained} Token(s)!</blockquote>"
+            msg += f"\n\n<blockquote>🎁 Bonus: <b>+{result.tokens_gained}</b> token(s)</blockquote>"
         
         return msg
 
@@ -196,9 +194,9 @@ class GameLogic:
         won = (outcome == guess)
         if won:
             win_amount = amount * GameConfig.COINFLIP_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"💰 You won <b>{win_amount:,}</b> coins!", display_outcome=outcome.upper())
+            return GameResult(won=True, amount_changed=win_amount, message=f"You won <b>{win_amount:,}</b> coins", display_outcome=outcome.upper())
         else:
-            return GameResult(won=False, amount_changed=0, message=f"💸 You lost <b>{amount:,}</b> coins.", display_outcome=outcome.upper())
+            return GameResult(won=False, amount_changed=0, message=f"You lost <b>{amount:,}</b> coins", display_outcome=outcome.upper())
 
     @staticmethod
     def dice_roll(choice: str, amount: int) -> GameResult:
@@ -207,9 +205,9 @@ class GameLogic:
         won = (result == choice)
         if won:
             win_amount = amount * GameConfig.DICE_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"🎲 Rolled <b>{dice}</b> ({result})\n💰 You won <b>{win_amount:,}</b> coins!", display_outcome=f"🎲 {dice}")
+            return GameResult(won=True, amount_changed=win_amount, message=f"Rolled <b>{dice}</b> ({result})\nYou won <b>{win_amount:,}</b> coins", display_outcome=f"🎲 {dice}")
         else:
-            return GameResult(won=False, amount_changed=0, message=f"🎲 Rolled <b>{dice}</b> ({result})\n💸 You lost <b>{amount:,}</b> coins.", display_outcome=f"🎲 {dice}")
+            return GameResult(won=False, amount_changed=0, message=f"Rolled <b>{dice}</b> ({result})\nYou lost <b>{amount:,}</b> coins", display_outcome=f"🎲 {dice}")
 
     @staticmethod
     def gamble(pick: str, amount: int) -> GameResult:
@@ -217,10 +215,10 @@ class GameLogic:
         if won:
             display = random.choice(['L', 'R'])
             win_amount = amount * GameConfig.GAMBLE_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"💰 You won <b>{win_amount:,}</b> coins!", display_outcome=f"👈 {display}" if display == 'L' else f"{display} 👉")
+            return GameResult(won=True, amount_changed=win_amount, message=f"You won <b>{win_amount:,}</b> coins", display_outcome=f"LEFT" if display == 'L' else "RIGHT")
         else:
             display = 'R' if pick == 'l' else 'L'
-            return GameResult(won=False, amount_changed=0, message=f"💸 You lost <b>{amount:,}</b> coins.", display_outcome=f"👈 {display}" if display == 'L' else f"{display} 👉")
+            return GameResult(won=False, amount_changed=0, message=f"You lost <b>{amount:,}</b> coins", display_outcome=f"LEFT" if display == 'L' else "RIGHT")
 
     @staticmethod
     def basketball(amount: int) -> GameResult:
@@ -228,21 +226,21 @@ class GameLogic:
         won = random.random() < win_chance
         if won:
             win_amount = amount * GameConfig.BASKET_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"🏀 Swish! Perfect shot!\n💰 You scored <b>{win_amount:,}</b> coins!")
+            return GameResult(won=True, amount_changed=win_amount, message=f"Perfect shot!\nYou scored <b>{win_amount:,}</b> coins")
         else:
-            return GameResult(won=False, amount_changed=0, message=f"🏀 Missed the basket!\n💸 You lost <b>{amount:,}</b> coins.")
+            return GameResult(won=False, amount_changed=0, message=f"Missed the basket\nYou lost <b>{amount:,}</b> coins")
 
     @staticmethod
     def darts(amount: int) -> GameResult:
         roll = random.random()
         if roll < GameConfig.DART_BULLSEYE_RATE:
             win_amount = amount * GameConfig.DART_BULLSEYE_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"🎯 BULLSEYE! Perfect hit!\n💰 You won <b>{win_amount:,}</b> coins!", display_outcome="🎯 BULLSEYE")
+            return GameResult(won=True, amount_changed=win_amount, message=f"Bullseye hit!\nYou won <b>{win_amount:,}</b> coins", display_outcome="🎯 BULLSEYE")
         elif roll < (GameConfig.DART_BULLSEYE_RATE + GameConfig.DART_HIT_RATE):
             win_amount = amount * GameConfig.DART_HIT_MULTIPLIER
-            return GameResult(won=True, amount_changed=win_amount, message=f"🎯 Good hit on target!\n💰 You won <b>{win_amount:,}</b> coins!", display_outcome="🎯 HIT")
+            return GameResult(won=True, amount_changed=win_amount, message=f"Good hit!\nYou won <b>{win_amount:,}</b> coins", display_outcome="TARGET HIT")
         else:
-            return GameResult(won=False, amount_changed=0, message=f"🎯 Missed the target!\n💸 You lost <b>{amount:,}</b> coins.", display_outcome="❌ MISS")
+            return GameResult(won=False, amount_changed=0, message=f"Missed target\nYou lost <b>{amount:,}</b> coins", display_outcome="MISS")
 
     @staticmethod
     def contract() -> GameResult:
@@ -251,12 +249,12 @@ class GameLogic:
             reward_type = random.choice(["coins", "tokens"])
             if reward_type == "coins":
                 reward = random.randint(100, 600)
-                return GameResult(won=True, amount_changed=reward, message=f"🤝 Contract completed successfully!\n💰 You earned <b>{reward:,}</b> coins!")
+                return GameResult(won=True, amount_changed=reward, message=f"Contract completed\nYou earned <b>{reward:,}</b> coins")
             else:
                 tokens = random.randint(1, 3)
-                return GameResult(won=True, amount_changed=0, tokens_gained=tokens, message=f"🤝 Contract completed!\n🎁 You received <b>{tokens}</b> token(s)!")
+                return GameResult(won=True, amount_changed=0, tokens_gained=tokens, message=f"Contract completed\nYou received <b>{tokens}</b> token(s)")
         else:
-            return GameResult(won=False, amount_changed=0, message=f"🤝 Contract failed!\n💸 You lost <b>{GameConfig.STOUR_ENTRY_FEE:,}</b> coins.")
+            return GameResult(won=False, amount_changed=0, message=f"Contract failed\nYou lost <b>{GameConfig.STOUR_ENTRY_FEE:,}</b> coins")
 
     @staticmethod
     def generate_riddle() -> Tuple[str, str]:
@@ -284,17 +282,17 @@ async def send_reply(update: Update, text: str, reply_markup=None, parse_mode="H
 async def handle_cooldown(update: Update, user_id: int) -> bool:
     on_cooldown, seconds_left = game_state.check_cooldown(user_id)
     if on_cooldown:
-        await send_reply(update, f"⌛ <b>Cooldown Active</b>\n\n<blockquote>Please wait {seconds_left:.1f} seconds before playing again.</blockquote>")
+        await send_reply(update, f"<b>⏱ Cooldown Active</b>\n\n<blockquote>Please wait {seconds_left:.1f} seconds before playing again</blockquote>")
         return True
     return False
 
 async def validate_amount(update: Update, amount: int, user_id: int) -> bool:
     if amount <= 0:
-        await send_reply(update, "❌ <b>Invalid Amount</b>\n\n<blockquote>Amount must be positive.</blockquote>")
+        await send_reply(update, "<b>❌ Invalid Amount</b>\n\n<blockquote>Amount must be positive</blockquote>")
         return False
     user = await UserDatabase.get_user(user_id)
     if not user or user.get('balance', 0) < amount:
-        await send_reply(update, "💰 <b>Insufficient Balance</b>\n\n<blockquote>You don't have enough coins.</blockquote>")
+        await send_reply(update, "<b>💰 Insufficient Balance</b>\n\n<blockquote>You don't have enough coins</blockquote>")
         return False
     return True
 
@@ -325,7 +323,7 @@ async def process_game(update: Update, context: CallbackContext, game_type: Game
     
     updated_user = await UserDatabase.get_user(user_id)
     new_balance = updated_user.get('balance', 0)
-    formatted_msg += f"\n\n💼 <b>New Balance:</b> {new_balance:,} coins"
+    formatted_msg += f"\n\n<b>New Balance:</b> {new_balance:,} coins"
     
     await send_reply(update, formatted_msg, reply_markup=GameUI.play_again_button(game_type.value, extra_args))
 
@@ -337,14 +335,14 @@ async def sbet(update: Update, context: CallbackContext):
         amount = int(context.args[0])
         guess = context.args[1].lower()
     except (IndexError, ValueError):
-        await send_reply(update, "📖 <b>Usage</b>\n\n<blockquote>/sbet &lt;amount&gt; heads|tails\n\nExample: /sbet 100 heads</blockquote>")
+        await send_reply(update, "<b>📖 Usage</b>\n\n<blockquote>/sbet &lt;amount&gt; heads|tails\n\nExample: /sbet 100 heads</blockquote>")
         return
     if guess in ('h', 'head', 'heads'):
         guess = 'heads'
     elif guess in ('t', 'tail', 'tails'):
         guess = 'tails'
     else:
-        await send_reply(update, "❌ <b>Invalid Choice</b>\n\n<blockquote>Guess must be 'heads' or 'tails'.</blockquote>")
+        await send_reply(update, "<b>❌ Invalid Choice</b>\n\n<blockquote>Guess must be 'heads' or 'tails'</blockquote>")
         return
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
     if not await validate_amount(update, amount, user_id):
@@ -361,14 +359,14 @@ async def roll_cmd(update: Update, context: CallbackContext):
         amount = int(context.args[0])
         choice = context.args[1].lower()
     except (IndexError, ValueError):
-        await send_reply(update, "📖 <b>Usage</b>\n\n<blockquote>/roll &lt;amount&gt; odd|even\n\nExample: /roll 50 odd</blockquote>")
+        await send_reply(update, "<b>📖 Usage</b>\n\n<blockquote>/roll &lt;amount&gt; odd|even\n\nExample: /roll 50 odd</blockquote>")
         return
     if choice in ('o', 'odd'):
         choice = 'odd'
     elif choice in ('e', 'even'):
         choice = 'even'
     else:
-        await send_reply(update, "❌ <b>Invalid Choice</b>\n\n<blockquote>Choice must be 'odd' or 'even'.</blockquote>")
+        await send_reply(update, "<b>❌ Invalid Choice</b>\n\n<blockquote>Choice must be 'odd' or 'even'</blockquote>")
         return
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
     if not await validate_amount(update, amount, user_id):
@@ -385,10 +383,10 @@ async def gamble(update: Update, context: CallbackContext):
         amount = int(context.args[0])
         pick = context.args[1].lower()
     except (IndexError, ValueError):
-        await send_reply(update, "📖 <b>Usage</b>\n\n<blockquote>/gamble &lt;amount&gt; l|r\n\nExample: /gamble 100 l</blockquote>")
+        await send_reply(update, "<b>📖 Usage</b>\n\n<blockquote>/gamble &lt;amount&gt; l|r\n\nExample: /gamble 100 l</blockquote>")
         return
     if pick not in ('l', 'r', 'left', 'right'):
-        await send_reply(update, "❌ <b>Invalid Choice</b>\n\n<blockquote>Choice must be 'l' or 'r'.</blockquote>")
+        await send_reply(update, "<b>❌ Invalid Choice</b>\n\n<blockquote>Choice must be 'l' or 'r'</blockquote>")
         return
     pick = 'l' if pick.startswith('l') else 'r'
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
@@ -405,7 +403,7 @@ async def basket(update: Update, context: CallbackContext):
     try:
         amount = int(context.args[0])
     except (IndexError, ValueError):
-        await send_reply(update, "📖 <b>Usage</b>\n\n<blockquote>/basket &lt;amount&gt;\n\nExample: /basket 75</blockquote>")
+        await send_reply(update, "<b>📖 Usage</b>\n\n<blockquote>/basket &lt;amount&gt;\n\nExample: /basket 75</blockquote>")
         return
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
     if not await validate_amount(update, amount, user_id):
@@ -421,7 +419,7 @@ async def dart(update: Update, context: CallbackContext):
     try:
         amount = int(context.args[0])
     except (IndexError, ValueError):
-        await send_reply(update, "📖 <b>Usage</b>\n\n<blockquote>/dart &lt;amount&gt;\n\nExample: /dart 50</blockquote>")
+        await send_reply(update, "<b>📖 Usage</b>\n\n<blockquote>/dart &lt;amount&gt;\n\nExample: /dart 50</blockquote>")
         return
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
     if not await validate_amount(update, amount, user_id):
@@ -436,7 +434,7 @@ async def stour(update: Update, context: CallbackContext):
         return
     await UserDatabase.ensure_user(user_id, update.effective_user.first_name, update.effective_user.username)
     if not await validate_amount(update, GameConfig.STOUR_ENTRY_FEE, user_id):
-        await send_reply(update, f"💰 <b>Insufficient Balance</b>\n\n<blockquote>You need at least {GameConfig.STOUR_ENTRY_FEE:,} coins to start a contract.</blockquote>")
+        await send_reply(update, f"<b>💰 Insufficient Balance</b>\n\n<blockquote>You need at least {GameConfig.STOUR_ENTRY_FEE:,} coins to start a contract</blockquote>")
         return
     await UserDatabase.change_balance(user_id, -GameConfig.STOUR_ENTRY_FEE)
     result = GameLogic.contract()
@@ -449,13 +447,11 @@ async def riddle(update: Update, context: CallbackContext):
     question, answer = GameLogic.generate_riddle()
     msg = await get_message_object(update)
     question_text = (
-        f"╭─────────────────╮\n"
-        f"│   🧩 RIDDLE TIME   │\n"
-        f"╰─────────────────╯\n\n"
+        f"<b>🧩 Riddle Time</b>\n\n"
         f"<blockquote expandable>Solve: <b>{question}</b>\n\n"
-        f"⏱ Time limit: <b>{GameConfig.RIDDLE_TIMEOUT}</b> seconds\n"
-        f"🎁 Reward: <b>{GameConfig.DEFAULT_TOKEN_REWARD}</b> token(s)</blockquote>\n\n"
-        f"<i>Reply with just the number!</i>"
+        f"Time limit: <b>{GameConfig.RIDDLE_TIMEOUT}</b> seconds\n"
+        f"Reward: <b>{GameConfig.DEFAULT_TOKEN_REWARD}</b> token(s)</blockquote>\n\n"
+        f"<i>Reply with just the number</i>"
     )
     sent_msg = await msg.reply_text(question_text, parse_mode="HTML")
     riddle_data = PendingRiddle(answer=answer, expires_at=time.time() + GameConfig.RIDDLE_TIMEOUT, message_id=sent_msg.message_id, chat_id=update.effective_chat.id, question=question)
@@ -469,7 +465,7 @@ async def riddle(update: Update, context: CallbackContext):
         if pending and time.time() >= pending.expires_at:
             game_state.remove_riddle(user_id)
             try:
-                await application.bot.send_message(pending.chat_id, f"⏳ <b>Time's Up!</b>\n\n<blockquote>The correct answer was <b>{answer}</b></blockquote>", parse_mode="HTML")
+                await application.bot.send_message(pending.chat_id, f"<b>⏳ Time's Up</b>\n\n<blockquote>The correct answer was <b>{answer}</b></blockquote>", parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Error sending expiry message: {e}")
     
@@ -493,19 +489,15 @@ async def riddle_answer_listener(update: Update, context: CallbackContext):
         user = await UserDatabase.get_user(user_id)
         new_tokens = user.get('tokens', 0)
         await update.message.reply_text(
-            f"╭─────────────────╮\n"
-            f"│   ✅ CORRECT!   │\n"
-            f"╰─────────────────╯\n\n"
-            f"<blockquote>🎉 Well done!\n"
-            f"🎁 You earned <b>{pending.reward}</b> token(s)!\n"
-            f"💎 Total tokens: <b>{new_tokens}</b></blockquote>",
+            f"<b>✅ Correct</b>\n\n"
+            f"<blockquote>Well done!\n"
+            f"You earned <b>{pending.reward}</b> token(s)\n"
+            f"Total tokens: <b>{new_tokens}</b></blockquote>",
             parse_mode="HTML"
         )
     else:
         await update.message.reply_text(
-            f"╭─────────────────╮\n"
-            f"│   ❌ WRONG!   │\n"
-            f"╰─────────────────╯\n\n"
+            f"<b>❌ Wrong</b>\n\n"
             f"<blockquote>The correct answer was <b>{pending.answer}</b></blockquote>",
             parse_mode="HTML"
         )
@@ -513,21 +505,18 @@ async def riddle_answer_listener(update: Update, context: CallbackContext):
 
 async def games_menu_cmd(update: Update, context: CallbackContext):
     menu_text = (
-        f"╭──────────────────────╮\n"
-        f"│   🎮 GAMES HUB   │\n"
-        f"╰──────────────────────╯\n\n"
-        f"<b>Welcome to the Casino! 🎰</b>\n\n"
+        f"<b>🎮 Games Hub</b>\n\n"
         f"<blockquote expandable>"
         f"<b>Available Games:</b>\n\n"
-        f"🪙 <b>Coin Flip</b> - Guess heads or tails\n"
-        f"🎲 <b>Dice Roll</b> - Bet on odd or even\n"
-        f"🎰 <b>Gamble</b> - Pick left or right\n"
-        f"🏀 <b>Basketball</b> - Skill-based shooting\n"
-        f"🎯 <b>Darts</b> - Aim for the bullseye\n"
-        f"🤝 <b>Contract</b> - High risk, high reward\n"
-        f"🧩 <b>Riddle</b> - Solve math problems"
+        f"🪙 Coin Flip - Guess heads or tails\n"
+        f"🎲 Dice Roll - Bet on odd or even\n"
+        f"🎰 Gamble - Pick left or right\n"
+        f"🏀 Basketball - Skill-based shooting\n"
+        f"🎯 Darts - Aim for the bullseye\n"
+        f"🤝 Contract - High risk, high reward\n"
+        f"🧩 Riddle - Solve math problems"
         f"</blockquote>\n\n"
-        f"<i>Click a button below to learn more!</i>"
+        f"<i>Click a button below to learn more</i>"
     )
     await send_reply(update, menu_text, reply_markup=GameUI.game_menu())
 
@@ -537,20 +526,18 @@ async def game_stats_cmd(update: Update, context: CallbackContext):
     user = await UserDatabase.get_user(user_id)
     stats = game_state.get_stats(user_id)
     if not stats:
-        await send_reply(update, "📊 <b>No Statistics</b>\n\n<blockquote>You haven't played any games yet!\nUse /games to start playing.</blockquote>")
+        await send_reply(update, "<b>📊 No Statistics</b>\n\n<blockquote>You haven't played any games yet\nUse /games to start playing</blockquote>")
         return
     total_plays = sum(stats.values())
     stats_text = (
-        f"╭──────────────────────╮\n"
-        f"│   📊 YOUR STATS   │\n"
-        f"╰──────────────────────╯\n\n"
+        f"<b>📊 Your Statistics</b>\n\n"
         f"<b>Player:</b> {update.effective_user.first_name}\n\n"
         f"<blockquote>"
-        f"💰 <b>Balance:</b> {user.get('balance', 0):,} coins\n"
-        f"🎁 <b>Tokens:</b> {user.get('tokens', 0)}\n"
-        f"🎮 <b>Total Games:</b> {total_plays}"
+        f"Balance: <b>{user.get('balance', 0):,}</b> coins\n"
+        f"Tokens: <b>{user.get('tokens', 0)}</b>\n"
+        f"Total Games: <b>{total_plays}</b>"
         f"</blockquote>\n\n"
-        f"<b>🎯 Games Breakdown:</b>\n\n"
+        f"<b>Games Breakdown:</b>\n\n"
     )
     game_names = {'sbet': '🪙 Coin Flip', 'roll': '🎲 Dice Roll', 'gamble': '🎰 Gamble', 'basket': '🏀 Basketball', 'dart': '🎯 Darts', 'stour': '🤝 Contract', 'riddle': '🧩 Riddle'}
     for game, count in sorted(stats.items(), key=lambda x: x[1], reverse=True):
@@ -563,41 +550,43 @@ async def leaderboard_cmd(update: Update, context: CallbackContext):
     try:
         top_players = await user_collection.find().sort('balance', -1).limit(10).to_list(length=10)
         if not top_players:
-            await send_reply(update, "📊 <b>No Players Found</b>\n\n<blockquote>Be the first to play!</blockquote>")
+            await send_reply(update, "<b>🏆 No Players Found</b>\n\n<blockquote>Be the first to play</blockquote>")
             return
         header_image = "https://files.catbox.moe/i8x33x.jpg"
         footer_image = "https://files.catbox.moe/33yrky.jpg"
-        leaderboard_text = f'<a href="{header_image}">&#8203;</a>'
-        leaderboard_text += (
-            f"\n╭──────────────────────╮\n"
-            f"│   🏆 TOP PLAYERS   │\n"
-            f"╰──────────────────────╯\n\n"
-        )
-        roman_numerals = ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ"]
+        leaderboard_text = f'<a href="{header_image}">&#8203;</a>\n\n<b>🏆 Top Players</b>\n\n'
+        
+        medals = ["🥇", "🥈", "🥉"]
+        
         for i, player in enumerate(top_players):
             user_id = player.get('id')
             first_name = player.get('first_name', 'Unknown')
             username = player.get('username', None)
             balance = player.get('balance', 0)
             tokens = player.get('tokens', 0)
-            rank = roman_numerals[i]
+            
+            medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
+            
             if username:
                 user_mention = f'<a href="tg://user?id={user_id}">@{username}</a>'
             else:
                 user_mention = f'<a href="tg://user?id={user_id}">{first_name}</a>'
+            
             balance_formatted = f"{balance:,}"
+            
             leaderboard_text += (
                 f"<blockquote expandable>"
-                f"<b>{rank}</b> ⌁ {user_mention}\n"
-                f"   💰 <b>{balance_formatted}</b> coins\n"
-                f"   🎁 <b>{tokens}</b> tokens"
+                f"{medal} {user_mention}\n"
+                f"Balance: <b>{balance_formatted}</b> coins\n"
+                f"Tokens: <b>{tokens}</b>"
                 f"</blockquote>\n\n"
             )
-        leaderboard_text += f'<a href="{footer_image}">&#8203;</a>\n<b>⟡ Keep Playing · Keep Rising ⟡</b>'
+        
+        leaderboard_text += f'<a href="{footer_image}">&#8203;</a>\n<i>Keep playing, keep rising</i>'
         await send_reply(update, leaderboard_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error fetching leaderboard: {e}")
-        await send_reply(update, "❌ <b>Error</b>\n\n<blockquote>Failed to load leaderboard. Please try again later.</blockquote>")
+        await send_reply(update, "<b>❌ Error</b>\n\n<blockquote>Failed to load leaderboard. Please try again later</blockquote>")
 
 async def daily_bonus_cmd(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -609,7 +598,7 @@ async def daily_bonus_cmd(update: Update, context: CallbackContext):
         time_since_claim = now - last_claim
         if time_since_claim < timedelta(hours=24):
             hours_left = 24 - time_since_claim.total_seconds() / 3600
-            await send_reply(update, f"⏰ <b>Already Claimed</b>\n\n<blockquote>You've already claimed your daily bonus!\nCome back in <b>{hours_left:.1f}</b> hours.</blockquote>")
+            await send_reply(update, f"<b>⏰ Already Claimed</b>\n\n<blockquote>You've already claimed your daily bonus\nCome back in <b>{hours_left:.1f}</b> hours</blockquote>")
             return
     daily_coins = random.randint(50, 150)
     daily_tokens = random.randint(0, 2)
@@ -618,16 +607,13 @@ async def daily_bonus_cmd(update: Update, context: CallbackContext):
         await UserDatabase.change_tokens(user_id, daily_tokens)
     await user_collection.update_one({'id': user_id}, {'$set': {'last_daily_claim': now}})
     bonus_text = (
-        f"╭──────────────────────╮\n"
-        f"│   🎁 DAILY BONUS   │\n"
-        f"╰──────────────────────╯\n\n"
-        f"<b>Congratulations! 🎉</b>\n\n"
+        f"<b>🎁 Daily Bonus</b>\n\n"
         f"<blockquote expandable>"
-        f"💰 <b>Coins:</b> +{daily_coins}\n"
+        f"Coins: <b>+{daily_coins}</b>\n"
     )
     if daily_tokens > 0:
-        bonus_text += f"🎁 <b>Tokens:</b> +{daily_tokens}\n"
-    bonus_text += "</blockquote>\n\n<i>Come back tomorrow for another bonus!</i>"
+        bonus_text += f"Tokens: <b>+{daily_tokens}</b>\n"
+    bonus_text += "</blockquote>\n\n<i>Come back tomorrow for another bonus</i>"
     await send_reply(update, bonus_text)
 
 async def tokens_cmd(update: Update, context: CallbackContext):
@@ -637,21 +623,18 @@ async def tokens_cmd(update: Update, context: CallbackContext):
     tokens = user.get('tokens', 0)
     balance = user.get('balance', 0)
     tokens_text = (
-        f"╭──────────────────────╮\n"
-        f"│   💎 YOUR TOKENS   │\n"
-        f"╰──────────────────────╯\n\n"
+        f"<b>💎 Your Tokens</b>\n\n"
         f"<b>Player:</b> {update.effective_user.first_name}\n\n"
         f"<blockquote>"
-        f"💎 <b>Total Tokens:</b> {tokens}\n"
-        f"💰 <b>Balance:</b> {balance:,} coins"
+        f"Tokens: <b>{tokens}</b>\n"
+        f"Balance: <b>{balance:,}</b> coins"
         f"</blockquote>\n\n"
-        f"<b>📋 How to Earn Tokens:</b>\n\n"
+        f"<b>How to Earn:</b>\n\n"
         f"<blockquote expandable>"
-        f"🧩 <b>Riddles</b> - Solve math problems (/riddle)\n"
-        f"🤝 <b>Contracts</b> - Complete high-risk missions (/stour)\n"
-        f"🎁 <b>Daily Bonus</b> - Claim every 24 hours (/daily)"
-        f"</blockquote>\n\n"
-        f"<i>Keep playing to earn more rewards!</i>"
+        f"🧩 Riddles - Solve math problems (/riddle)\n"
+        f"🤝 Contracts - Complete missions (/stour)\n"
+        f"🎁 Daily Bonus - Claim every 24 hours (/daily)"
+        f"</blockquote>"
     )
     await send_reply(update, tokens_text)
 
@@ -685,17 +668,15 @@ async def games_callback_query(update: Update, context: CallbackContext):
         if handler:
             await handler(update, context)
         else:
-            await send_reply(update, "❌ <b>Error</b>\n\n<blockquote>Unknown game command.</blockquote>")
+            await send_reply(update, "<b>❌ Error</b>\n\n<blockquote>Unknown game command</blockquote>")
     
     elif action == "info":
         game_info = {
             "sbet": (
-                f"╭──────────────────────╮\n"
-                f"│   🪙 COIN FLIP   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🪙 Coin Flip</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Bet on heads or tails!\n\n"
+                f"Bet on heads or tails\n\n"
                 f"<b>Win Multiplier:</b> {GameConfig.COINFLIP_MULTIPLIER}x\n"
                 f"<b>Win Rate:</b> 50%\n\n"
                 f"<b>Usage:</b>\n"
@@ -705,12 +686,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "roll": (
-                f"╭──────────────────────╮\n"
-                f"│   🎲 DICE ROLL   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🎲 Dice Roll</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Bet on odd or even!\n\n"
+                f"Bet on odd or even\n\n"
                 f"<b>Win Multiplier:</b> {GameConfig.DICE_MULTIPLIER}x\n"
                 f"<b>Win Rate:</b> 50%\n\n"
                 f"<b>Usage:</b>\n"
@@ -720,12 +699,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "gamble": (
-                f"╭──────────────────────╮\n"
-                f"│   🎰 GAMBLE   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🎰 Gamble</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Pick left or right!\n\n"
+                f"Pick left or right\n\n"
                 f"<b>Win Multiplier:</b> {GameConfig.GAMBLE_MULTIPLIER}x\n"
                 f"<b>Win Rate:</b> {GameConfig.GAMBLE_WIN_RATE*100:.0f}%\n\n"
                 f"<b>Usage:</b>\n"
@@ -735,12 +712,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "basket": (
-                f"╭──────────────────────╮\n"
-                f"│   🏀 BASKETBALL   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🏀 Basketball</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Shoot hoops for coins!\n\n"
+                f"Shoot hoops for coins\n\n"
                 f"<b>Win Multiplier:</b> {GameConfig.BASKET_MULTIPLIER}x\n"
                 f"<b>Win Rate:</b> Variable (35-60%)\n\n"
                 f"<b>Usage:</b>\n"
@@ -750,12 +725,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "dart": (
-                f"╭──────────────────────╮\n"
-                f"│   🎯 DARTS   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🎯 Darts</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Aim for the bullseye!\n\n"
+                f"Aim for the bullseye\n\n"
                 f"<b>Bullseye:</b> {GameConfig.DART_BULLSEYE_MULTIPLIER}x ({GameConfig.DART_BULLSEYE_RATE*100:.0f}%)\n"
                 f"<b>Hit:</b> {GameConfig.DART_HIT_MULTIPLIER}x ({GameConfig.DART_HIT_RATE*100:.0f}%)\n\n"
                 f"<b>Usage:</b>\n"
@@ -765,12 +738,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "stour": (
-                f"╭──────────────────────╮\n"
-                f"│   🤝 CONTRACT   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🤝 Contract</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"High risk, high reward!\n\n"
+                f"High risk, high reward\n\n"
                 f"<b>Entry Fee:</b> {GameConfig.STOUR_ENTRY_FEE} coins\n"
                 f"<b>Success Rate:</b> {GameConfig.STOUR_SUCCESS_RATE*100:.0f}%\n"
                 f"<b>Rewards:</b> Coins or tokens\n\n"
@@ -779,12 +750,10 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             ),
             "riddle": (
-                f"╭──────────────────────╮\n"
-                f"│   🧩 RIDDLE   │\n"
-                f"╰──────────────────────╯\n\n"
+                f"<b>🧩 Riddle</b>\n\n"
                 f"<blockquote expandable>"
                 f"<b>How to Play:</b>\n"
-                f"Solve math problems!\n\n"
+                f"Solve math problems\n\n"
                 f"<b>Time Limit:</b> {GameConfig.RIDDLE_TIMEOUT} seconds\n"
                 f"<b>Reward:</b> {GameConfig.DEFAULT_TOKEN_REWARD} token(s)\n\n"
                 f"<b>Usage:</b>\n"
@@ -792,38 +761,36 @@ async def games_callback_query(update: Update, context: CallbackContext):
                 f"</blockquote>"
             )
         }
-        info_text = game_info.get(cmd_name, "❌ <b>Error</b>\n\n<blockquote>Game information not found.</blockquote>")
+        info_text = game_info.get(cmd_name, "<b>❌ Error</b>\n\n<blockquote>Game information not found</blockquote>")
         await query.message.reply_text(info_text, parse_mode="HTML")
 
 async def help_games_cmd(update: Update, context: CallbackContext):
     help_text = (
-        f"╭──────────────────────╮\n"
-        f"│   📚 GAMES HELP   │\n"
-        f"╰──────────────────────╯\n\n"
+        f"<b>📚 Games Help</b>\n\n"
         f"<b>Available Commands:</b>\n\n"
         f"<blockquote expandable>"
-        f"🎮 <code>/games</code> - Show games menu\n"
-        f"🪙 <code>/sbet &lt;amt&gt; &lt;h|t&gt;</code> - Coin flip\n"
-        f"🎲 <code>/roll &lt;amt&gt; &lt;odd|even&gt;</code> - Dice roll\n"
-        f"🎰 <code>/gamble &lt;amt&gt; &lt;l|r&gt;</code> - Gamble game\n"
-        f"🏀 <code>/basket &lt;amt&gt;</code> - Basketball\n"
-        f"🎯 <code>/dart &lt;amt&gt;</code> - Darts\n"
-        f"🤝 <code>/stour</code> - Contract game\n"
-        f"🧩 <code>/riddle</code> - Math riddle\n"
-        f"📊 <code>/gamestats</code> - Your statistics\n"
-        f"💎 <code>/tokens</code> - View tokens\n"
-        f"🏆 <code>/leaderboard</code> - Top players\n"
-        f"🎁 <code>/daily</code> - Daily bonus"
+        f"<code>/games</code> - Show games menu\n"
+        f"<code>/sbet &lt;amt&gt; &lt;h|t&gt;</code> - Coin flip\n"
+        f"<code>/roll &lt;amt&gt; &lt;odd|even&gt;</code> - Dice roll\n"
+        f"<code>/gamble &lt;amt&gt; &lt;l|r&gt;</code> - Gamble\n"
+        f"<code>/basket &lt;amt&gt;</code> - Basketball\n"
+        f"<code>/dart &lt;amt&gt;</code> - Darts\n"
+        f"<code>/stour</code> - Contract\n"
+        f"<code>/riddle</code> - Math riddle\n"
+        f"<code>/gamestats</code> - Your statistics\n"
+        f"<code>/tokens</code> - View tokens\n"
+        f"<code>/leaderboard</code> - Top players\n"
+        f"<code>/daily</code> - Daily bonus"
         f"</blockquote>\n\n"
-        f"<b>💡 Tips:</b>\n\n"
+        f"<b>Tips:</b>\n\n"
         f"<blockquote>"
         f"• Start with smaller bets\n"
         f"• Check win rates before playing\n"
         f"• Claim daily bonus every 24h\n"
         f"• Solve riddles for tokens\n"
-        f"• Use 🔄 Play Again buttons"
+        f"• Use Play Again buttons"
         f"</blockquote>\n\n"
-        f"<i>⏱ Cooldown: {GameConfig.COOLDOWN_SECONDS}s between games</i>"
+        f"<i>Cooldown: {GameConfig.COOLDOWN_SECONDS}s between games</i>"
     )
     await send_reply(update, help_text)
 
@@ -839,7 +806,7 @@ async def admin_give_coins(update: Update, context: CallbackContext):
         await send_reply(update, "<b>Usage:</b> <code>/givecoins &lt;user_id&gt; &lt;amount&gt;</code>")
         return
     await UserDatabase.change_balance(target_id, amount)
-    await send_reply(update, f"✅ <b>Success</b>\n\n<blockquote>Gave {amount:,} coins to user {target_id}</blockquote>")
+    await send_reply(update, f"<b>✅ Success</b>\n\n<blockquote>Gave {amount:,} coins to user {target_id}</blockquote>")
     logger.info(f"Admin {update.effective_user.id} gave {amount} coins to {target_id}")
 
 async def admin_give_tokens(update: Update, context: CallbackContext):
@@ -852,7 +819,7 @@ async def admin_give_tokens(update: Update, context: CallbackContext):
         await send_reply(update, "<b>Usage:</b> <code>/givetokens &lt;user_id&gt; &lt;amount&gt;</code>")
         return
     await UserDatabase.change_tokens(target_id, amount)
-    await send_reply(update, f"✅ <b>Success</b>\n\n<blockquote>Gave {amount} tokens to user {target_id}</blockquote>")
+    await send_reply(update, f"<b>✅ Success</b>\n\n<blockquote>Gave {amount} tokens to user {target_id}</blockquote>")
     logger.info(f"Admin {update.effective_user.id} gave {amount} tokens to {target_id}")
 
 async def admin_reset_cooldown(update: Update, context: CallbackContext):
@@ -864,7 +831,7 @@ async def admin_reset_cooldown(update: Update, context: CallbackContext):
         await send_reply(update, "<b>Usage:</b> <code>/resetcooldown &lt;user_id&gt;</code>")
         return
     game_state._cooldowns.pop(target_id, None)
-    await send_reply(update, f"✅ <b>Success</b>\n\n<blockquote>Reset cooldown for user {target_id}</blockquote>")
+    await send_reply(update, f"<b>✅ Success</b>\n\n<blockquote>Reset cooldown for user {target_id}</blockquote>")
     logger.info(f"Admin {update.effective_user.id} reset cooldown for {target_id}")
 
 def register_handlers():
