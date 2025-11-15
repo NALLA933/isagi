@@ -410,7 +410,7 @@ async def post_init(app):
     asyncio.create_task(check_recurring_deposits())
     asyncio.create_task(process_investments())
 
-async def sbi_balance(update: Update, context: CallbackContext):
+async def vault_balance(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -418,7 +418,7 @@ async def sbi_balance(update: Update, context: CallbackContext):
         user = await get_user(uid)
     
     if user.get('frozen'):
-        await update.message.reply_text("⊗ ᴀᴄᴄᴏᴜɴᴛ ғʀᴏᴢᴇɴ\nᴜꜱᴇ /sbiunfreeze <pin>")
+        await update.message.reply_text("⊗ ᴀᴄᴄᴏᴜɴᴛ ғʀᴏᴢᴇɴ\nᴜꜱᴇ /vunlock <pin>")
         return
     
     interest = await calc_interest(uid)
@@ -468,18 +468,18 @@ async def sbi_balance(update: Update, context: CallbackContext):
     
     msg += "\n\n───────"
     btns = [
-        [InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ", callback_data=f"sbibal_{uid}")],
-        [InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"sbibank_{uid}"), InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"sbiloan_{uid}")],
-        [InlineKeyboardButton("📊 ɪɴᴠᴇꜱᴛ", callback_data=f"sbiinvest_{uid}"), InlineKeyboardButton("🎯 ɢᴏᴀʟꜱ", callback_data=f"sbigoals_{uid}")],
-        [InlineKeyboardButton("🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ", callback_data=f"sbiinsurance_{uid}"), InlineKeyboardButton("📜 ʜɪꜱᴛᴏʀʏ", callback_data=f"sbihistory_{uid}")]
+        [InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ", callback_data=f"vbal_{uid}")],
+        [InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"vbnk_{uid}"), InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"vlon_{uid}")],
+        [InlineKeyboardButton("📊 ɪɴᴠᴇꜱᴛ", callback_data=f"vinv_{uid}"), InlineKeyboardButton("🎯 ɢᴏᴀʟꜱ", callback_data=f"vgol_{uid}")],
+        [InlineKeyboardButton("🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ", callback_data=f"vins_{uid}"), InlineKeyboardButton("📜 ʜɪꜱᴛᴏʀʏ", callback_data=f"vhis_{uid}")]
     ]
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-async def sbi_deposit(update: Update, context: CallbackContext):
+async def vault_add(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -491,7 +491,7 @@ async def sbi_deposit(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /sbideposit <amount>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vadd <amount>")
         return
     
     if user.get('balance', 0) < amt:
@@ -502,11 +502,11 @@ async def sbi_deposit(update: Update, context: CallbackContext):
     await add_transaction(uid, 'deposit', amt, "ʙᴀɴᴋ ᴅᴇᴘᴏꜱɪᴛ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴅᴇᴘᴏꜱɪᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: 5% ᴅᴀɪʟʏ", parse_mode="HTML")
 
-async def sbi_withdraw(update: Update, context: CallbackContext):
+async def vault_take(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -518,7 +518,7 @@ async def sbi_withdraw(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /sbiwithdraw <amount>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vtake <amount>")
         return
     
     if user.get('bank', 0) < amt:
@@ -529,11 +529,11 @@ async def sbi_withdraw(update: Update, context: CallbackContext):
     await add_transaction(uid, 'withdraw', amt, "ᴡɪᴛʜᴅʀᴀᴡᴀʟ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴡɪᴛʜᴅʀᴀᴡɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>", parse_mode="HTML")
 
-async def sbi_loan(update: Update, context: CallbackContext):
+async def borrow_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -549,8 +549,8 @@ async def sbi_loan(update: Update, context: CallbackContext):
     if curr > 0:
         due = user.get('loan_due_date')
         left = (due - datetime.utcnow()).total_seconds()
-        msg = f"╭────────────────╮\n│   ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{curr}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/sbirepay"
-        btns = [[InlineKeyboardButton("💰 ʀᴇᴘᴀʏ", callback_data=f"sbirepay_{uid}")]]
+        msg = f"╭────────────────╮\n│   ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{curr}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/vpay"
+        btns = [[InlineKeyboardButton("💰 ʀᴇᴘᴀʏ", callback_data=f"vpay_{uid}")]]
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         return
     
@@ -562,7 +562,7 @@ async def sbi_loan(update: Update, context: CallbackContext):
         credit = user.get('credit_score', 700)
         max_loan = BANK_CFG['max_premium_loan'] if user.get('premium') else BANK_CFG['max_loan']
         rate = 5 if credit >= 800 else 8 if credit >= 700 else 10
-        await update.message.reply_text(f"⊗ ᴜꜱᴀɢᴇ: /sbiloan <amount>\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3 ᴅᴀʏꜱ", parse_mode="HTML")
+        await update.message.reply_text(f"⊗ ᴜꜱᴀɢᴇ: /borrow <amount>\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3 ᴅᴀʏꜱ", parse_mode="HTML")
         return
     
     credit = user.get('credit_score', 700)
@@ -581,11 +581,11 @@ async def sbi_loan(update: Update, context: CallbackContext):
     await add_transaction(uid, 'loan', amt, f"ʟᴏᴀɴ ({int(rate*100)}%)")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{amt}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{interest}</code>\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code>\n⟡ ᴅᴜᴇ: 3 ᴅᴀʏꜱ\n\n⚠️ 20% ᴘᴇɴᴀʟᴛʏ", parse_mode="HTML")
 
-async def emergency_loan(update: Update, context: CallbackContext):
+async def emergency_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     if user.get('loan_amount', 0) > 0:
@@ -597,7 +597,7 @@ async def emergency_loan(update: Update, context: CallbackContext):
         if amt <= 0 or amt > 20000:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /emergency <amount>\n\n⟡ ᴍᴀx: 20,000\n⟡ ʀᴀᴛᴇ: 15%\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 2 ᴅᴀʏꜱ")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vemerg <amount>\n\n⟡ ᴍᴀx: 20,000\n⟡ ʀᴀᴛᴇ: 15%\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 2 ᴅᴀʏꜱ")
         return
     
     interest = int(amt * BANK_CFG['emergency_loan_int'])
@@ -608,11 +608,11 @@ async def emergency_loan(update: Update, context: CallbackContext):
     await add_transaction(uid, 'emergency', amt, "ᴇᴍᴇʀɢᴇɴᴄʏ ʟᴏᴀɴ")
     await update.message.reply_text(f"╭────────────────╮\n│   ⚡ ᴇᴍᴇʀɢᴇɴᴄʏ   │\n╰────────────────╯\n\n⟡ ʟᴏᴀɴ: <code>{amt}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{interest}</code>\n⟡ ᴛᴏᴛᴀʟ: <code>{total}</code>\n⟡ ᴅᴜᴇ: 2 ᴅᴀʏꜱ", parse_mode="HTML")
 
-async def repay(update: Update, context: CallbackContext):
+async def payback_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     loan = user.get('loan_amount', 0)
@@ -631,11 +631,11 @@ async def repay(update: Update, context: CallbackContext):
     await add_transaction(uid, 'repay', -loan, "ʟᴏᴀɴ ʀᴇᴘᴀɪᴅ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ʀᴇᴘᴀɪᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{loan}</code>\n⟡ ɴᴇᴡ: <code>{bal - loan}</code>\n\n✨ ᴄʀᴇᴅɪᴛ +20", parse_mode="HTML")
 
-async def clear_debt(update: Update, context: CallbackContext):
+async def settle_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     debt = user.get('permanent_debt', 0)
@@ -653,11 +653,11 @@ async def clear_debt(update: Update, context: CallbackContext):
     await add_transaction(uid, 'clear_debt', -debt, "ᴅᴇʙᴛ ᴄʟᴇᴀʀᴇᴅ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴄʟᴇᴀʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{debt}</code>\n⟡ ɴᴇᴡ: <code>{bal - debt}</code>\n\n✅ ᴅᴇʙᴛ ᴄʟᴇᴀʀᴇᴅ!\n✨ ᴄʀᴇᴅɪᴛ +50", parse_mode="HTML")
 
-async def fixed_deposit(update: Update, context: CallbackContext):
+async def fixdep_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -666,7 +666,7 @@ async def fixed_deposit(update: Update, context: CallbackContext):
         if amt <= 0 or days not in [7, 15, 30]:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /fd <amount> <days>\n\n⟡ ᴅᴀʏꜱ: 7, 15, 30\n⟡ ʀᴀᴛᴇꜱ: 7%, 10%, 15%\n⟡ ᴘᴇɴᴀʟᴛʏ: 3%")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vfd <amount> <days>\n\n⟡ ᴅᴀʏꜱ: 7, 15, 30\n⟡ ʀᴀᴛᴇꜱ: 7%, 10%, 15%\n⟡ ᴘᴇɴᴀʟᴛʏ: 3%")
         return
     
     if user.get('balance', 0) < amt:
@@ -690,11 +690,11 @@ async def fixed_deposit(update: Update, context: CallbackContext):
     await add_transaction(uid, 'fd', -amt, f"ꜰᴅ ({days}ᴅ)")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ꜰᴅ ᴄʀᴇᴀᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n⟡ ᴅᴀʏꜱ: <code>{days}</code>\n⟡ ʀᴀᴛᴇ: <code>{int(rate*100)}%</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: <code>{interest}</code>", parse_mode="HTML")
 
-async def break_fd(update: Update, context: CallbackContext):
+async def breakfd_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     fds = user.get('fixed_deposits', [])
@@ -711,7 +711,7 @@ async def break_fd(update: Update, context: CallbackContext):
         for i, fd in enumerate(fds, 1):
             days_left = (fd['maturity_date'] - datetime.utcnow()).days
             msg += f"{i}. <code>{fd['amount']}</code> - {days_left}ᴅ\n"
-        msg += "\n⊗ ᴜꜱᴀɢᴇ: /breakfd <number>"
+        msg += "\n⊗ ᴜꜱᴀɢᴇ: /vfdbrk <number>"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
     
@@ -724,7 +724,7 @@ async def break_fd(update: Update, context: CallbackContext):
     await add_transaction(uid, 'break_fd', refund, f"ꜰᴅ ʙʀᴏᴋᴇɴ (ᴘᴇɴᴀʟᴛʏ: {penalty})")
     await update.message.reply_text(f"╭────────────────╮\n│   ꜰᴅ ʙʀᴏᴋᴇɴ   │\n╰────────────────╯\n\n⟡ ᴘʀɪɴᴄɪᴘᴀʟ: <code>{fd['amount']}</code>\n⟡ ᴘᴇɴᴀʟᴛʏ: <code>{penalty}</code>\n⟡ ʀᴇꜰᴜɴᴅ: <code>{refund}</code>", parse_mode="HTML")
 
-async def notifications(update: Update, context: CallbackContext):
+async def alerts_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -740,10 +740,10 @@ async def notifications(update: Update, context: CallbackContext):
     msg = "╭────────────────╮\n│   📬 ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ   │\n╰────────────────╯\n\n"
     for i, n in enumerate(reversed(recent), 1):
         msg += f"<b>{i}.</b> {n.get('message', 'ɴᴏ ᴍᴇꜱꜱᴀɢᴇ')}\n\n"
-    btns = [[InlineKeyboardButton("🗑️ ᴄʟᴇᴀʀ", callback_data=f"clr_{uid}")]]
+    btns = [[InlineKeyboardButton("🗑️ ᴄʟᴇᴀʀ", callback_data=f"vclr_{uid}")]]
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-async def pay(update: Update, context: CallbackContext):
+async def transfer_cmd(update: Update, context: CallbackContext):
     sid = update.effective_user.id
     if not update.message.reply_to_message:
         await update.message.reply_text("⊗ ʀᴇᴘʟʏ ᴛᴏ ᴜꜱᴇʀ")
@@ -769,7 +769,7 @@ async def pay(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /pay <amount>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vsend <amount>")
         return
     
     if amt > 1000000:
@@ -783,7 +783,7 @@ async def pay(update: Update, context: CallbackContext):
     
     pid = f"{sid}_{rec.id}_{int(datetime.utcnow().timestamp())}"
     pending_payments[pid] = {'sender_id': sid, 'recipient_id': rec.id, 'amount': amt}
-    btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"pok_{pid}"), InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"pno_{pid}")]]
+    btns = [[InlineKeyboardButton("✓ ᴄᴏɴꜰɪʀᴍ", callback_data=f"vok_{pid}"), InlineKeyboardButton("✗ ᴄᴀɴᴄᴇʟ", callback_data=f"vno_{pid}")]]
     await update.message.reply_text(f"╭────────────────╮\n│   ᴄᴏɴꜰɪʀᴍ   │\n╰────────────────╯\n\n⟡ ᴛᴏ: <b>{rec.first_name}</b>\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n\n⏳ 30ꜱ", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
     asyncio.create_task(expire_pay(pid))
 
@@ -792,7 +792,7 @@ async def expire_pay(pid):
     if pid in pending_payments:
         del pending_payments[pid]
 
-async def daily(update: Update, context: CallbackContext):
+async def reward_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -832,7 +832,7 @@ async def daily(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def xp_cmd(update: Update, context: CallbackContext):
+async def level_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -849,7 +849,7 @@ async def xp_cmd(update: Update, context: CallbackContext):
     
     await update.message.reply_text(f"╭────────────────╮\n│   ʟᴇᴠᴇʟ & ʀᴀɴᴋ   │\n╰────────────────╯\n\n⟡ ʟᴇᴠᴇʟ: <code>{lvl}</code>\n⟡ ʀᴀɴᴋ: <code>{rank}</code>\n⟡ xᴘ: <code>{xp}</code>\n⟡ ɴᴇᴇᴅᴇᴅ: <code>{needed}</code>\n⟡ ᴀᴄʜɪᴇᴠᴇᴍᴇɴᴛꜱ: <code>{len(achievements)}</code>", parse_mode="HTML")
 
-async def history(update: Update, context: CallbackContext):
+async def txlog_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -877,14 +877,14 @@ async def history(update: Update, context: CallbackContext):
             msg += f"   {desc}\n"
         msg += f"   {date_str}\n\n"
     
-    btns = [[InlineKeyboardButton("💰 ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{uid}")]]
+    btns = [[InlineKeyboardButton("💰 ʙᴀʟᴀɴᴄᴇ", callback_data=f"vbal_{uid}")]]
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-async def invest_cmd(update: Update, context: CallbackContext):
+async def stock_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -893,7 +893,7 @@ async def invest_cmd(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /invest <type> <amount>\n\n⟡ ᴛʏᴘᴇꜱ:\n  • stock (ʜɪɢʜ ʀɪꜱᴋ)\n  • bond (ʟᴏᴡ ʀɪꜱᴋ)\n  • mf_low/med/high")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vstock <type> <amount>\n\n⟡ ᴛʏᴘᴇꜱ:\n  • stk (ʜɪɢʜ ʀɪꜱᴋ)\n  • bnd (ʟᴏᴡ ʀɪꜱᴋ)\n  • mfl/mfm/mfh")
         return
     
     if user.get('balance', 0) < amt:
@@ -901,11 +901,11 @@ async def invest_cmd(update: Update, context: CallbackContext):
         return
     
     valid_types = {
-        'stock': {'type': 'stock', 'name': 'ꜱᴛᴏᴄᴋ'},
-        'bond': {'type': 'bond', 'name': 'ʙᴏɴᴅ'},
-        'mf_low': {'type': 'mutual_fund', 'risk': 'low', 'name': 'ᴍꜰ (ʟᴏᴡ)'},
-        'mf_med': {'type': 'mutual_fund', 'risk': 'medium', 'name': 'ᴍꜰ (ᴍᴇᴅ)'},
-        'mf_high': {'type': 'mutual_fund', 'risk': 'high', 'name': 'ᴍꜰ (ʜɪɢʜ)'}
+        'stk': {'type': 'stock', 'name': 'ꜱᴛᴏᴄᴋ'},
+        'bnd': {'type': 'bond', 'name': 'ʙᴏɴᴅ'},
+        'mfl': {'type': 'mutual_fund', 'risk': 'low', 'name': 'ᴍꜰ (ʟᴏᴡ)'},
+        'mfm': {'type': 'mutual_fund', 'risk': 'medium', 'name': 'ᴍꜰ (ᴍᴇᴅ)'},
+        'mfh': {'type': 'mutual_fund', 'risk': 'high', 'name': 'ᴍꜰ (ʜɪɢʜ)'}
     }
     
     if itype not in valid_types:
@@ -926,9 +926,9 @@ async def invest_cmd(update: Update, context: CallbackContext):
     
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': -amt}, '$push': {'investments': investment}})
     await add_transaction(uid, 'invest', -amt, f"{inv_data['name']}")
-    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ɪɴᴠᴇꜱᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴛʏᴘᴇ: {inv_data['name']}\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n\n/portfolio", parse_mode="HTML")
+    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ɪɴᴠᴇꜱᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴛʏᴘᴇ: {inv_data['name']}\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n\n/vport", parse_mode="HTML")
 
-async def portfolio(update: Update, context: CallbackContext):
+async def portfolio_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -962,11 +962,11 @@ async def portfolio(update: Update, context: CallbackContext):
     total_change = ((total_value - total_initial) / total_initial * 100) if total_initial > 0 else 0
     msg += f"<b>ᴛᴏᴛᴀʟ:</b> <code>{total_value}</code>\n"
     msg += f"<b>ɢᴀɪɴ/ʟᴏꜱꜱ:</b> <code>{total_change:+.2f}%</code>\n\n"
-    msg += "/sellinvest <number>"
+    msg += "/vsell <number>"
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def sell_investment(update: Update, context: CallbackContext):
+async def sell_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -983,7 +983,7 @@ async def sell_investment(update: Update, context: CallbackContext):
         if idx < 0 or idx >= len(investments):
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /sellinvest <number>\n\n/portfolio")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vsell <number>\n\n/vport")
         return
     
     inv = investments[idx]
@@ -998,11 +998,11 @@ async def sell_investment(update: Update, context: CallbackContext):
     msg = f"╭────────────────╮\n│   ✓ ꜱᴏʟᴅ   │\n╰────────────────╯\n\n⟡ ᴛʏᴘᴇ: {inv.get('name', 'ᴜɴᴋɴᴏᴡɴ')}\n⟡ ɪɴɪᴛɪᴀʟ: <code>{initial}</code>\n⟡ ꜱᴏʟᴅ: <code>{value}</code>\n⟡ ᴘʀᴏꜰɪᴛ: <code>{profit:+d}</code>"
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def set_goal(update: Update, context: CallbackContext):
+async def target_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -1011,7 +1011,7 @@ async def set_goal(update: Update, context: CallbackContext):
         if target <= 0 or not name:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /setgoal <amount> <name>\n\nᴇx: /setgoal 50000 ɴᴇᴡ ᴄʜᴀʀ")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vtarget <amount> <name>\n\nᴇx: /vtarget 50000 ɴᴇᴡ ᴄʜᴀʀ")
         return
     
     goal = {
@@ -1022,9 +1022,9 @@ async def set_goal(update: Update, context: CallbackContext):
     }
     
     await user_collection.update_one({'id': uid}, {'$push': {'savings_goals': goal}})
-    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ɢᴏᴀʟ ꜱᴇᴛ   │\n╰────────────────╯\n\n⟡ ɢᴏᴀʟ: {name}\n⟡ ᴛᴀʀɢᴇᴛ: <code>{target}</code>\n\n/addtogoal", parse_mode="HTML")
+    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ɢᴏᴀʟ ꜱᴇᴛ   │\n╰────────────────╯\n\n⟡ ɢᴏᴀʟ: {name}\n⟡ ᴛᴀʀɢᴇᴛ: <code>{target}</code>\n\n/vsave", parse_mode="HTML")
 
-async def add_to_goal(update: Update, context: CallbackContext):
+async def save_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -1033,7 +1033,7 @@ async def add_to_goal(update: Update, context: CallbackContext):
     
     goals = user.get('savings_goals', [])
     if not goals:
-        await update.message.reply_text("⊗ ɴᴏ ɢᴏᴀʟꜱ\n\n/setgoal")
+        await update.message.reply_text("⊗ ɴᴏ ɢᴏᴀʟꜱ\n\n/vtarget")
         return
     
     try:
@@ -1046,7 +1046,7 @@ async def add_to_goal(update: Update, context: CallbackContext):
         for i, g in enumerate(goals, 1):
             progress = (g['current'] / g['target'] * 100) if g['target'] > 0 else 0
             msg += f"{i}. {g['name']}\n   {g['current']}/{g['target']} ({progress:.0f}%)\n\n"
-        msg += "⊗ ᴜꜱᴀɢᴇ: /addtogoal <num> <amt>"
+        msg += "⊗ ᴜꜱᴀɢᴇ: /vsave <num> <amt>"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
     
@@ -1077,7 +1077,7 @@ async def add_to_goal(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def withdraw_goal(update: Update, context: CallbackContext):
+async def cancel_goal_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -1094,7 +1094,7 @@ async def withdraw_goal(update: Update, context: CallbackContext):
         if idx < 0 or idx >= len(goals):
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /withdrawgoal <num>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vcancel <num>")
         return
     
     goal = goals[idx]
@@ -1105,19 +1105,19 @@ async def withdraw_goal(update: Update, context: CallbackContext):
     await add_transaction(uid, 'withdraw_goal', amt, f"{goal['name']}")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴡɪᴛʜᴅʀᴀᴡɴ   │\n╰────────────────╯\n\n⟡ ɢᴏᴀʟ: {goal['name']}\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>", parse_mode="HTML")
 
-async def buy_insurance(update: Update, context: CallbackContext):
+async def protect_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
         itype = context.args[0].lower()
-        if itype not in ['char', 'deposit']:
+        if itype not in ['chr', 'dep']:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /buyinsurance <type>\n\n⟡ ᴛʏᴘᴇꜱ:\n  • char - ᴘʀᴏᴛᴇᴄᴛ ᴄʜᴀʀꜱ\n  • deposit - ᴄᴏᴠᴇʀ 50ᴋ\n\n⟡ ᴘʀᴇᴍɪᴜᴍ: 500/ᴍᴏɴᴛʜ")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vprotect <type>\n\n⟡ ᴛʏᴘᴇꜱ:\n  • chr - ᴘʀᴏᴛᴇᴄᴛ ᴄʜᴀʀꜱ\n  • dep - ᴄᴏᴠᴇʀ 50ᴋ\n\n⟡ ᴘʀᴇᴍɪᴜᴍ: 500/ᴍᴏɴᴛʜ")
         return
     
     premium = BANK_CFG['insurance_premium']
@@ -1126,24 +1126,26 @@ async def buy_insurance(update: Update, context: CallbackContext):
         return
     
     insurance = user.get('insurance', {})
-    if insurance.get(itype):
+    ins_key = 'char' if itype == 'chr' else 'deposit'
+    
+    if insurance.get(ins_key):
         await update.message.reply_text("⊗ ᴀʟʀᴇᴀᴅʏ ʜᴀᴠᴇ")
         return
     
-    insurance[itype] = True
+    insurance[ins_key] = True
     insurance['last_premium'] = datetime.utcnow()
     
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': -premium}, '$set': {'insurance': insurance}})
     await add_transaction(uid, 'insurance', -premium, f"ɪɴꜱᴜʀᴀɴᴄᴇ: {itype}")
     
-    iname = "ᴄʜᴀʀᴀᴄᴛᴇʀ" if itype == 'char' else "ᴅᴇᴘᴏꜱɪᴛ"
+    iname = "ᴄʜᴀʀᴀᴄᴛᴇʀ" if itype == 'chr' else "ᴅᴇᴘᴏꜱɪᴛ"
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ɪɴꜱᴜʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴛʏᴘᴇ: {iname}\n⟡ ᴘʀᴇᴍɪᴜᴍ: <code>{premium}</code>\n⟡ ᴠᴀʟɪᴅ: 30 ᴅᴀʏꜱ\n\n🛡️ ᴘʀᴏᴛᴇᴄᴛᴇᴅ", parse_mode="HTML")
 
-async def buy_premium(update: Update, context: CallbackContext):
+async def vip_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     fee = BANK_CFG['premium_fee']
@@ -1158,11 +1160,11 @@ async def buy_premium(update: Update, context: CallbackContext):
     
     await update.message.reply_text(f"╭────────────────╮\n│   💎 ᴘʀᴇᴍɪᴜᴍ   │\n╰────────────────╯\n\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 30 ᴅᴀʏꜱ\n⟡ ᴄᴏꜱᴛ: <code>{fee}</code>\n\n<b>ʙᴇɴᴇꜰɪᴛꜱ:</b>\n✓ +500 ᴅᴀɪʟʏ\n✓ +1% ɪɴᴛᴇʀᴇꜱᴛ\n✓ 200ᴋ ʟᴏᴀɴ\n✓ ʟᴏᴡᴇʀ ʀᴀᴛᴇꜱ", parse_mode="HTML")
 
-async def set_pin(update: Update, context: CallbackContext):
+async def pinset_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -1170,27 +1172,27 @@ async def set_pin(update: Update, context: CallbackContext):
         if len(pin) != 4 or not pin.isdigit():
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /setpin <4-digit>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vpin <4-digit>")
         return
     
     await user_collection.update_one({'id': uid}, {'$set': {'pin': pin}})
-    await update.message.reply_text("╭────────────────╮\n│   ✓ ᴘɪɴ ꜱᴇᴛ   │\n╰────────────────╯\n\n⟡ ꜱᴇᴄᴜʀᴇᴅ\n⟡ /freeze ᴛᴏ ʟᴏᴄᴋ")
+    await update.message.reply_text("╭────────────────╮\n│   ✓ ᴘɪɴ ꜱᴇᴛ   │\n╰────────────────╯\n\n⟡ ꜱᴇᴄᴜʀᴇᴅ\n⟡ /vlock ᴛᴏ ʟᴏᴄᴋ")
 
-async def freeze_account(update: Update, context: CallbackContext):
+async def lock_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     if not user.get('pin'):
-        await update.message.reply_text("⊗ ꜱᴇᴛ ᴘɪɴ ꜰɪʀꜱᴛ\n\n/setpin <4-digit>")
+        await update.message.reply_text("⊗ ꜱᴇᴛ ᴘɪɴ ꜰɪʀꜱᴛ\n\n/vpin <4-digit>")
         return
     
     await user_collection.update_one({'id': uid}, {'$set': {'frozen': True}})
-    await update.message.reply_text("╭────────────────╮\n│   🔒 ғʀᴏᴢᴇɴ   │\n╰────────────────╯\n\n⟡ ʟᴏᴄᴋᴇᴅ\n⟡ /unfreeze <pin>")
+    await update.message.reply_text("╭────────────────╮\n│   🔒 ғʀᴏᴢᴇɴ   │\n╰────────────────╯\n\n⟡ ʟᴏᴄᴋᴇᴅ\n⟡ /vunlock <pin>")
 
-async def unfreeze_account(update: Update, context: CallbackContext):
+async def unlock_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -1204,7 +1206,7 @@ async def unfreeze_account(update: Update, context: CallbackContext):
     try:
         pin = context.args[0]
     except IndexError:
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /unfreeze <pin>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vunlock <pin>")
         return
     
     if user.get('pin') != pin:
@@ -1214,11 +1216,11 @@ async def unfreeze_account(update: Update, context: CallbackContext):
     await user_collection.update_one({'id': uid}, {'$set': {'frozen': False}})
     await update.message.reply_text("╭────────────────╮\n│   🔓 ᴜɴʟᴏᴄᴋᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴀᴄᴛɪᴠᴇ")
 
-async def setup_rd(update: Update, context: CallbackContext):
+async def autoset_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -1227,7 +1229,7 @@ async def setup_rd(update: Update, context: CallbackContext):
         if amt <= 0 or freq not in ['daily', 'weekly']:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /setuprd <amount> <freq>\n\n⟡ ғʀᴇǫ: daily, weekly\n⟡ ᴀᴜᴛᴏ-ᴅᴇᴘᴏꜱɪᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vauto <amount> <freq>\n\n⟡ ғʀᴇǫ: daily, weekly\n⟡ ᴀᴜᴛᴏ-ᴅᴇᴘᴏꜱɪᴛ")
         return
     
     rd = {
@@ -1238,9 +1240,9 @@ async def setup_rd(update: Update, context: CallbackContext):
     }
     
     await user_collection.update_one({'id': uid}, {'$set': {'recurring_deposit': rd}})
-    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ʀᴅ ꜱᴇᴛᴜᴘ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n⟡ ғʀᴇǫ: {freq}\n\n🔄 ᴀᴄᴛɪᴠᴀᴛᴇᴅ", parse_mode="HTML")
+    await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴀᴜᴛᴏ ꜱᴇᴛ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n⟡ ғʀᴇǫ: {freq}\n\n🔄 ᴀᴄᴛɪᴠᴀᴛᴇᴅ", parse_mode="HTML")
 
-async def stop_rd(update: Update, context: CallbackContext):
+async def autostop_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -1249,14 +1251,14 @@ async def stop_rd(update: Update, context: CallbackContext):
     
     rd = user.get('recurring_deposit', {})
     if not rd.get('active'):
-        await update.message.reply_text("⊗ ɴᴏ ᴀᴄᴛɪᴠᴇ ʀᴅ")
+        await update.message.reply_text("⊗ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴛᴏ")
         return
     
     rd['active'] = False
     await user_collection.update_one({'id': uid}, {'$set': {'recurring_deposit': rd}})
-    await update.message.reply_text("╭────────────────╮\n│   ✓ ʀᴅ ꜱᴛᴏᴘᴘᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴅɪꜱᴀʙʟᴇᴅ")
+    await update.message.reply_text("╭────────────────╮\n│   ✓ ꜱᴛᴏᴘᴘᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴅɪꜱᴀʙʟᴇᴅ")
 
-async def leaderboard(update: Update, context: CallbackContext):
+async def topten_cmd(update: Update, context: CallbackContext):
     top_users = []
     async for user in user_collection.find().sort('bank', -1).limit(10):
         uid = user['id']
@@ -1293,11 +1295,11 @@ async def leaderboard(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def referral(update: Update, context: CallbackContext):
+async def refer_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     referrals = user.get('referrals', [])
@@ -1308,11 +1310,11 @@ async def referral(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def gamble(update: Update, context: CallbackContext):
+async def risk_cmd(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /vbal ꜰɪʀꜱᴛ")
         return
     
     try:
@@ -1320,7 +1322,7 @@ async def gamble(update: Update, context: CallbackContext):
         if amt <= 0 or amt > 10000:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /gamble <amount>\n\n⟡ ᴍᴀx: 10,000\n⟡ 2x ᴏʀ ʟᴏꜱᴇ\n⟡ 45% ᴡɪɴ")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /vrisk <amount>\n\n⟡ ᴍᴀx: 10,000\n⟡ 2x ᴏʀ ʟᴏꜱᴇ\n⟡ 45% ᴡɪɴ")
         return
     
     if user.get('balance', 0) < amt:
@@ -1340,60 +1342,60 @@ async def gamble(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def bank_help(update: Update, context: CallbackContext):
+async def vhelp_cmd(update: Update, context: CallbackContext):
     help_text = f"""╭─────────────────────╮
-│  💰 ʙᴀɴᴋɪɴɢ ꜱʏꜱᴛᴇᴍ  │
+│  💰 ᴠᴀᴜʟᴛ ꜱʏꜱᴛᴇᴍ  │
 ╰─────────────────────╯
 
 <b>📊 ʙᴀꜱɪᴄ</b>
-/bal - ʙᴀʟᴀɴᴄᴇ
-/deposit - ᴅᴇᴘᴏꜱɪᴛ
-/withdraw - ᴡɪᴛʜᴅʀᴀᴡ
-/cclaim - ᴅᴀɪʟʏ 2ᴋ
+/vbal - ʙᴀʟᴀɴᴄᴇ
+/vadd - ᴅᴇᴘᴏꜱɪᴛ
+/vtake - ᴡɪᴛʜᴅʀᴀᴡ
+/vreward - ᴅᴀɪʟʏ 2ᴋ
 
 <b>💳 ʟᴏᴀɴꜱ</b>
-/loan - ʙᴏʀʀᴏᴡ (100ᴋ)
-/emergency - ғᴀꜱᴛ (20ᴋ)
-/repay - ʀᴇᴘᴀʏ
-/cleardebt - ᴄʟᴇᴀʀ
+/borrow - ʙᴏʀʀᴏᴡ (100ᴋ)
+/vemerg - ғᴀꜱᴛ (20ᴋ)
+/vpay - ʀᴇᴘᴀʏ
+/vsettle - ᴄʟᴇᴀʀ ᴅᴇʙᴛ
 
 <b>🔒 ꜰɪxᴇᴅ ᴅᴇᴘᴏꜱɪᴛ</b>
-/fd - ᴄʀᴇᴀᴛᴇ
-/breakfd - ᴄᴀɴᴄᴇʟ
+/vfd - ᴄʀᴇᴀᴛᴇ
+/vfdbrk - ᴄᴀɴᴄᴇʟ
 
 <b>📈 ɪɴᴠᴇꜱᴛ</b>
-/invest - ʙᴜʏ
-/portfolio - ᴠɪᴇᴡ
-/sellinvest - ꜱᴇʟʟ
+/vstock - ʙᴜʏ
+/vport - ᴠɪᴇᴡ
+/vsell - ꜱᴇʟʟ
 
 <b>🎯 ɢᴏᴀʟꜱ</b>
-/setgoal - ᴄʀᴇᴀᴛᴇ
-/addtogoal - ᴀᴅᴅ
-/withdrawgoal - ʀᴇᴍᴏᴠᴇ
+/vtarget - ᴄʀᴇᴀᴛᴇ
+/vsave - ᴀᴅᴅ
+/vcancel - ʀᴇᴍᴏᴠᴇ
 
 <b>🛡️ ꜱᴇᴄᴜʀɪᴛʏ</b>
-/buyinsurance - ᴘʀᴏᴛᴇᴄᴛ
-/setpin - ꜱᴇᴛ ᴘɪɴ
-/freeze - ʟᴏᴄᴋ
-/unfreeze - ᴜɴʟᴏᴄᴋ
+/vprotect - ɪɴꜱᴜʀᴇ
+/vpin - ꜱᴇᴛ ᴘɪɴ
+/vlock - ʟᴏᴄᴋ
+/vunlock - ᴜɴʟᴏᴄᴋ
 
 <b>💎 ᴘʀᴇᴍɪᴜᴍ</b>
-/buypremium - ᴜᴘɢʀᴀᴅᴇ
+/vvip - ᴜᴘɢʀᴀᴅᴇ
 
 <b>🔄 ᴀᴜᴛᴏ</b>
-/setuprd - ᴀᴜᴛᴏ-ᴅᴇᴘᴏꜱɪᴛ
-/stoprd - ꜱᴛᴏᴘ
+/vauto - ᴀᴜᴛᴏ-ᴅᴇᴘᴏꜱɪᴛ
+/vautostop - ꜱᴛᴏᴘ
 
 <b>📜 ᴏᴛʜᴇʀ</b>
-/history - ᴛʀᴀɴꜱᴀᴄᴛɪᴏɴꜱ
-/pay - ꜱᴇɴᴅ ɢᴏʟᴅ
-/xp - ʟᴇᴠᴇʟ
-/leaderboard - ᴛᴏᴘ 10
-/referral - ʀᴇꜰᴇʀ
-/gamble - ʀɪꜱᴋ!
-/notifications - ᴀʟᴇʀᴛꜱ"""
+/vtxlog - ᴛʀᴀɴꜱᴀᴄᴛɪᴏɴꜱ
+/vsend - ꜱᴇɴᴅ ɢᴏʟᴅ
+/vlevel - ʟᴇᴠᴇʟ
+/vtopten - ᴛᴏᴘ 10
+/vrefer - ʀᴇꜰᴇʀ
+/vrisk - ɢᴀᴍʙʟᴇ!
+/valerts - ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ"""
 
-    btns = [[InlineKeyboardButton("💰 ʙᴀʟᴀɴᴄᴇ", callback_data=f"bal_{update.effective_user.id}")]]
+    btns = [[InlineKeyboardButton("💰 ʙᴀʟᴀɴᴄᴇ", callback_data=f"vbal_{update.effective_user.id}")]]
     await update.message.reply_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
 async def callback_handler(update: Update, context: CallbackContext):
@@ -1401,13 +1403,13 @@ async def callback_handler(update: Update, context: CallbackContext):
     data = q.data
     uid = q.from_user.id
 
-    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clr_", "pok_", "pno_", "invest_", "goals_", "insurance_", "history_")
+    valid_prefixes = ("vbal_", "vbnk_", "vlon_", "vpay_", "vclr_", "vok_", "vno_", "vinv_", "vgol_", "vins_", "vhis_")
     if not data.startswith(valid_prefixes):
         return
 
     await q.answer()
 
-    if data.startswith("bal_"):
+    if data.startswith("vbal_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1415,7 +1417,7 @@ async def callback_handler(update: Update, context: CallbackContext):
 
         user = await get_user(uid)
         if not user:
-            await q.answer("⊗ ᴜꜱᴇ /bal", show_alert=True)
+            await q.answer("⊗ ᴜꜱᴇ /vbal", show_alert=True)
             return
 
         interest = await calc_interest(uid)
@@ -1465,15 +1467,15 @@ async def callback_handler(update: Update, context: CallbackContext):
         
         msg += "\n\n───────"
         btns = [
-            [InlineKeyboardButton("⟲", callback_data=f"bal_{uid}")],
-            [InlineKeyboardButton("🏦", callback_data=f"bank_{uid}"), InlineKeyboardButton("💳", callback_data=f"loan_{uid}")],
-            [InlineKeyboardButton("📊", callback_data=f"invest_{uid}"), InlineKeyboardButton("🎯", callback_data=f"goals_{uid}")],
-            [InlineKeyboardButton("🛡️", callback_data=f"insurance_{uid}"), InlineKeyboardButton("📜", callback_data=f"history_{uid}")]
+            [InlineKeyboardButton("⟲", callback_data=f"vbal_{uid}")],
+            [InlineKeyboardButton("🏦", callback_data=f"vbnk_{uid}"), InlineKeyboardButton("💳", callback_data=f"vlon_{uid}")],
+            [InlineKeyboardButton("📊", callback_data=f"vinv_{uid}"), InlineKeyboardButton("🎯", callback_data=f"vgol_{uid}")],
+            [InlineKeyboardButton("🛡️", callback_data=f"vins_{uid}"), InlineKeyboardButton("📜", callback_data=f"vhis_{uid}")]
         ]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         await q.answer("✓")
 
-    elif data.startswith("bank_"):
+    elif data.startswith("vbnk_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1484,11 +1486,11 @@ async def callback_handler(update: Update, context: CallbackContext):
         wallet = user.get('balance', 0)
         fds = user.get('fixed_deposits', [])
         
-        msg = f"╭────────────────╮\n│   🏦 ʙᴀɴᴋ   │\n╰────────────────╯\n\n⟡ ʙᴀɴᴋ: <code>{bank}</code>\n⟡ ᴡᴀʟʟᴇᴛ: <code>{wallet}</code>\n⟡ ɪɴᴛ: 5% ᴅᴀɪʟʏ\n⟡ ꜰᴅꜱ: <code>{len(fds)}</code>\n\n/deposit <amt>\n/withdraw <amt>\n/fd <amt> <days>"
-        btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+        msg = f"╭────────────────╮\n│   🏦 ʙᴀɴᴋ   │\n╰────────────────╯\n\n⟡ ʙᴀɴᴋ: <code>{bank}</code>\n⟡ ᴡᴀʟʟᴇᴛ: <code>{wallet}</code>\n⟡ ɪɴᴛ: 5% ᴅᴀɪʟʏ\n⟡ ꜰᴅꜱ: <code>{len(fds)}</code>\n\n/vadd <amt>\n/vtake <amt>\n/vfd <amt> <days>"
+        btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("loan_"):
+    elif data.startswith("vlon_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1498,8 +1500,8 @@ async def callback_handler(update: Update, context: CallbackContext):
         debt = user.get('permanent_debt', 0)
         
         if debt > 0:
-            msg = f"╭────────────────╮\n│   🔴 ᴅᴇʙᴛ   │\n╰────────────────╯\n\n⟡ ᴅᴇʙᴛ: <code>{debt}</code>\n⟡ -10% ᴅᴀɪʟʏ\n\n/cleardebt"
-            btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+            msg = f"╭────────────────╮\n│   🔴 ᴅᴇʙᴛ   │\n╰────────────────╯\n\n⟡ ᴅᴇʙᴛ: <code>{debt}</code>\n⟡ -10% ᴅᴀɪʟʏ\n\n/vsettle"
+            btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
             return
 
@@ -1509,18 +1511,18 @@ async def callback_handler(update: Update, context: CallbackContext):
         if loan > 0:
             due = user.get('loan_due_date')
             left = (due - datetime.utcnow()).total_seconds()
-            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴛ: <code>{loan}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/repay"
-            btns = [[InlineKeyboardButton("💰", callback_data=f"repay_{uid}")], [InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴛ: <code>{loan}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/vpay"
+            btns = [[InlineKeyboardButton("💰", callback_data=f"vpay_{uid}")], [InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         else:
             max_loan = 200000 if user.get('premium') else 100000
             rate = 5 if credit >= 800 else 8 if credit >= 700 else 10
             
-            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3ᴅ\n⟡ ᴄʀᴇᴅɪᴛ: <code>{credit}</code>\n\n/loan <amt>\n/emergency <amt>"
-            btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+            msg = f"╭────────────────╮\n│   💳 ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3ᴅ\n⟡ ᴄʀᴇᴅɪᴛ: <code>{credit}</code>\n\n/borrow <amt>\n/vemerg <amt>"
+            btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("invest_"):
+    elif data.startswith("vinv_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1530,11 +1532,11 @@ async def callback_handler(update: Update, context: CallbackContext):
         invs = user.get('investments', [])
         total_value = sum(inv['value'] for inv in invs)
         
-        msg = f"╭────────────────╮\n│   📊 ɪɴᴠᴇꜱᴛ   │\n╰────────────────╯\n\n⟡ ᴘᴏʀᴛꜰᴏʟɪᴏ: <code>{len(invs)}</code>\n⟡ ᴠᴀʟᴜᴇ: <code>{total_value}</code>\n\n<b>ᴛʏᴘᴇꜱ:</b>\n• stock\n• bond\n• mf_low/med/high\n\n/invest <type> <amt>\n/portfolio\n/sellinvest <num>"
-        btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+        msg = f"╭────────────────╮\n│   📊 ɪɴᴠᴇꜱᴛ   │\n╰────────────────╯\n\n⟡ ᴘᴏʀᴛꜰᴏʟɪᴏ: <code>{len(invs)}</code>\n⟡ ᴠᴀʟᴜᴇ: <code>{total_value}</code>\n\n<b>ᴛʏᴘᴇꜱ:</b>\n• stk/bnd\n• mfl/mfm/mfh\n\n/vstock <type> <amt>\n/vport\n/vsell <num>"
+        btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("goals_"):
+    elif data.startswith("vgol_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1548,14 +1550,14 @@ async def callback_handler(update: Update, context: CallbackContext):
             for i, g in enumerate(goals, 1):
                 progress = (g['current'] / g['target'] * 100) if g['target'] > 0 else 0
                 msg += f"{i}. {g['name']}\n   {g['current']}/{g['target']} ({progress:.0f}%)\n\n"
-            msg += "/addtogoal <n> <amt>\n/withdrawgoal <n>"
+            msg += "/vsave <n> <amt>\n/vcancel <n>"
         else:
-            msg = "╭────────────────╮\n│   🎯 ɢᴏᴀʟꜱ   │\n╰────────────────╯\n\n⊗ ɴᴏ ɢᴏᴀʟꜱ\n\n/setgoal <amt> <name>"
+            msg = "╭────────────────╮\n│   🎯 ɢᴏᴀʟꜱ   │\n╰────────────────╯\n\n⊗ ɴᴏ ɢᴏᴀʟꜱ\n\n/vtarget <amt> <name>"
         
-        btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+        btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("insurance_"):
+    elif data.startswith("vins_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1566,11 +1568,11 @@ async def callback_handler(update: Update, context: CallbackContext):
         char_ins = "✅" if insurance.get('char') else "❌"
         dep_ins = "✅" if insurance.get('deposit') else "❌"
         
-        msg = f"╭────────────────╮\n│   🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ   │\n╰────────────────╯\n\n⟡ ᴄʜᴀʀ: {char_ins}\n⟡ ᴅᴇᴘᴏꜱɪᴛ: {dep_ins}\n⟡ ᴘʀᴇᴍɪᴜᴍ: 500/ᴍ\n\n/buyinsurance <type>"
-        btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+        msg = f"╭────────────────╮\n│   🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ   │\n╰────────────────╯\n\n⟡ ᴄʜᴀʀ: {char_ins}\n⟡ ᴅᴇᴘᴏꜱɪᴛ: {dep_ins}\n⟡ ᴘʀᴇᴍɪᴜᴍ: 500/ᴍ\n\n/vprotect <type>"
+        btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("history_"):
+    elif data.startswith("vhis_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1591,12 +1593,12 @@ async def callback_handler(update: Update, context: CallbackContext):
                 emoji = "💰" if amt > 0 else "💸"
                 msg += f"{emoji} <code>{amt:+d}</code> • {ttype}\n"
             
-            msg += "\n/history"
+            msg += "\n/vtxlog"
         
-        btns = [[InlineKeyboardButton("⬅️", callback_data=f"bal_{uid}")]]
+        btns = [[InlineKeyboardButton("⬅️", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("repay_"):
+    elif data.startswith("vpay_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1621,11 +1623,11 @@ async def callback_handler(update: Update, context: CallbackContext):
         
         new_bal = bal - loan
         msg = f"╭────────────────╮\n│   ✓ ʀᴇᴘᴀɪᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀɪᴅ: <code>{loan}</code>\n⟡ ʙᴀʟ: <code>{new_bal}</code>\n\n✨ ᴄʀᴇᴅɪᴛ +20"
-        btns = [[InlineKeyboardButton("💰", callback_data=f"bal_{uid}")]]
+        btns = [[InlineKeyboardButton("💰", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         await q.answer("✓")
 
-    elif data.startswith("clr_"):
+    elif data.startswith("vclr_"):
         target = int(data.split("_")[1])
         if uid != target:
             await q.answer("⊗ ɴᴏᴛ ʏᴏᴜʀꜱ", show_alert=True)
@@ -1635,7 +1637,7 @@ async def callback_handler(update: Update, context: CallbackContext):
         await q.edit_message_text("╭────────────────╮\n│   ✓ ᴄʟᴇᴀʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ɴᴏᴛɪꜰɪᴄᴀᴛɪᴏɴꜱ ᴄʟᴇᴀʀᴇᴅ")
         await q.answer("✓")
 
-    elif data.startswith("pok_"):
+    elif data.startswith("vok_"):
         pid = data.split("_", 1)[1]
         if pid not in pending_payments:
             await q.edit_message_text("╭────────────────╮\n│   ⊗ ᴇxᴘɪʀᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴘᴀʏᴍᴇɴᴛ ᴇxᴘɪʀᴇᴅ")
@@ -1673,11 +1675,11 @@ async def callback_handler(update: Update, context: CallbackContext):
         del pending_payments[pid]
 
         msg = f"╭────────────────╮\n│   ✓ ꜱᴇɴᴛ   │\n╰────────────────╯\n\n⟡ ᴛᴏ: <b>{recipient_name}</b>\n⟡ ᴀᴍᴛ: <code>{payment['amount']}</code>\n\n✅ ꜱᴜᴄᴄᴇꜱꜱ"
-        btns = [[InlineKeyboardButton("💰", callback_data=f"bal_{uid}")]]
+        btns = [[InlineKeyboardButton("💰", callback_data=f"vbal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         await q.answer("✓")
 
-    elif data.startswith("pno_"):
+    elif data.startswith("vno_"):
         pid = data.split("_", 1)[1]
         if pid in pending_payments:
             payment = pending_payments[pid]
@@ -1692,36 +1694,36 @@ async def callback_handler(update: Update, context: CallbackContext):
 # Register handlers
 application.post_init = post_init
 
-application.add_handler(CommandHandler("bal", sbi_balance, block=False))
-application.add_handler(CommandHandler("sbideposit", sbi_deposit, block=False))
-application.add_handler(CommandHandler("sbiwithdraw", sbi_withdraw, block=False))
-application.add_handler(CommandHandler("sbiloan", sbi_loan, block=False))
-application.add_handler(CommandHandler("sbiemergency", emergency_loan, block=False))
-application.add_handler(CommandHandler("sbirepay", repay, block=False))
-application.add_handler(CommandHandler("sbicleardebt", clear_debt, block=False))
-application.add_handler(CommandHandler("sbifd", fixed_deposit, block=False))
-application.add_handler(CommandHandler("sbibreakfd", break_fd, block=False))
-application.add_handler(CommandHandler("sbinotifications", notifications, block=False))
-application.add_handler(CommandHandler("sbipay", pay, block=False))
-application.add_handler(CommandHandler("sbidaily", daily, block=False))
-application.add_handler(CommandHandler("sbixp", xp_cmd, block=False))
-application.add_handler(CommandHandler("sbihistory", history, block=False))
-application.add_handler(CommandHandler("sbiinvest", invest_cmd, block=False))
-application.add_handler(CommandHandler("sbiportfolio", portfolio, block=False))
-application.add_handler(CommandHandler("sbisellinvest", sell_investment, block=False))
-application.add_handler(CommandHandler("sbisetgoal", set_goal, block=False))
-application.add_handler(CommandHandler("sbiaddtogoal", add_to_goal, block=False))
-application.add_handler(CommandHandler("sbiwithdrawgoal", withdraw_goal, block=False))
-application.add_handler(CommandHandler("sbibuyinsurance", buy_insurance, block=False))
-application.add_handler(CommandHandler("sbibuypremium", buy_premium, block=False))
-application.add_handler(CommandHandler("sbisetpin", set_pin, block=False))
-application.add_handler(CommandHandler("sbifreeze", freeze_account, block=False))
-application.add_handler(CommandHandler("sbiunfreeze", unfreeze_account, block=False))
-application.add_handler(CommandHandler("sbiseuprd", setup_rd, block=False))
-application.add_handler(CommandHandler("sbistoprd", stop_rd, block=False))
-application.add_handler(CommandHandler("sbileaderboard", leaderboard, block=False))
-application.add_handler(CommandHandler("sbireferral", referral, block=False))
-application.add_handler(CommandHandler("sbigamble", gamble, block=False))
-application.add_handler(CommandHandler("sbibankhelp", bank_help, block=False))
+application.add_handler(CommandHandler("bal", vault_balance, block=False))
+application.add_handler(CommandHandler("vadd", vault_add, block=False))
+application.add_handler(CommandHandler("vtake", vault_take, block=False))
+application.add_handler(CommandHandler("borrow", borrow_cmd, block=False))
+application.add_handler(CommandHandler("vemerg", emergency_cmd, block=False))
+application.add_handler(CommandHandler("pay", payback_cmd, block=False))
+application.add_handler(CommandHandler("vsettle", settle_cmd, block=False))
+application.add_handler(CommandHandler("vfd", fixdep_cmd, block=False))
+application.add_handler(CommandHandler("vfdbrk", breakfd_cmd, block=False))
+application.add_handler(CommandHandler("valerts", alerts_cmd, block=False))
+application.add_handler(CommandHandler("vsend", transfer_cmd, block=False))
+application.add_handler(CommandHandler("vreward", reward_cmd, block=False))
+application.add_handler(CommandHandler("vlevel", level_cmd, block=False))
+application.add_handler(CommandHandler("vtxlog", txlog_cmd, block=False))
+application.add_handler(CommandHandler("vstock", stock_cmd, block=False))
+application.add_handler(CommandHandler("vport", portfolio_cmd, block=False))
+application.add_handler(CommandHandler("vsell", sell_cmd, block=False))
+application.add_handler(CommandHandler("vtarget", target_cmd, block=False))
+application.add_handler(CommandHandler("vsave", save_cmd, block=False))
+application.add_handler(CommandHandler("vcancel", cancel_goal_cmd, block=False))
+application.add_handler(CommandHandler("vprotect", protect_cmd, block=False))
+application.add_handler(CommandHandler("vvip", vip_cmd, block=False))
+application.add_handler(CommandHandler("vpin", pinset_cmd, block=False))
+application.add_handler(CommandHandler("vlock", lock_cmd, block=False))
+application.add_handler(CommandHandler("vunlock", unlock_cmd, block=False))
+application.add_handler(CommandHandler("vauto", autoset_cmd, block=False))
+application.add_handler(CommandHandler("vautostop", autostop_cmd, block=False))
+application.add_handler(CommandHandler("vtopten", topten_cmd, block=False))
+application.add_handler(CommandHandler("vrefer", refer_cmd, block=False))
+application.add_handler(CommandHandler("vrisk", risk_cmd, block=False))
+application.add_handler(CommandHandler("vhelp", vhelp_cmd, block=False))
 
-application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(sbibal_|sbibank_|sbiloan_|sbirepay_|sbiclr_|sbipok_|sbipno_|sbiinvest_|sbigoals_|sbiinsurance_|sbihistory_)", block=False))
+application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(vbal_|vbnk_|vlon_|vpay_|vclr_|vok_|vno_|vinv_|vgol_|vins_|vhis_)", block=False))
