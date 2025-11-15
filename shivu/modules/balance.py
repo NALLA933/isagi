@@ -1819,7 +1819,7 @@ async def callback_handler(update: Update, context: CallbackContext):
 # Register handlers
 application.post_init = post_init
 
-application.add_handler(CommandHandler("balance", balance_cmd, block=False))
+application.add_handler(CommandHandler("bal", balance_cmd, block=False))
 application.add_handler(CommandHandler("deposit", deposit_cmd, block=False))
 application.add_handler(CommandHandler("withdraw", withdraw_cmd, block=False))
 application.add_handler(CommandHandler("getloan", getloan_cmd, block=False))
@@ -1829,7 +1829,7 @@ application.add_handler(CommandHandler("cleardebt", cleardebt_cmd, block=False))
 application.add_handler(CommandHandler("fixeddeposit", fixeddeposit_cmd, block=False))
 application.add_handler(CommandHandler("breakfd", breakfd_cmd, block=False))
 application.add_handler(CommandHandler("notifications", notifications_cmd, block=False))
-application.add_handler(CommandHandler("sendgold", sendgold_cmd, block=False))
+application.add_handler(CommandHandler("pay", sendgold_cmd, block=False))
 application.add_handler(CommandHandler("dailyreward", dailyreward_cmd, block=False))
 application.add_handler(CommandHandler("userlevel", userlevel_cmd, block=False))
 application.add_handler(CommandHandler("txhistory", txhistory_cmd, block=False))
