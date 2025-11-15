@@ -1510,7 +1510,7 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
 
 <b>📜 Other</b>
 /txhistory - Transaction history
-/sendgold - Send gold (reply to user)
+/pay - Send gold (reply to user)
 /userlevel - View level and rank
 /leaders - Top 10 richest
 /referral - Referral info
