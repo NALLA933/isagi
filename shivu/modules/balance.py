@@ -1472,8 +1472,8 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
 <b>📊 Basic</b>
 /bal - View balance
 /deposit - Deposit to bank
-/withdraw - Withdraw from bank
-/dailyreward - Claim daily reward
+/withdraw - Withdraw from bankd
+/cclaim - Claim daily reward
 
 <b>💳 Loans</b>
 /getloan - Borrow money (100k max)
@@ -1830,7 +1830,7 @@ application.add_handler(CommandHandler("fixeddeposit", fixeddeposit_cmd, block=F
 application.add_handler(CommandHandler("breakfd", breakfd_cmd, block=False))
 application.add_handler(CommandHandler("notifications", notifications_cmd, block=False))
 application.add_handler(CommandHandler("pay", sendgold_cmd, block=False))
-application.add_handler(CommandHandler("dailyreward", dailyreward_cmd, block=False))
+application.add_handler(CommandHandler("cclaim", dailyreward_cmd, block=False))
 application.add_handler(CommandHandler("userlevel", userlevel_cmd, block=False))
 application.add_handler(CommandHandler("txhistory", txhistory_cmd, block=False))
 application.add_handler(CommandHandler("investstock", investstock_cmd, block=False))
