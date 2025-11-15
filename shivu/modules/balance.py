@@ -1846,9 +1846,9 @@ application.add_handler(CommandHandler("lockaccount", lockaccount_cmd, block=Fal
 application.add_handler(CommandHandler("unlockaccount", unlockaccount_cmd, block=False))
 application.add_handler(CommandHandler("autosetup", autosetup_cmd, block=False))
 application.add_handler(CommandHandler("autostop", autostop_cmd, block=False))
-application.add_handler(CommandHandler("leaderboard", leaderboard_cmd, block=False))
+application.add_handler(CommandHandler("leaders", leaderboard_cmd, block=False))
 application.add_handler(CommandHandler("referral", referral_cmd, block=False))
-application.add_handler(CommandHandler("gamble", gamble_cmd, block=False))
-application.add_handler(CommandHandler("vaulthelp", vaulthelp_cmd, block=False))
+application.add_handler(CommandHandler("bgamble", gamble_cmd, block=False))
+application.add_handler(CommandHandler("bankhelp", vaulthelp_cmd, block=False))
 
 application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clear_|confirm_|cancel_|invest_|goals_|insure_|history_)", block=False))
