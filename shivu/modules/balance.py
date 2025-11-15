@@ -410,7 +410,7 @@ async def post_init(app):
     asyncio.create_task(check_recurring_deposits())
     asyncio.create_task(process_investments())
 
-async def balance(update: Update, context: CallbackContext):
+async def sbi_balance(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
@@ -418,7 +418,7 @@ async def balance(update: Update, context: CallbackContext):
         user = await get_user(uid)
     
     if user.get('frozen'):
-        await update.message.reply_text("⊗ ᴀᴄᴄᴏᴜɴᴛ ғʀᴏᴢᴇɴ\nᴜꜱᴇ /unfreeze <pin>")
+        await update.message.reply_text("⊗ ᴀᴄᴄᴏᴜɴᴛ ғʀᴏᴢᴇɴ\nᴜꜱᴇ /sbiunfreeze <pin>")
         return
     
     interest = await calc_interest(uid)
@@ -468,18 +468,18 @@ async def balance(update: Update, context: CallbackContext):
     
     msg += "\n\n───────"
     btns = [
-        [InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ", callback_data=f"bal_{uid}")],
-        [InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"bank_{uid}"), InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"loan_{uid}")],
-        [InlineKeyboardButton("📊 ɪɴᴠᴇꜱᴛ", callback_data=f"invest_{uid}"), InlineKeyboardButton("🎯 ɢᴏᴀʟꜱ", callback_data=f"goals_{uid}")],
-        [InlineKeyboardButton("🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ", callback_data=f"insurance_{uid}"), InlineKeyboardButton("📜 ʜɪꜱᴛᴏʀʏ", callback_data=f"history_{uid}")]
+        [InlineKeyboardButton("⟲ ʀᴇғʀᴇꜱʜ", callback_data=f"sbibal_{uid}")],
+        [InlineKeyboardButton("🏦 ʙᴀɴᴋ", callback_data=f"sbibank_{uid}"), InlineKeyboardButton("💳 ʟᴏᴀɴ", callback_data=f"sbiloan_{uid}")],
+        [InlineKeyboardButton("📊 ɪɴᴠᴇꜱᴛ", callback_data=f"sbiinvest_{uid}"), InlineKeyboardButton("🎯 ɢᴏᴀʟꜱ", callback_data=f"sbigoals_{uid}")],
+        [InlineKeyboardButton("🛡️ ɪɴꜱᴜʀᴀɴᴄᴇ", callback_data=f"sbiinsurance_{uid}"), InlineKeyboardButton("📜 ʜɪꜱᴛᴏʀʏ", callback_data=f"sbihistory_{uid}")]
     ]
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
-async def deposit(update: Update, context: CallbackContext):
+async def sbi_deposit(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -491,7 +491,7 @@ async def deposit(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /deposit <amount>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /sbideposit <amount>")
         return
     
     if user.get('balance', 0) < amt:
@@ -502,11 +502,11 @@ async def deposit(update: Update, context: CallbackContext):
     await add_transaction(uid, 'deposit', amt, "ʙᴀɴᴋ ᴅᴇᴘᴏꜱɪᴛ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴅᴇᴘᴏꜱɪᴛᴇᴅ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>\n⟡ ɪɴᴛᴇʀᴇꜱᴛ: 5% ᴅᴀɪʟʏ", parse_mode="HTML")
 
-async def withdraw(update: Update, context: CallbackContext):
+async def sbi_withdraw(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -518,7 +518,7 @@ async def withdraw(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /withdraw <amount>")
+        await update.message.reply_text("⊗ ᴜꜱᴀɢᴇ: /sbiwithdraw <amount>")
         return
     
     if user.get('bank', 0) < amt:
@@ -529,11 +529,11 @@ async def withdraw(update: Update, context: CallbackContext):
     await add_transaction(uid, 'withdraw', amt, "ᴡɪᴛʜᴅʀᴀᴡᴀʟ")
     await update.message.reply_text(f"╭────────────────╮\n│   ✓ ᴡɪᴛʜᴅʀᴀᴡɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{amt}</code>", parse_mode="HTML")
 
-async def loan_cmd(update: Update, context: CallbackContext):
+async def sbi_loan(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     user = await get_user(uid)
     if not user:
-        await update.message.reply_text("⊗ ᴜꜱᴇ /bal ꜰɪʀꜱᴛ")
+        await update.message.reply_text("⊗ ᴜꜱᴇ /sbibalance ꜰɪʀꜱᴛ")
         return
     
     if user.get('frozen'):
@@ -549,8 +549,8 @@ async def loan_cmd(update: Update, context: CallbackContext):
     if curr > 0:
         due = user.get('loan_due_date')
         left = (due - datetime.utcnow()).total_seconds()
-        msg = f"╭────────────────╮\n│   ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{curr}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/repay"
-        btns = [[InlineKeyboardButton("💰 ʀᴇᴘᴀʏ", callback_data=f"repay_{uid}")]]
+        msg = f"╭────────────────╮\n│   ᴀᴄᴛɪᴠᴇ ʟᴏᴀɴ   │\n╰────────────────╯\n\n⟡ ᴀᴍᴏᴜɴᴛ: <code>{curr}</code>\n⟡ ᴅᴜᴇ: {fmt_time(left)}\n\n/sbirepay"
+        btns = [[InlineKeyboardButton("💰 ʀᴇᴘᴀʏ", callback_data=f"sbirepay_{uid}")]]
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         return
     
@@ -562,7 +562,7 @@ async def loan_cmd(update: Update, context: CallbackContext):
         credit = user.get('credit_score', 700)
         max_loan = BANK_CFG['max_premium_loan'] if user.get('premium') else BANK_CFG['max_loan']
         rate = 5 if credit >= 800 else 8 if credit >= 700 else 10
-        await update.message.reply_text(f"⊗ ᴜꜱᴀɢᴇ: /loan <amount>\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3 ᴅᴀʏꜱ", parse_mode="HTML")
+        await update.message.reply_text(f"⊗ ᴜꜱᴀɢᴇ: /sbiloan <amount>\n\n⟡ ᴍᴀx: <code>{max_loan:,}</code>\n⟡ ʀᴀᴛᴇ: <code>{rate}%</code>\n⟡ ᴅᴜʀᴀᴛɪᴏɴ: 3 ᴅᴀʏꜱ", parse_mode="HTML")
         return
     
     credit = user.get('credit_score', 700)
@@ -1692,36 +1692,36 @@ async def callback_handler(update: Update, context: CallbackContext):
 # Register handlers
 application.post_init = post_init
 
-application.add_handler(CommandHandler("bal", balance, block=False))
-application.add_handler(CommandHandler("deposit", deposit, block=False))
-application.add_handler(CommandHandler("withdraw", withdraw, block=False))
-application.add_handler(CommandHandler("loan", loan_cmd, block=False))
-application.add_handler(CommandHandler("emergency", emergency_loan, block=False))
-application.add_handler(CommandHandler("repay", repay, block=False))
-application.add_handler(CommandHandler("cleardebt", clear_debt, block=False))
-application.add_handler(CommandHandler("fd", fixed_deposit, block=False))
-application.add_handler(CommandHandler("breakfd", break_fd, block=False))
-application.add_handler(CommandHandler("notifications", notifications, block=False))
-application.add_handler(CommandHandler("pay", pay, block=False))
-application.add_handler(CommandHandler("cclaim", daily, block=False))
-application.add_handler(CommandHandler("xp", xp_cmd, block=False))
-application.add_handler(CommandHandler("history", history, block=False))
-application.add_handler(CommandHandler("invest", invest_cmd, block=False))
-application.add_handler(CommandHandler("portfolio", portfolio, block=False))
-application.add_handler(CommandHandler("sellinvest", sell_investment, block=False))
-application.add_handler(CommandHandler("setgoal", set_goal, block=False))
-application.add_handler(CommandHandler("addtogoal", add_to_goal, block=False))
-application.add_handler(CommandHandler("withdrawgoal", withdraw_goal, block=False))
-application.add_handler(CommandHandler("buyinsurance", buy_insurance, block=False))
-application.add_handler(CommandHandler("buypremium", buy_premium, block=False))
-application.add_handler(CommandHandler("setpin", set_pin, block=False))
-application.add_handler(CommandHandler("freeze", freeze_account, block=False))
-application.add_handler(CommandHandler("unfreeze", unfreeze_account, block=False))
-application.add_handler(CommandHandler("setuprd", setup_rd, block=False))
-application.add_handler(CommandHandler("stoprd", stop_rd, block=False))
-application.add_handler(CommandHandler("leader", leaderboard, block=False))
-application.add_handler(CommandHandler("referral", referral, block=False))
-application.add_handler(CommandHandler("gamble", gamble, block=False))
-application.add_handler(CommandHandler("bankhelp", bank_help, block=False))
+application.add_handler(CommandHandler("bal", sbi_balance, block=False))
+application.add_handler(CommandHandler("sbideposit", sbi_deposit, block=False))
+application.add_handler(CommandHandler("sbiwithdraw", sbi_withdraw, block=False))
+application.add_handler(CommandHandler("sbiloan", sbi_loan, block=False))
+application.add_handler(CommandHandler("sbiemergency", emergency_loan, block=False))
+application.add_handler(CommandHandler("sbirepay", repay, block=False))
+application.add_handler(CommandHandler("sbicleardebt", clear_debt, block=False))
+application.add_handler(CommandHandler("sbifd", fixed_deposit, block=False))
+application.add_handler(CommandHandler("sbibreakfd", break_fd, block=False))
+application.add_handler(CommandHandler("sbinotifications", notifications, block=False))
+application.add_handler(CommandHandler("sbipay", pay, block=False))
+application.add_handler(CommandHandler("sbidaily", daily, block=False))
+application.add_handler(CommandHandler("sbixp", xp_cmd, block=False))
+application.add_handler(CommandHandler("sbihistory", history, block=False))
+application.add_handler(CommandHandler("sbiinvest", invest_cmd, block=False))
+application.add_handler(CommandHandler("sbiportfolio", portfolio, block=False))
+application.add_handler(CommandHandler("sbisellinvest", sell_investment, block=False))
+application.add_handler(CommandHandler("sbisetgoal", set_goal, block=False))
+application.add_handler(CommandHandler("sbiaddtogoal", add_to_goal, block=False))
+application.add_handler(CommandHandler("sbiwithdrawgoal", withdraw_goal, block=False))
+application.add_handler(CommandHandler("sbibuyinsurance", buy_insurance, block=False))
+application.add_handler(CommandHandler("sbibuypremium", buy_premium, block=False))
+application.add_handler(CommandHandler("sbisetpin", set_pin, block=False))
+application.add_handler(CommandHandler("sbifreeze", freeze_account, block=False))
+application.add_handler(CommandHandler("sbiunfreeze", unfreeze_account, block=False))
+application.add_handler(CommandHandler("sbiseuprd", setup_rd, block=False))
+application.add_handler(CommandHandler("sbistoprd", stop_rd, block=False))
+application.add_handler(CommandHandler("sbileaderboard", leaderboard, block=False))
+application.add_handler(CommandHandler("sbireferral", referral, block=False))
+application.add_handler(CommandHandler("sbigamble", gamble, block=False))
+application.add_handler(CommandHandler("sbibankhelp", bank_help, block=False))
 
-application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clr_|pok_|pno_|invest_|goals_|insurance_|history_)", block=False))
+application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(sbibal_|sbibank_|sbiloan_|sbirepay_|sbiclr_|sbipok_|sbipno_|sbiinvest_|sbigoals_|sbiinsurance_|sbihistory_)", block=False))
