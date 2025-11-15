@@ -205,13 +205,16 @@ async def col_cap(ch: Dict, u: Dict, fav: bool, stats: Dict, rank: Tuple) -> str
     anime_info = await collection.count_documents({'anime': an})
     
     cap = (
-        f"<b>{'💖 ' if fav else ''}{escape(nm)}</b>\n"
-        f"<a href='tg://user?id={uid}'>{escape(trunc(fn, 12))}</a> "
-        f"{unique}/{total} {animes} anime\n"
-        f"rank {rank_pos} top {pct}%\n\n"
-        f"{cid} {e} {sc(trunc(rt, 10))}\n"
-        f"{trunc(escape(an), 16)} {ua}/{anime_info}\n"
-        f"{'video' if vid else 'image'} x{uc}"
+        f"{'💖 ' if fav else ''}<b><u>{escape(nm)}</u></b>\n"
+        f"╰┈➤ ✨ <b>Character Info</b>\n\n"
+        f"👤 <a href='tg://user?id={uid}'><b>{escape(trunc(fn, 12))}</b></a>\n"
+        f"📊 <code>{unique}</code>/<code>{total}</code> chars • <code>{animes}</code> anime\n"
+        f"🏆 Rank <b>#{rank_pos}</b> • Top <b>{pct}%</b>\n\n"
+        f"<blockquote>🆔 <code>{cid}</code>\n"
+        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
+        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n"
+        f"📦 Collection: <b>{ua}</b>/<code>{anime_info}</code>\n"
+        f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'} • Owned <b>×{uc}</b>"
     )
     
     return cap
@@ -232,15 +235,19 @@ async def glob_cap(ch: Dict, total: int) -> str:
     anime_info = await collection.count_documents({'anime': an})
     
     cap = (
-        f"<b>{escape(nm)}</b>\n"
-        f"{total} characters available\n\n"
-        f"{cid} {e} {sc(trunc(rt, 10))}\n"
-        f"{trunc(escape(an), 16)} {anime_info} total\n"
-        f"{'video' if vid else 'image'} grabbed {gc}x\n"
+        f"<b><u>{escape(nm)}</u></b>\n"
+        f"╰┈➤ 🌐 <b>Global Database</b>\n\n"
+        f"📚 <code>{total}</code> characters available\n\n"
+        f"<blockquote>🆔 <code>{cid}</code>\n"
+        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
+        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n"
+        f"📦 Anime Total: <code>{anime_info}</code>\n"
+        f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'}\n"
+        f"🎯 Grabbed <b>{gc}×</b> times"
     )
     
     if top:
-        cap += f"\ntop {trunc(escape(top.get('first_name', 'User')), 10)} x{top.get('count', 0)}"
+        cap += f"\n\n👑 <b>Top Owner:</b> {trunc(escape(top.get('first_name', 'User')), 10)} <b>×{top.get('count', 0)}</b>"
     
     return cap
 
@@ -252,15 +259,21 @@ async def own_cap(ch: Dict, owners: List[Dict]) -> str:
     
     gc = sum(o.get('count', 0) for o in owners)
     
-    cap = f"<b>{escape(nm)}</b>\ntop owners {len(owners)}\n\n{cid} {e} {sc(trunc(rt, 10))}\n{trunc(escape(an), 16)}\n\n"
+    cap = (
+        f"<b><u>{escape(nm)}</u></b>\n"
+        f"╰┈➤ 👥 <b>TOP OWNERS</b> ({len(owners)} users)\n\n"
+        f"<blockquote>🆔 <code>{cid}</code>\n"
+        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
+        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n\n"
+    )
     
-    medals = {1: "1st", 2: "2nd", 3: "3rd"}
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, o in enumerate(owners[:40], 1):
-        m = medals.get(i, f"{i}th")
+        medal = medals.get(i, f"<b>{i}.</b>")
         fn = trunc(escape(o.get('first_name', 'User')), 11)
-        cap += f"{m} {fn} x{o.get('count', 0)} of {o.get('total', 0)}\n"
+        cap += f"{medal} {fn} <b>×{o.get('count', 0)}</b> of <code>{o.get('total', 0)}</code>\n"
     
-    cap += f"\ntotal grabbed {gc}x"
+    cap += f"\n✦ Total grabbed <b>{gc}×</b>"
     return cap
 
 async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
@@ -275,19 +288,22 @@ async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
     anime_total = await collection.count_documents({'anime': an})
     
     cap = (
-        f"<b>{escape(nm)}</b>\nstatistics\n\n"
-        f"{cid} {e} {sc(trunc(rt, 10))}\n"
-        f"{trunc(escape(an), 16)}\n\n"
-        f"grabbed {gc}x by {uo} users\n"
-        f"average {avg}x per user\n"
-        f"anime has {anime_total} characters\n"
+        f"<b><u>{escape(nm)}</u></b>\n"
+        f"╰┈➤ 📊 <b>STATISTICS</b>\n\n"
+        f"<blockquote>🆔 <code>{cid}</code>\n"
+        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
+        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n\n"
+        f"🎯 Grabbed: <b>{gc}×</b>\n"
+        f"👥 Owners: <code>{uo}</code> users\n"
+        f"📈 Average: <b>{avg}×</b> per user\n"
+        f"📚 Anime Total: <code>{anime_total}</code> chars"
     )
     
     if owners:
-        cap += f"\ntop collectors\n"
+        cap += f"\n\n╰┈➤ 🏆 <b>Top Collectors</b>\n\n"
         for i, o in enumerate(owners[:15], 1):
             fn = trunc(escape(o.get('first_name', 'User')), 10)
-            cap += f"{i} {fn} x{o.get('count', 0)}\n"
+            cap += f"<b>{i}.</b> {fn} <b>×{o.get('count', 0)}</b>\n"
     
     return cap
 
@@ -305,11 +321,17 @@ async def comp_cap(ch: Dict, u1: Dict, u2: Dict) -> str:
     r2 = await get_rank(u2.get('id'))
     
     cap = (
-        f"<b>{escape(nm)}</b>\ncomparison\n\n"
-        f"<a href='tg://user?id={u1['id']}'>{escape(trunc(u1.get('first_name', 'User1'), 9))}</a> "
-        f"x{u1c} {s1['unique']}/{s1['total']} rank {r1[0]}\n"
-        f"<a href='tg://user?id={u2['id']}'>{escape(trunc(u2.get('first_name', 'User2'), 9))}</a> "
-        f"x{u2c} {s2['unique']}/{s2['total']} rank {r2[0]}\n"
+        f"<b><u>{escape(nm)}</u></b>\n"
+        f"╰┈➤ ⚔️ <b>COMPARISON</b>\n\n"
+        f"<blockquote expandable>👤 <a href='tg://user?id={u1['id']}'><b>{escape(trunc(u1.get('first_name', 'User1'), 9))}</b></a>\n"
+        f"   • Owned: <b>×{u1c}</b>\n"
+        f"   • Collection: <code>{s1['unique']}</code>/<code>{s1['total']}</code>\n"
+        f"   • Rank: <b>#{r1[0]}</b></blockquote>\n\n"
+        f"<b>VS</b>\n\n"
+        f"<blockquote expandable>👤 <a href='tg://user?id={u2['id']}'><b>{escape(trunc(u2.get('first_name', 'User2'), 9))}</b></a>\n"
+        f"   • Owned: <b>×{u2c}</b>\n"
+        f"   • Collection: <code>{s2['unique']}</code>/<code>{s2['total']}</code>\n"
+        f"   • Rank: <b>#{r2[0]}</b></blockquote>"
     )
     
     return cap
