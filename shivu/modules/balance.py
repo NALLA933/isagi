@@ -2,7 +2,7 @@ import math
 import random
 import asyncio
 import hashlib
-import requests
+import aiohttp
 from datetime import datetime, timedelta
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -89,11 +89,17 @@ def hash_pin(pin):
 async def get_stock_price(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        price = data['chart']['result'][0]['meta']['regularMarketPrice']
-        return round(price, 2)
-    except:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    price = data['chart']['result'][0]['meta']['regularMarketPrice']
+                    return round(price, 2)
+                return None
+    except Exception as e:
+        print(f"Stock fetch error for {symbol}: {e}")
         return None
 
 async def get_user(uid):
