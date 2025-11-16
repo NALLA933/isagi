@@ -5,11 +5,9 @@ import random
 import math
 from shivu import db, application
 
-# Database collections
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 
-# Rarity mapping for harem modes
 HAREM_MODE_MAPPING = {
     "common": "🟢 Common",
     "rare": "🟣 Rare",
@@ -36,26 +34,16 @@ HAREM_MODE_MAPPING = {
 
 
 def is_video_url(url):
-    """Check if URL is a video based on extension or domain patterns"""
     if not url:
         return False
     
     url_lower = url.lower()
     
-    # Check for video file extensions
     video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
     if any(url_lower.endswith(ext) for ext in video_extensions):
         return True
     
-    # Check for video hosting patterns in URL
-    video_patterns = [
-        '/video/',
-        '/videos/',
-        'video=',
-        'v=',
-        '.mp4?',
-        '/stream/',
-    ]
+    video_patterns = ['/video/', '/videos/', 'video=', 'v=', '.mp4?', '/stream/']
     if any(pattern in url_lower for pattern in video_patterns):
         return True
     
@@ -63,14 +51,11 @@ def is_video_url(url):
 
 
 async def send_media_message(message, media_url, caption, reply_markup, is_video=False):
-    """Helper function to send photo or video with fallback support"""
     try:
-        # Auto-detect if not explicitly set
         if not is_video:
             is_video = is_video_url(media_url)
         
         if is_video:
-            # Try sending as video
             try:
                 return await message.reply_video(
                     video=media_url,
@@ -82,8 +67,7 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
                     write_timeout=120
                 )
             except Exception as video_error:
-                print(f"Failed to send as video, trying as photo: {video_error}")
-                # Fallback to photo if video fails
+                print(f"Failed to send as video: {video_error}")
                 return await message.reply_photo(
                     photo=media_url,
                     caption=caption,
@@ -91,7 +75,6 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
                     parse_mode='HTML'
                 )
         else:
-            # Send as photo
             return await message.reply_photo(
                 photo=media_url,
                 caption=caption,
@@ -100,7 +83,6 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
             )
     except Exception as e:
         print(f"Failed to send media: {e}")
-        # Ultimate fallback to text-only
         return await message.reply_text(
             text=caption,
             reply_markup=reply_markup,
@@ -109,36 +91,31 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
 
 
 async def harem(update: Update, context: CallbackContext, page=0, edit=False) -> None:
-    """Display user's character collection (harem) with enhanced format"""
     user_id = update.effective_user.id
 
     try:
         user = await user_collection.find_one({'id': user_id})
         if not user:
             message = update.message or update.callback_query.message
-            await message.reply_text("You need to grab a character first using /grab command!")
+            await message.reply_text("⚠️ You need to grab a character first using /grab command!")
             return
 
         characters = user.get('characters', [])
         if not characters:
             message = update.message or update.callback_query.message
-            await message.reply_text("You don't have any characters yet! Use /grab to catch some.")
+            await message.reply_text("📭 You don't have any characters yet! Use /grab to catch some.")
             return
 
-        # Get favorite character
         fav_character = user.get('favorites', None)
 
-        # Validate favorite character exists in collection
         if fav_character and isinstance(fav_character, dict):
             fav_id = fav_character.get('id')
-            # Check if user still owns this character
             still_owns_fav = any(
                 char.get('id') == fav_id 
                 for char in characters 
                 if isinstance(char, dict)
             )
             if not still_owns_fav:
-                # Remove invalid favorite from database
                 await user_collection.update_one(
                     {'id': user_id},
                     {'$unset': {'favorites': ""}}
@@ -147,10 +124,8 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         else:
             fav_character = None
 
-        # Get harem mode
         hmode = user.get('smode', 'default')
 
-        # Filter characters based on mode
         if hmode == "default" or hmode is None:
             filtered_chars = [char for char in characters if isinstance(char, dict)]
             rarity_filter = "All"
@@ -169,36 +144,30 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         if not filtered_chars:
             message = update.message or update.callback_query.message
             await message.reply_text(
-                f"You don't have any characters with rarity: {rarity_filter}\n"
-                f"Change mode using /smode"
+                f"❌ You don't have any characters with rarity: {rarity_filter}\n"
+                f"💡 Change mode using /smode"
             )
             return
 
-        # Sort characters
         filtered_chars = sorted(filtered_chars, key=lambda x: (x.get('anime', ''), x.get('id', '')))
 
-        # Count characters
         character_counts = {}
         for char in filtered_chars:
             char_id = char.get('id')
             if char_id:
                 character_counts[char_id] = character_counts.get(char_id, 0) + 1
 
-        # Pagination
         total_pages = math.ceil(len(filtered_chars) / 10)
         if page < 0 or page >= total_pages:
             page = 0
 
-        # Build message with new format
         user_name = escape(update.effective_user.first_name)
         harem_message = f"<b>{user_name}'s ʜᴀʀᴇᴍ - ᴘᴀɢᴇ {page + 1}/{total_pages}</b>\n\n"
 
-        # Get current page characters
         start_idx = page * 10
         end_idx = start_idx + 10
         current_chars = filtered_chars[start_idx:end_idx]
 
-        # Group by anime
         grouped = {}
         for char in current_chars:
             anime = char.get('anime', 'Unknown')
@@ -206,17 +175,14 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                 grouped[anime] = []
             grouped[anime].append(char)
 
-        # Track included characters to avoid duplicates
         included = set()
 
         for anime, chars in grouped.items():
-            # Count user's characters from this anime
             user_anime_count = len([
                 c for c in user['characters'] 
                 if isinstance(c, dict) and c.get('anime') == anime
             ])
 
-            # Count total characters in this anime
             total_anime_count = await collection.count_documents({"anime": anime})
 
             harem_message += f'<b>𖤍 {escape(anime)} ｛{user_anime_count}/{total_anime_count}｝</b>\n'
@@ -229,13 +195,11 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     name = char.get('name', 'Unknown')
                     rarity = char.get('rarity', '🟢 Common')
 
-                    # Get rarity emoji
                     if isinstance(rarity, str):
                         rarity_emoji = rarity.split(' ')[0]
                     else:
                         rarity_emoji = '🟢'
 
-                    # Check if this is the favorite
                     fav_marker = ""
                     if fav_character and char_id == fav_character.get('id'):
                         fav_marker = " [🍁]"
@@ -245,11 +209,9 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
 
             harem_message += '⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n\n'
 
-        # Calculate total character count
         total_char_count = len(filtered_chars)
         unique_char_count = len(character_counts)
 
-        # Create keyboard with updated format
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -259,7 +221,6 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             ]
         ]
 
-        # Add navigation buttons
         if total_pages > 1:
             nav_buttons = []
             if page > 0:
@@ -276,27 +237,19 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
 
-        # Determine which media to show with auto video detection
         display_media = None
         is_video_display = False
 
-        # Priority 1: Show favorite if it exists and has valid img_url
         if fav_character and isinstance(fav_character, dict) and fav_character.get('img_url'):
             display_media = fav_character['img_url']
-            # Check both database flag and URL pattern
             is_video_display = fav_character.get('is_video', False) or is_video_url(display_media)
-        # Priority 2: Show random character from filtered list if no favorite
         elif filtered_chars:
-            # Pick a random character from the filtered collection
             random_char = random.choice(filtered_chars)
             display_media = random_char.get('img_url')
-            # Check both database flag and URL pattern
             is_video_display = random_char.get('is_video', False) or is_video_url(display_media)
 
-        # Send or edit message with FULL VIDEO SUPPORT
         if display_media:
             if edit:
-                # Editing existing message - just update caption
                 try:
                     await message.edit_caption(
                         caption=harem_message, 
@@ -305,17 +258,14 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     )
                 except Exception as edit_error:
                     print(f"Could not edit caption: {edit_error}")
-                    # If edit fails, send a new message
                     await send_media_message(
                         message, display_media, harem_message, reply_markup, is_video_display
                     )
             else:
-                # New message - send photo or video with auto-detection
                 await send_media_message(
                     message, display_media, harem_message, reply_markup, is_video_display
                 )
         else:
-            # Fallback to text-only
             if edit:
                 await message.edit_text(
                     text=harem_message,
@@ -334,11 +284,10 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         import traceback
         traceback.print_exc()
         message = update.message or update.callback_query.message
-        await message.reply_text("An error occurred while loading your collection.")
+        await message.reply_text("⚠️ An error occurred while loading your collection.")
 
 
 async def harem_callback(update: Update, context: CallbackContext) -> None:
-    """Handle harem pagination callbacks"""
     query = update.callback_query
 
     try:
@@ -347,7 +296,6 @@ async def harem_callback(update: Update, context: CallbackContext) -> None:
         page = int(page)
         user_id = int(user_id)
 
-        # Verify user
         if query.from_user.id != user_id:
             await query.answer("⚠️ This is not your collection!", show_alert=True)
             return
@@ -357,17 +305,16 @@ async def harem_callback(update: Update, context: CallbackContext) -> None:
 
     except Exception as e:
         print(f"Error in harem callback: {e}")
-        await query.answer("Error loading page", show_alert=True)
+        await query.answer("❌ Error loading page", show_alert=True)
 
 
 async def unfav(update: Update, context: CallbackContext) -> None:
-    """Remove favorite character with FULL VIDEO SUPPORT"""
     user_id = update.effective_user.id
 
     try:
         user = await user_collection.find_one({'id': user_id})
         if not user:
-            await update.message.reply_text('𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙣𝙤𝙩 𝙂𝙤𝙩 𝘼𝙣𝙮 𝙒𝘼𝙄𝙁𝙐 𝙮𝙚𝙩...')
+            await update.message.reply_text('⚠️ 𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙣𝙤𝙩 𝙂𝙤𝙩 𝘼𝙣𝙮 𝙒𝘼𝙄𝙁𝙐 𝙮𝙚𝙩...')
             return
 
         fav_character = user.get('favorites', None)
@@ -376,7 +323,6 @@ async def unfav(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text('💔 𝙔𝙤𝙪 𝙙𝙤𝙣\'𝙩 𝙝𝙖𝙫𝙚 𝙖 𝙛𝙖𝙫𝙤𝙧𝙞𝙩𝙚 𝙘𝙝𝙖𝙧𝙖𝙘𝙩𝙚𝙧 𝙨𝙚𝙩!')
             return
 
-        # Create confirmation buttons
         buttons = [
             [
                 InlineKeyboardButton("✅ ʏᴇs", callback_data=f"harem_unfav_yes:{user_id}"),
@@ -386,7 +332,6 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         reply_markup = InlineKeyboardMarkup(buttons)
 
         media_url = fav_character.get("img_url", "")
-        # Check both database flag and URL pattern for video detection
         is_video_fav = fav_character.get('is_video', False) or is_video_url(media_url)
 
         caption = (
@@ -396,7 +341,6 @@ async def unfav(update: Update, context: CallbackContext) -> None:
             f"🆔 <b>ɪᴅ:</b> <code>{fav_character.get('id', 'Unknown')}</code>"
         )
 
-        # Use helper function for sending media
         await send_media_message(
             update.message, media_url, caption, reply_markup, is_video_fav
         )
@@ -405,11 +349,10 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         print(f"Error in unfav command: {e}")
         import traceback
         traceback.print_exc()
-        await update.message.reply_text('ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ.')
+        await update.message.reply_text('⚠️ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ.')
 
 
 async def handle_unfav_callback(update: Update, context: CallbackContext) -> None:
-    """Handle unfavorite button callbacks"""
     query = update.callback_query
 
     try:
@@ -471,26 +414,26 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
 
 
 async def set_hmode(update: Update, context: CallbackContext) -> None:
-    """Set harem display mode"""
     keyboard = [
         [
-            InlineKeyboardButton("🧩 Default", callback_data="harem_mode_default"),
-            InlineKeyboardButton("🔮 By Rarity", callback_data="harem_mode_rarity"),
+            InlineKeyboardButton("🌟 Default View", callback_data="harem_mode_default"),
+            InlineKeyboardButton("💎 Rarity Filter", callback_data="harem_mode_rarity"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     message_text = (
-        "╔══════════════════════╗\n"
-        "    ⚙️ <b>COLLECTION MODE</b> ⚙️\n"
-        "╚══════════════════════╝\n\n"
-        "✨ <b>Customize Your View</b> ✨\n\n"
-        "🎯 <b>Default Mode</b>\n"
-        "   └ View all characters together\n\n"
-        "🔮 <b>Rarity Filter</b>\n"
-        "   └ Sort by specific rarity types\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Choose your preferred display mode below!"
+        "✦ ───────────── ✦\n"
+        "    <b>🎨 COLLECTION DISPLAY 🎨</b>\n"
+        "✦ ───────────── ✦\n\n"
+        "🌟 <b>Default View</b>\n"
+        "   Show all your amazing characters\n"
+        "   in one beautiful collection\n\n"
+        "💎 <b>Rarity Filter</b>\n"
+        "   Filter by specific rarity tiers\n"
+        "   to showcase your favorites\n\n"
+        "✦ ───────────── ✦\n"
+        "<i>Select your preferred viewing mode</i>"
     )
 
     await update.message.reply_text(
@@ -501,7 +444,6 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
 
 
 async def hmode_rarity(update: Update, context: CallbackContext) -> None:
-    """Show rarity selection menu"""
     keyboard = [
         [
             InlineKeyboardButton("🟢 Common", callback_data="harem_mode_common"),
@@ -538,14 +480,23 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
             InlineKeyboardButton("👼 Tiny", callback_data="harem_mode_tiny"),
         ],
         [
-            InlineKeyboardButton("⬅️ Back", callback_data="harem_mode_back"),
+            InlineKeyboardButton("« Back", callback_data="harem_mode_back"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     query = update.callback_query
-    await query.edit_message_caption(
-        caption="<b>🔮 Filter by Rarity</b>\n\nSelect a rarity to display:",
+    
+    message_text = (
+        "✦ ───────────── ✦\n"
+        "    <b>💎 RARITY SELECTION 💎</b>\n"
+        "✦ ───────────── ✦\n\n"
+        "<i>Choose a rarity tier to filter</i>\n"
+        "<i>your collection display</i>"
+    )
+    
+    await query.edit_message_text(
+        text=message_text,
         reply_markup=reply_markup,
         parse_mode='HTML'
     )
@@ -553,7 +504,6 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
 
 
 async def mode_button(update: Update, context: CallbackContext) -> None:
-    """Handle mode selection buttons"""
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -564,9 +514,19 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 {'id': user_id}, 
                 {'$set': {'smode': 'default'}}
             )
-            await query.answer("✅ Mode set to Default")
-            await query.edit_message_caption(
-                caption="<b>✅ Display Mode Updated</b>\n\nShowing: <b>All Characters</b>",
+            await query.answer("✅ Mode set to Default", show_alert=False)
+            
+            success_text = (
+                "✦ ───────────── ✦\n"
+                "    <b>✅ MODE UPDATED ✅</b>\n"
+                "✦ ───────────── ✦\n\n"
+                "🌟 <b>Current Filter:</b> All Characters\n\n"
+                "<i>Your collection is now showing</i>\n"
+                "<i>all your amazing characters!</i>"
+            )
+            
+            await query.edit_message_text(
+                text=success_text,
                 parse_mode='HTML'
             )
 
@@ -576,13 +536,28 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         elif data == "harem_mode_back":
             keyboard = [
                 [
-                    InlineKeyboardButton("🧩 Default", callback_data="harem_mode_default"),
-                    InlineKeyboardButton("🔮 By Rarity", callback_data="harem_mode_rarity"),
+                    InlineKeyboardButton("🌟 Default View", callback_data="harem_mode_default"),
+                    InlineKeyboardButton("💎 Rarity Filter", callback_data="harem_mode_rarity"),
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_caption(
-                caption="<b>⚙️ Collection Display Mode</b>\n\nChoose how to display your collection:",
+            
+            message_text = (
+                "✦ ───────────── ✦\n"
+                "    <b>🎨 COLLECTION DISPLAY 🎨</b>\n"
+                "✦ ───────────── ✦\n\n"
+                "🌟 <b>Default View</b>\n"
+                "   Show all your amazing characters\n"
+                "   in one beautiful collection\n\n"
+                "💎 <b>Rarity Filter</b>\n"
+                "   Filter by specific rarity tiers\n"
+                "   to showcase your favorites\n\n"
+                "✦ ───────────── ✦\n"
+                "<i>Select your preferred viewing mode</i>"
+            )
+            
+            await query.edit_message_text(
+                text=message_text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
@@ -596,9 +571,19 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 {'id': user_id}, 
                 {'$set': {'smode': mode_name}}
             )
-            await query.answer(f"✅ Mode set to {rarity_display}")
-            await query.edit_message_caption(
-                caption=f"<b>✅ Display Mode Updated</b>\n\nShowing: <b>{rarity_display}</b>",
+            await query.answer(f"✅ Filter set to {rarity_display}", show_alert=False)
+            
+            success_text = (
+                "✦ ───────────── ✦\n"
+                "    <b>✅ FILTER APPLIED ✅</b>\n"
+                "✦ ───────────── ✦\n\n"
+                f"💎 <b>Current Filter:</b> {rarity_display}\n\n"
+                "<i>Your collection now displays</i>\n"
+                f"<i>only {rarity_display} characters!</i>"
+            )
+            
+            await query.edit_message_text(
+                text=success_text,
                 parse_mode='HTML'
             )
 
@@ -606,10 +591,9 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         print(f"Error in mode button: {e}")
         import traceback
         traceback.print_exc()
-        await query.answer("Error updating mode", show_alert=True)
+        await query.answer("❌ Error updating mode", show_alert=True)
 
 
-# Register handlers
 application.add_handler(CommandHandler(["harem"], harem, block=False))
 application.add_handler(CommandHandler("smode", set_hmode, block=False))
 application.add_handler(CommandHandler("unfav", unfav, block=False))
