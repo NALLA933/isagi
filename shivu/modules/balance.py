@@ -95,8 +95,24 @@ async def get_stock_price(symbol):
             async with session.get(url, headers=headers, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
-                    price = data['chart']['result'][0]['meta']['regularMarketPrice']
-                    return round(price, 2)
+                    result = data['chart']['result'][0]
+                    meta = result['meta']
+                    
+                    current_price = meta.get('regularMarketPrice', 0)
+                    previous_close = meta.get('previousClose', current_price)
+                    change = current_price - previous_close
+                    change_percent = (change / previous_close * 100) if previous_close > 0 else 0
+                    
+                    market_state = meta.get('marketState', 'CLOSED')
+                    
+                    return {
+                        'price': round(current_price, 2),
+                        'previous_close': round(previous_close, 2),
+                        'change': round(change, 2),
+                        'change_percent': round(change_percent, 2),
+                        'market_state': market_state,
+                        'currency': meta.get('currency', 'INR')
+                    }
                 return None
     except Exception as e:
         print(f"Stock fetch error for {symbol}: {e}")
@@ -529,7 +545,7 @@ async def check_recurring_deposits():
 async def process_investments():
     while True:
         try:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(1800)
             async for user in user_collection.find({'investments': {'$exists': True, '$ne': []}}):
                 uid = user['id']
                 investments = user.get('investments', [])
@@ -539,9 +555,9 @@ async def process_investments():
                     if inv['type'] == 'stock':
                         symbol = inv.get('symbol')
                         if symbol and symbol in STOCK_SYMBOLS:
-                            current_price = await get_stock_price(STOCK_SYMBOLS[symbol])
-                            if current_price:
-                                initial_price = inv.get('buy_price', current_price)
+                            stock_data = await get_stock_price(STOCK_SYMBOLS[symbol])
+                            if stock_data:
+                                current_price = stock_data['price']
                                 units = inv.get('units', 1)
                                 inv['current_price'] = current_price
                                 inv['value'] = int(units * current_price)
@@ -1152,7 +1168,7 @@ async def investstock_cmd(update: Update, context: CallbackContext):
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        stock_list = "\n".join([f"• {k} - {v}" for k, v in list(STOCK_SYMBOLS.items())[:5]])
+        stock_list = "\n".join([f"• {k}" for k in list(STOCK_SYMBOLS.keys())[:5]])
         await update.message.reply_text(f"Usage: /investstock &lt;symbol&gt; &lt;amount&gt;\n\n<b>Available Stocks:</b>\n{stock_list}\n\nUse /stocklist for all", parse_mode="HTML")
         return
     
@@ -1164,10 +1180,15 @@ async def investstock_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ Insufficient balance")
         return
     
-    current_price = await get_stock_price(STOCK_SYMBOLS[symbol])
-    if not current_price:
+    stock_data = await get_stock_price(STOCK_SYMBOLS[symbol])
+    if not stock_data:
         await update.message.reply_text("⚠️ Unable to fetch stock price. Try again later.")
         return
+    
+    current_price = stock_data['price']
+    change = stock_data['change']
+    change_percent = stock_data['change_percent']
+    market_state = stock_data['market_state']
     
     units = amt / current_price
     
@@ -1185,15 +1206,70 @@ async def investstock_cmd(update: Update, context: CallbackContext):
     
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': -amt}, '$push': {'investments': investment}})
     await add_transaction(uid, 'invest', -amt, f"Stock: {symbol.upper()}")
-    await update.message.reply_text(f"<b>✅ Stock Purchased</b>\n\nStock: {symbol.upper()}\nPrice: ₹{current_price}\nUnits: {units:.2f}\nInvested: <code>{amt}</code>\n\nUse /portfolio to view", parse_mode="HTML")
+    
+    emoji = "📈" if change >= 0 else "📉"
+    sign = "+" if change >= 0 else ""
+    
+    market_status = "🟢 Open" if market_state in ['REGULAR', 'PRE', 'POST'] else "🔴 Closed"
+    
+    await update.message.reply_text(
+        f"<b>✅ Stock Purchased</b>\n\n"
+        f"Stock: <b>{symbol.upper()}</b>\n"
+        f"Price: ₹{current_price} {emoji} {sign}{change_percent}%\n"
+        f"Units: {units:.4f}\n"
+        f"Invested: <code>{amt}</code>\n"
+        f"Market: {market_status}\n\n"
+        f"Use /portfolio to view",
+        parse_mode="HTML"
+    )
 
 async def stocklist_cmd(update: Update, context: CallbackContext):
-    msg = "<b>📈 Available Stocks</b>\n\n"
+    msg = "<b>📈 Live Stock Market</b>\n\n"
+    
+    market_open = False
     for symbol, code in STOCK_SYMBOLS.items():
-        price = await get_stock_price(code)
-        price_str = f"₹{price}" if price else "N/A"
-        msg += f"<b>{symbol.upper()}</b> - {price_str}\n"
-    msg += "\nUsage: /investstock &lt;symbol&gt; &lt;amount&gt;"
+        stock_data = await get_stock_price(code)
+        if stock_data:
+            price = stock_data['price']
+            change = stock_data['change']
+            change_percent = stock_data['change_percent']
+            market_state = stock_data['market_state']
+            
+            if market_state in ['REGULAR', 'PRE', 'POST']:
+                market_open = True
+            
+            if change >= 0:
+                emoji = "📈"
+                sign = "+"
+            else:
+                emoji = "📉"
+                sign = ""
+            
+            msg += f"<b>{symbol.upper()}</b>\n"
+            msg += f"₹{price} {emoji} {sign}{change} ({sign}{change_percent}%)\n\n"
+        else:
+            msg += f"<b>{symbol.upper()}</b> - N/A\n\n"
+    
+    ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    current_time = ist_time.strftime("%I:%M %p IST")
+    
+    if market_open:
+        status = "🟢 Market Open"
+    else:
+        hour = ist_time.hour
+        if 0 <= hour < 9 or (hour == 9 and ist_time.minute < 15):
+            status = "🔴 Pre-Market (Opens 9:15 AM)"
+        elif hour >= 15 and ist_time.minute >= 30:
+            status = "🔴 Market Closed (Opens 9:15 AM)"
+        elif ist_time.weekday() >= 5:
+            status = "🔴 Weekend (Opens Monday 9:15 AM)"
+        else:
+            status = "🟢 Market Hours (9:15 AM - 3:30 PM)"
+    
+    msg += f"<b>Status:</b> {status}\n"
+    msg += f"<b>Time:</b> {current_time}\n\n"
+    msg += "Usage: /investstock &lt;symbol&gt; &lt;amount&gt;"
+    
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def portfolio_cmd(update: Update, context: CallbackContext):
@@ -1217,28 +1293,64 @@ async def portfolio_cmd(update: Update, context: CallbackContext):
     
     for i, inv in enumerate(investments, 1):
         name = safe_html(inv.get('name', 'Unknown'))
-        value = inv.get('value', 0)
         initial = inv.get('initial', 0)
-        change = ((value - initial) / initial * 100) if initial > 0 else 0
-        
-        emoji = "📈" if change >= 0 else "📉"
-        msg += f"{i}. {name}\n"
         
         if inv['type'] == 'stock':
-            current_price = inv.get('current_price', 0)
-            units = inv.get('units', 0)
-            msg += f"   Units: {units:.2f} @ ₹{current_price:.2f}\n"
-        
-        msg += f"   Initial: <code>{initial}</code>\n"
-        msg += f"   Current: <code>{value}</code>\n"
-        msg += f"   {emoji} <code>{change:+.2f}%</code>\n\n"
+            symbol = inv.get('symbol')
+            stock_data = await get_stock_price(STOCK_SYMBOLS.get(symbol, ''))
+            
+            if stock_data:
+                current_price = stock_data['price']
+                units = inv.get('units', 0)
+                value = int(units * current_price)
+                
+                inv['current_price'] = current_price
+                inv['value'] = value
+                
+                change = ((value - initial) / initial * 100) if initial > 0 else 0
+                price_change = stock_data['change']
+                price_change_percent = stock_data['change_percent']
+                
+                emoji = "📈" if change >= 0 else "📉"
+                price_emoji = "🟢" if price_change >= 0 else "🔴"
+                sign = "+" if price_change >= 0 else ""
+                
+                msg += f"{i}. <b>{name}</b> {price_emoji}\n"
+                msg += f"   Units: {units:.4f} × ₹{current_price}\n"
+                msg += f"   Day Change: {sign}{price_change_percent}%\n"
+                msg += f"   Initial: <code>{initial}</code>\n"
+                msg += f"   Current: <code>{value}</code>\n"
+                msg += f"   {emoji} <code>{change:+.2f}%</code>\n\n"
+            else:
+                value = inv.get('value', initial)
+                change = ((value - initial) / initial * 100) if initial > 0 else 0
+                emoji = "📈" if change >= 0 else "📉"
+                
+                msg += f"{i}. <b>{name}</b>\n"
+                msg += f"   Initial: <code>{initial}</code>\n"
+                msg += f"   Current: <code>{value}</code>\n"
+                msg += f"   {emoji} <code>{change:+.2f}%</code>\n\n"
+        else:
+            value = inv.get('value', 0)
+            change = ((value - initial) / initial * 100) if initial > 0 else 0
+            emoji = "📈" if change >= 0 else "📉"
+            
+            msg += f"{i}. {name}\n"
+            msg += f"   Initial: <code>{initial}</code>\n"
+            msg += f"   Current: <code>{value}</code>\n"
+            msg += f"   {emoji} <code>{change:+.2f}%</code>\n\n"
         
         total_value += value
         total_initial += initial
     
+    await user_collection.update_one({'id': uid}, {'$set': {'investments': investments}})
+    
     total_change = ((total_value - total_initial) / total_initial * 100) if total_initial > 0 else 0
-    msg += f"<b>Total:</b> <code>{total_value}</code>\n"
-    msg += f"<b>Gain/Loss:</b> <code>{total_change:+.2f}%</code>\n\n"
+    overall_emoji = "📈" if total_change >= 0 else "📉"
+    
+    msg += f"<b>Total Investment:</b> <code>{total_initial}</code>\n"
+    msg += f"<b>Current Value:</b> <code>{total_value}</code>\n"
+    msg += f"<b>Overall P&L:</b> {overall_emoji} <code>{total_change:+.2f}%</code>\n\n"
     msg += "Use /sellinvest &lt;number&gt; to sell"
     
     await update.message.reply_text(msg, parse_mode="HTML")
