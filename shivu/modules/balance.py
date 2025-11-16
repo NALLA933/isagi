@@ -1,6 +1,8 @@
 import math
 import random
 import asyncio
+import hashlib
+import requests
 from datetime import datetime, timedelta
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -10,6 +12,8 @@ from shivu import application, user_collection, collection
 pay_cooldown = {}
 pending_payments = {}
 loan_check_lock = asyncio.Lock()
+pin_attempts = {}
+insurance_claims = {}
 
 BANK_CFG = {
     'int_rate': 0.05,
@@ -18,7 +22,9 @@ BANK_CFG = {
     'max_loan': 100000,
     'max_premium_loan': 200000,
     'loan_days': 3,
+    'emergency_loan_days': 2,
     'penalty': 0.20,
+    'emergency_penalty': 0.30,
     'char_value': {
         '🟢 Common': 5000,
         '🟣 Rare': 10000,
@@ -44,10 +50,26 @@ BANK_CFG = {
     'daily_deduction': 0.10,
     'fd_rates': {7: 0.07, 15: 0.10, 30: 0.15},
     'fd_penalty': 0.03,
-    'emergency_loan_int': 0.15,
     'insurance_premium': 500,
+    'insurance_char_coverage': 100000,
+    'insurance_deposit_coverage': 50000,
     'premium_fee': 5000,
-    'premium_daily_bonus': 500
+    'premium_daily_bonus': 500,
+    'max_pin_attempts': 3,
+    'pin_lockout_hours': 24
+}
+
+STOCK_SYMBOLS = {
+    'nifty50': '^NSEI',
+    'banknifty': '^NSEBANK',
+    'reliance': 'RELIANCE.NS',
+    'tcs': 'TCS.NS',
+    'infosys': 'INFY.NS',
+    'hdfc': 'HDFCBANK.NS',
+    'icici': 'ICICIBANK.NS',
+    'sbi': 'SBIN.NS',
+    'bharti': 'BHARTIARTL.NS',
+    'itc': 'ITC.NS'
 }
 
 def fmt_time(s):
@@ -59,8 +81,20 @@ def fmt_time(s):
     return f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
 
 def safe_html(text):
-    """Escape HTML special characters"""
     return escape(str(text))
+
+def hash_pin(pin):
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+async def get_stock_price(symbol):
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        price = data['chart']['result'][0]['meta']['regularMarketPrice']
+        return round(price, 2)
+    except:
+        return None
 
 async def get_user(uid):
     return await user_collection.find_one({'id': uid})
@@ -75,6 +109,7 @@ async def init_user(uid):
         'last_interest': None,
         'loan_amount': 0,
         'loan_due_date': None,
+        'loan_type': None,
         'notifications': [],
         'permanent_debt': 0,
         'characters': [],
@@ -82,17 +117,31 @@ async def init_user(uid):
         'credit_score': 700,
         'fixed_deposits': [],
         'investments': [],
-        'savings_goals': [],
-        'insurance': {'char': False, 'deposit': False, 'last_premium': None},
+        'insurance': {
+            'char': False,
+            'deposit': False,
+            'last_premium_char': None,
+            'last_premium_deposit': None
+        },
         'premium': False,
         'premium_expiry': None,
-        'referrals': [],
         'achievements': [],
         'pin': None,
         'frozen': False,
-        'recurring_deposit': {'active': False, 'amount': 0, 'frequency': 'daily', 'last_deposit': None},
+        'pin_locked_until': None,
+        'failed_attempts': 0,
+        'recurring_deposit': {
+            'active': False,
+            'amount': 0,
+            'frequency': 'daily',
+            'last_deposit': None
+        },
         'loan_history': [],
-        'spending_limit': {'daily': 50000, 'used': 0, 'reset_date': None}
+        'spending_limit': {
+            'daily': 50000,
+            'used': 0,
+            'reset_date': None
+        }
     })
 
 async def add_transaction(uid, ttype, amount, desc=""):
@@ -144,6 +193,58 @@ async def get_char_value(cid):
     rarity = cdata.get('rarity', '🟢 Common')
     return BANK_CFG['char_value'].get(rarity, 5000)
 
+async def check_insurance_validity(uid, insurance_type):
+    user = await get_user(uid)
+    insurance = user.get('insurance', {})
+    
+    if insurance_type == 'char':
+        if not insurance.get('char'):
+            return False
+        last_premium = insurance.get('last_premium_char')
+        if last_premium and (datetime.utcnow() - last_premium).days >= 30:
+            await user_collection.update_one(
+                {'id': uid},
+                {'$set': {'insurance.char': False}}
+            )
+            return False
+        return True
+    elif insurance_type == 'deposit':
+        if not insurance.get('deposit'):
+            return False
+        last_premium = insurance.get('last_premium_deposit')
+        if last_premium and (datetime.utcnow() - last_premium).days >= 30:
+            await user_collection.update_one(
+                {'id': uid},
+                {'$set': {'insurance.deposit': False}}
+            )
+            return False
+        return True
+    return False
+
+async def process_insurance_claim(uid, claim_type, amount):
+    if claim_type == 'char':
+        coverage = BANK_CFG['insurance_char_coverage']
+    elif claim_type == 'deposit':
+        coverage = BANK_CFG['insurance_deposit_coverage']
+    else:
+        return 0
+    
+    covered = min(amount, coverage)
+    await user_collection.update_one(
+        {'id': uid},
+        {'$set': {f'insurance.{claim_type}': False}}
+    )
+    
+    claim_id = f"{uid}_{int(datetime.utcnow().timestamp())}"
+    insurance_claims[claim_id] = {
+        'user_id': uid,
+        'type': claim_type,
+        'amount': covered,
+        'timestamp': datetime.utcnow()
+    }
+    
+    return covered
+
 async def check_fd_maturity():
     while True:
         try:
@@ -187,30 +288,31 @@ async def check_loans():
                 async for user in user_collection.find({'loan_amount': {'$gt': 0}, 'loan_due_date': {'$lt': now}}):
                     uid = user['id']
                     loan = user.get('loan_amount', 0)
-                    penalty = int(loan * BANK_CFG['penalty'])
+                    loan_type = user.get('loan_type', 'normal')
+                    
+                    penalty_rate = BANK_CFG['emergency_penalty'] if loan_type == 'emergency' else BANK_CFG['penalty']
+                    penalty = int(loan * penalty_rate)
                     total = loan + penalty
+                    
                     bal = user.get('balance', 0)
                     bank = user.get('bank', 0)
                     
-                    has_insurance = user.get('insurance', {}).get('deposit', False)
-                    if has_insurance:
-                        covered = min(total, 50000)
-                        total -= covered
-                        await user_collection.update_one(
-                            {'id': uid},
-                            {'$set': {'insurance.deposit': False}}
-                        )
+                    has_deposit_insurance = await check_insurance_validity(uid, 'deposit')
+                    covered_amount = 0
+                    if has_deposit_insurance:
+                        covered_amount = await process_insurance_claim(uid, 'deposit', total)
+                        total -= covered_amount
                     
                     funds = bal + bank
                     seized = []
                     remaining_debt = 0
 
                     if bal >= total:
-                        await user_collection.update_one({'id': uid}, {'$inc': {'balance': -total}, '$set': {'loan_amount': 0, 'loan_due_date': None, 'permanent_debt': 0}})
+                        await user_collection.update_one({'id': uid}, {'$inc': {'balance': -total}, '$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None, 'permanent_debt': 0}})
                         seized.append(f"{total} gold from wallet")
                         await update_credit_score(uid, -50)
                     elif funds >= total:
-                        await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': bank - (total - bal), 'loan_amount': 0, 'loan_due_date': None, 'permanent_debt': 0}})
+                        await user_collection.update_one({'id': uid}, {'$set': {'balance': 0, 'bank': bank - (total - bal), 'loan_amount': 0, 'loan_due_date': None, 'loan_type': None, 'permanent_debt': 0}})
                         seized.append(f"{bal} gold from wallet")
                         seized.append(f"{total - bal} gold from bank")
                         await update_credit_score(uid, -50)
@@ -221,7 +323,7 @@ async def check_loans():
                         
                         remaining_debt = total - funds
                         chars = user.get('characters', [])
-                        has_char_insurance = user.get('insurance', {}).get('char', False)
+                        has_char_insurance = await check_insurance_validity(uid, 'char')
                         
                         if chars and not has_char_insurance:
                             seized_chars = []
@@ -242,26 +344,32 @@ async def check_loans():
                                 chars.remove(cid)
                             
                             if remaining_debt <= 0:
-                                await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None, 'permanent_debt': 0}})
+                                await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None, 'loan_type': None, 'permanent_debt': 0}})
                             else:
-                                await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None, 'permanent_debt': remaining_debt}})
+                                await user_collection.update_one({'id': uid}, {'$set': {'characters': chars, 'loan_amount': 0, 'loan_due_date': None, 'loan_type': None, 'permanent_debt': remaining_debt}})
                                 seized.append(f"Remaining debt: {remaining_debt} gold")
                         else:
                             if has_char_insurance:
-                                seized.append("Characters protected by insurance")
-                                await user_collection.update_one({'id': uid}, {'$set': {'insurance.char': False}})
-                            await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None, 'permanent_debt': remaining_debt}})
-                            seized.append(f"Permanent debt: {remaining_debt} gold")
+                                char_coverage = await process_insurance_claim(uid, 'char', remaining_debt)
+                                remaining_debt -= char_coverage
+                                seized.append(f"Insurance covered: {char_coverage} gold")
+                            
+                            await user_collection.update_one({'id': uid}, {'$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None, 'permanent_debt': max(0, remaining_debt)}})
+                            if remaining_debt > 0:
+                                seized.append(f"Permanent debt: {remaining_debt} gold")
                         
                         await update_credit_score(uid, -100)
 
                     await user_collection.update_one(
                         {'id': uid},
-                        {'$push': {'loan_history': {'amount': loan, 'penalty': penalty, 'date': now, 'status': 'defaulted'}}}
+                        {'$push': {'loan_history': {'amount': loan, 'penalty': penalty, 'date': now, 'type': loan_type, 'status': 'defaulted'}}}
                     )
 
                     time_str = now.strftime("%d/%m/%Y %H:%M UTC")
-                    msg = f"<b>Loan Collected</b>\n\nLoan: {loan}\nPenalty: {penalty}\nTotal: {total}\nTime: {time_str}\n\n<b>Seized:</b>\n" + "\n".join(f"• {i}" for i in seized)
+                    msg = f"<b>Loan Collected</b>\n\nLoan: {loan}\nPenalty: {penalty}\nTotal: {loan + penalty}"
+                    if covered_amount > 0:
+                        msg += f"\nInsurance Coverage: {covered_amount}"
+                    msg += f"\nTime: {time_str}\n\n<b>Seized:</b>\n" + "\n".join(f"• {i}" for i in seized)
 
                     await user_collection.update_one({'id': uid}, {'$push': {'notifications': {'type': 'loan_collection', 'message': msg, 'timestamp': now}}})
 
@@ -318,25 +426,58 @@ async def check_insurance():
             async for user in user_collection.find({'$or': [{'insurance.char': True}, {'insurance.deposit': True}]}):
                 uid = user['id']
                 insurance = user.get('insurance', {})
-                last_premium = insurance.get('last_premium')
                 
-                if last_premium:
-                    days_since = (now - last_premium).days
-                    if days_since >= 30:
+                if insurance.get('char'):
+                    last_premium = insurance.get('last_premium_char')
+                    if last_premium and (now - last_premium).days >= 30:
                         bal = user.get('balance', 0)
                         premium = BANK_CFG['insurance_premium']
                         
                         if bal >= premium:
                             await user_collection.update_one(
                                 {'id': uid},
-                                {'$inc': {'balance': -premium}, '$set': {'insurance.last_premium': now}}
+                                {'$inc': {'balance': -premium}, '$set': {'insurance.last_premium_char': now}}
                             )
-                            await add_transaction(uid, 'insurance', -premium, "Monthly premium")
+                            await add_transaction(uid, 'insurance', -premium, "Character insurance premium")
                         else:
                             await user_collection.update_one(
                                 {'id': uid},
-                                {'$set': {'insurance.char': False, 'insurance.deposit': False}}
+                                {'$set': {'insurance.char': False}}
                             )
+                            try:
+                                await application.bot.send_message(
+                                    chat_id=uid,
+                                    text="<b>⚠️ Insurance Cancelled</b>\n\nCharacter insurance cancelled due to insufficient funds",
+                                    parse_mode="HTML"
+                                )
+                            except:
+                                pass
+                
+                if insurance.get('deposit'):
+                    last_premium = insurance.get('last_premium_deposit')
+                    if last_premium and (now - last_premium).days >= 30:
+                        bal = user.get('balance', 0)
+                        premium = BANK_CFG['insurance_premium']
+                        
+                        if bal >= premium:
+                            await user_collection.update_one(
+                                {'id': uid},
+                                {'$inc': {'balance': -premium}, '$set': {'insurance.last_premium_deposit': now}}
+                            )
+                            await add_transaction(uid, 'insurance', -premium, "Deposit insurance premium")
+                        else:
+                            await user_collection.update_one(
+                                {'id': uid},
+                                {'$set': {'insurance.deposit': False}}
+                            )
+                            try:
+                                await application.bot.send_message(
+                                    chat_id=uid,
+                                    text="<b>⚠️ Insurance Cancelled</b>\n\nDeposit insurance cancelled due to insufficient funds",
+                                    parse_mode="HTML"
+                                )
+                            except:
+                                pass
         except Exception as e:
             print(f"Insurance error: {e}")
 
@@ -382,17 +523,26 @@ async def check_recurring_deposits():
 async def process_investments():
     while True:
         try:
-            await asyncio.sleep(86400)
+            await asyncio.sleep(3600)
             async for user in user_collection.find({'investments': {'$exists': True, '$ne': []}}):
                 uid = user['id']
                 investments = user.get('investments', [])
+                updated = False
                 
                 for inv in investments:
                     if inv['type'] == 'stock':
-                        change = random.uniform(-0.15, 0.20)
-                        inv['value'] = int(inv['value'] * (1 + change))
+                        symbol = inv.get('symbol')
+                        if symbol and symbol in STOCK_SYMBOLS:
+                            current_price = await get_stock_price(STOCK_SYMBOLS[symbol])
+                            if current_price:
+                                initial_price = inv.get('buy_price', current_price)
+                                units = inv.get('units', 1)
+                                inv['current_price'] = current_price
+                                inv['value'] = int(units * current_price)
+                                updated = True
                     elif inv['type'] == 'bond':
                         inv['value'] = int(inv['value'] * 1.005)
+                        updated = True
                     elif inv['type'] == 'mutual_fund':
                         risk = inv.get('risk', 'medium')
                         if risk == 'low':
@@ -402,8 +552,10 @@ async def process_investments():
                         else:
                             change = random.uniform(-0.20, 0.30)
                         inv['value'] = int(inv['value'] * (1 + change))
+                        updated = True
                 
-                await user_collection.update_one({'id': uid}, {'$set': {'investments': investments}})
+                if updated:
+                    await user_collection.update_one({'id': uid}, {'$set': {'investments': investments}})
         except Exception as e:
             print(f"Investment error: {e}")
 
@@ -415,8 +567,44 @@ async def post_init(app):
     asyncio.create_task(check_recurring_deposits())
     asyncio.create_task(process_investments())
 
+async def verify_pin(uid, pin):
+    user = await get_user(uid)
+    if not user:
+        return False
+    
+    locked_until = user.get('pin_locked_until')
+    if locked_until and datetime.utcnow() < locked_until:
+        remaining = (locked_until - datetime.utcnow()).total_seconds()
+        return f"locked:{int(remaining)}"
+    
+    stored_pin = user.get('pin')
+    if not stored_pin:
+        return False
+    
+    if hash_pin(pin) == stored_pin:
+        await user_collection.update_one(
+            {'id': uid},
+            {'$set': {'failed_attempts': 0}}
+        )
+        return True
+    else:
+        failed = user.get('failed_attempts', 0) + 1
+        await user_collection.update_one(
+            {'id': uid},
+            {'$set': {'failed_attempts': failed}}
+        )
+        
+        if failed >= BANK_CFG['max_pin_attempts']:
+            lockout_time = datetime.utcnow() + timedelta(hours=BANK_CFG['pin_lockout_hours'])
+            await user_collection.update_one(
+                {'id': uid},
+                {'$set': {'pin_locked_until': lockout_time, 'failed_attempts': 0}}
+            )
+            return f"locked:{BANK_CFG['pin_lockout_hours'] * 3600}"
+        
+        return False
+
 async def balance_cmd(update: Update, context: CallbackContext):
-    """View balance - /balance"""
     if not update.effective_user:
         return
     
@@ -463,7 +651,9 @@ async def balance_cmd(update: Update, context: CallbackContext):
         due = user.get('loan_due_date')
         if due:
             left = (due - datetime.utcnow()).total_seconds()
-            msg += f"\n\n⚠️ Active Loan: <code>{loan}</code>\nDue in: {fmt_time(left)}"
+            loan_type = user.get('loan_type', 'normal')
+            type_emoji = "⚡" if loan_type == 'emergency' else "💳"
+            msg += f"\n\n{type_emoji} Active Loan: <code>{loan}</code>\nDue in: {fmt_time(left)}"
     if debt > 0:
         msg += f"\n\n🔴 Permanent Debt: <code>{debt}</code>\nDaily Deduction: 10%"
     if interest > 0:
@@ -478,13 +668,12 @@ async def balance_cmd(update: Update, context: CallbackContext):
     btns = [
         [InlineKeyboardButton("🔄 Refresh", callback_data=f"bal_{uid}")],
         [InlineKeyboardButton("🏦 Bank", callback_data=f"bank_{uid}"), InlineKeyboardButton("💳 Loans", callback_data=f"loan_{uid}")],
-        [InlineKeyboardButton("📊 Invest", callback_data=f"invest_{uid}"), InlineKeyboardButton("🎯 Goals", callback_data=f"goals_{uid}")],
-        [InlineKeyboardButton("🛡️ Insurance", callback_data=f"insure_{uid}"), InlineKeyboardButton("📜 History", callback_data=f"history_{uid}")]
+        [InlineKeyboardButton("📊 Invest", callback_data=f"invest_{uid}"), InlineKeyboardButton("🛡️ Insurance", callback_data=f"insure_{uid}")],
+        [InlineKeyboardButton("📜 History", callback_data=f"history_{uid}")]
     ]
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
 async def deposit_cmd(update: Update, context: CallbackContext):
-    """Deposit to bank - /deposit <amount>"""
     if not update.effective_user:
         return
     
@@ -515,7 +704,6 @@ async def deposit_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>✅ Deposited</b>\n\nAmount: <code>{amt}</code>\nDaily Interest: 5%", parse_mode="HTML")
 
 async def withdraw_cmd(update: Update, context: CallbackContext):
-    """Withdraw from bank - /withdraw <amount>"""
     if not update.effective_user:
         return
     
@@ -546,7 +734,6 @@ async def withdraw_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>✅ Withdrawn</b>\n\nAmount: <code>{amt}</code>", parse_mode="HTML")
 
 async def getloan_cmd(update: Update, context: CallbackContext):
-    """Get a loan - /getloan <amount>"""
     if not update.effective_user:
         return
     
@@ -569,7 +756,9 @@ async def getloan_cmd(update: Update, context: CallbackContext):
     if curr > 0:
         due = user.get('loan_due_date')
         left = (due - datetime.utcnow()).total_seconds()
-        msg = f"<b>Active Loan</b>\n\nAmount: <code>{curr}</code>\nDue in: {fmt_time(left)}\n\nRepay with /repayloan"
+        loan_type = user.get('loan_type', 'normal')
+        type_name = "Emergency" if loan_type == 'emergency' else "Regular"
+        msg = f"<b>Active {type_name} Loan</b>\n\nAmount: <code>{curr}</code>\nDue in: {fmt_time(left)}\n\nRepay with /repayloan"
         btns = [[InlineKeyboardButton("💰 Repay", callback_data=f"repay_{uid}")]]
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         return
@@ -597,12 +786,11 @@ async def getloan_cmd(update: Update, context: CallbackContext):
     total = amt + interest
     due = datetime.utcnow() + timedelta(days=BANK_CFG['loan_days'])
     
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': amt}, '$set': {'loan_amount': total, 'loan_due_date': due}})
+    await user_collection.update_one({'id': uid}, {'$inc': {'balance': amt}, '$set': {'loan_amount': total, 'loan_due_date': due, 'loan_type': 'normal'}})
     await add_transaction(uid, 'loan', amt, f"Loan ({int(rate*100)}%)")
     await update.message.reply_text(f"<b>✅ Loan Approved</b>\n\nLoan Amount: <code>{amt}</code>\nInterest: <code>{interest}</code>\nTotal Payable: <code>{total}</code>\nDue: 3 days\n\n⚠️ Penalty: 20% if late", parse_mode="HTML")
 
 async def emergency_cmd(update: Update, context: CallbackContext):
-    """Emergency loan - /emergencyloan <amount>"""
     if not update.effective_user:
         return
     
@@ -612,8 +800,8 @@ async def emergency_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ Use /balance first")
         return
     
-    if user.get('loan_amount', 0) > 0:
-        await update.message.reply_text("⚠️ Active loan exists")
+    if user.get('frozen'):
+        await update.message.reply_text("⚠️ Account frozen")
         return
     
     try:
@@ -621,19 +809,26 @@ async def emergency_cmd(update: Update, context: CallbackContext):
         if amt <= 0 or amt > 20000:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /emergencyloan &lt;amount&gt;\n\nMax: 20,000\nInterest: 15%\nDuration: 2 days", parse_mode="HTML")
+        await update.message.reply_text("Usage: /emergencyloan &lt;amount&gt;\n\nMax: 20,000\nInterest: 15%\nDuration: 2 days\nPenalty: 30%\n\nAvailable even with active loan", parse_mode="HTML")
         return
     
-    interest = int(amt * BANK_CFG['emergency_loan_int'])
+    interest = int(amt * 0.15)
     total = amt + interest
-    due = datetime.utcnow() + timedelta(days=2)
+    due = datetime.utcnow() + timedelta(days=BANK_CFG['emergency_loan_days'])
     
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': amt}, '$set': {'loan_amount': total, 'loan_due_date': due}})
+    curr_loan = user.get('loan_amount', 0)
+    new_total = curr_loan + total
+    
+    await user_collection.update_one({'id': uid}, {'$inc': {'balance': amt}, '$set': {'loan_amount': new_total, 'loan_due_date': due, 'loan_type': 'emergency'}})
     await add_transaction(uid, 'emergency', amt, "Emergency loan")
-    await update.message.reply_text(f"<b>⚡ Emergency Loan</b>\n\nLoan: <code>{amt}</code>\nInterest: <code>{interest}</code>\nTotal: <code>{total}</code>\nDue: 2 days", parse_mode="HTML")
+    
+    msg = f"<b>⚡ Emergency Loan</b>\n\nLoan: <code>{amt}</code>\nInterest: <code>{interest}</code>\nTotal: <code>{total}</code>\nDue: 2 days\n\n⚠️ Higher penalty: 30%"
+    if curr_loan > 0:
+        msg += f"\n\nTotal Debt: <code>{new_total}</code>"
+    
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def repayloan_cmd(update: Update, context: CallbackContext):
-    """Repay loan - /repayloan"""
     if not update.effective_user:
         return
     
@@ -653,14 +848,14 @@ async def repayloan_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text(f"⚠️ Insufficient balance\n\nNeed: <code>{loan}</code>\nHave: <code>{bal}</code>", parse_mode="HTML")
         return
     
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
-    await user_collection.update_one({'id': uid}, {'$push': {'loan_history': {'amount': loan, 'date': datetime.utcnow(), 'status': 'repaid'}}})
+    loan_type = user.get('loan_type', 'normal')
+    await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None}})
+    await user_collection.update_one({'id': uid}, {'$push': {'loan_history': {'amount': loan, 'date': datetime.utcnow(), 'type': loan_type, 'status': 'repaid'}}})
     await update_credit_score(uid, 20)
     await add_transaction(uid, 'repay', -loan, "Loan repaid")
     await update.message.reply_text(f"<b>✅ Loan Repaid</b>\n\nPaid: <code>{loan}</code>\nNew Balance: <code>{bal - loan}</code>\n\n✨ Credit Score +20", parse_mode="HTML")
 
 async def cleardebt_cmd(update: Update, context: CallbackContext):
-    """Clear permanent debt - /cleardebt"""
     if not update.effective_user:
         return
     
@@ -686,7 +881,6 @@ async def cleardebt_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>✅ Debt Cleared</b>\n\nPaid: <code>{debt}</code>\nNew Balance: <code>{bal - debt}</code>\n\n✅ Debt free!\n✨ Credit Score +50", parse_mode="HTML")
 
 async def fixeddeposit_cmd(update: Update, context: CallbackContext):
-    """Create fixed deposit - /fixeddeposit <amount> <days>"""
     if not update.effective_user:
         return
     
@@ -727,7 +921,6 @@ async def fixeddeposit_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>✅ Fixed Deposit Created</b>\n\nAmount: <code>{amt}</code>\nDuration: <code>{days}</code> days\nRate: <code>{int(rate*100)}%</code>\nInterest: <code>{interest}</code>", parse_mode="HTML")
 
 async def breakfd_cmd(update: Update, context: CallbackContext):
-    """Break fixed deposit - /breakfd <number>"""
     if not update.effective_user:
         return
     
@@ -765,7 +958,6 @@ async def breakfd_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>FD Broken</b>\n\nPrincipal: <code>{fd['amount']}</code>\nPenalty: <code>{penalty}</code>\nRefund: <code>{refund}</code>", parse_mode="HTML")
 
 async def notifications_cmd(update: Update, context: CallbackContext):
-    """View notifications - /notifications"""
     if not update.effective_user:
         return
     
@@ -788,7 +980,6 @@ async def notifications_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
 async def sendgold_cmd(update: Update, context: CallbackContext):
-    """Send gold to user - /sendgold <amount> (reply to user)"""
     if not update.effective_user:
         return
     
@@ -843,7 +1034,6 @@ async def expire_pay(pid):
         del pending_payments[pid]
 
 async def dailyreward_cmd(update: Update, context: CallbackContext):
-    """Claim daily reward - /dailyreward"""
     if not update.effective_user:
         return
     
@@ -887,7 +1077,6 @@ async def dailyreward_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def userlevel_cmd(update: Update, context: CallbackContext):
-    """View level and rank - /userlevel"""
     if not update.effective_user:
         return
     
@@ -908,7 +1097,6 @@ async def userlevel_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>Level and Rank</b>\n\nLevel: <code>{lvl}</code>\nRank: <code>{rank}</code>\nXP: <code>{xp}</code>\nNeeded: <code>{needed}</code>\nAchievements: <code>{len(achievements)}</code>", parse_mode="HTML")
 
 async def txhistory_cmd(update: Update, context: CallbackContext):
-    """Transaction history - /txhistory"""
     if not update.effective_user:
         return
     
@@ -943,7 +1131,6 @@ async def txhistory_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
 async def investstock_cmd(update: Update, context: CallbackContext):
-    """Invest in stocks/bonds - /investstock <type> <amount>"""
     if not update.effective_user:
         return
     
@@ -954,48 +1141,56 @@ async def investstock_cmd(update: Update, context: CallbackContext):
         return
     
     try:
-        itype = context.args[0].lower()
+        symbol = context.args[0].lower()
         amt = int(context.args[1])
         if amt <= 0:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /investstock &lt;type&gt; &lt;amount&gt;\n\nTypes:\n• stock (high risk)\n• bond (low risk)\n• mutualfund_low\n• mutualfund_med\n• mutualfund_high", parse_mode="HTML")
+        stock_list = "\n".join([f"• {k} - {v}" for k, v in list(STOCK_SYMBOLS.items())[:5]])
+        await update.message.reply_text(f"Usage: /investstock &lt;symbol&gt; &lt;amount&gt;\n\n<b>Available Stocks:</b>\n{stock_list}\n\nUse /stocklist for all", parse_mode="HTML")
+        return
+    
+    if symbol not in STOCK_SYMBOLS:
+        await update.message.reply_text("⚠️ Invalid stock symbol\nUse /stocklist to see available stocks")
         return
     
     if user.get('balance', 0) < amt:
         await update.message.reply_text("⚠️ Insufficient balance")
         return
     
-    valid_types = {
-        'stock': {'type': 'stock', 'name': 'Stock'},
-        'bond': {'type': 'bond', 'name': 'Bond'},
-        'mutualfund_low': {'type': 'mutual_fund', 'risk': 'low', 'name': 'MF (Low)'},
-        'mutualfund_med': {'type': 'mutual_fund', 'risk': 'medium', 'name': 'MF (Medium)'},
-        'mutualfund_high': {'type': 'mutual_fund', 'risk': 'high', 'name': 'MF (High)'}
-    }
-    
-    if itype not in valid_types:
-        await update.message.reply_text("⚠️ Invalid type")
+    current_price = await get_stock_price(STOCK_SYMBOLS[symbol])
+    if not current_price:
+        await update.message.reply_text("⚠️ Unable to fetch stock price. Try again later.")
         return
     
-    inv_data = valid_types[itype]
+    units = amt / current_price
+    
     investment = {
-        'type': inv_data['type'],
+        'type': 'stock',
+        'symbol': symbol,
+        'name': symbol.upper(),
         'value': amt,
         'initial': amt,
-        'created': datetime.utcnow(),
-        'name': inv_data['name']
+        'buy_price': current_price,
+        'current_price': current_price,
+        'units': units,
+        'created': datetime.utcnow()
     }
     
-    if 'risk' in inv_data:
-        investment['risk'] = inv_data['risk']
-    
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': -amt}, '$push': {'investments': investment}})
-    await add_transaction(uid, 'invest', -amt, f"{inv_data['name']}")
-    await update.message.reply_text(f"<b>✅ Invested</b>\n\nType: {inv_data['name']}\nAmount: <code>{amt}</code>\n\nUse /portfolio to view", parse_mode="HTML")
+    await add_transaction(uid, 'invest', -amt, f"Stock: {symbol.upper()}")
+    await update.message.reply_text(f"<b>✅ Stock Purchased</b>\n\nStock: {symbol.upper()}\nPrice: ₹{current_price}\nUnits: {units:.2f}\nInvested: <code>{amt}</code>\n\nUse /portfolio to view", parse_mode="HTML")
+
+async def stocklist_cmd(update: Update, context: CallbackContext):
+    msg = "<b>📈 Available Stocks</b>\n\n"
+    for symbol, code in STOCK_SYMBOLS.items():
+        price = await get_stock_price(code)
+        price_str = f"₹{price}" if price else "N/A"
+        msg += f"<b>{symbol.upper()}</b> - {price_str}\n"
+    msg += "\nUsage: /investstock &lt;symbol&gt; &lt;amount&gt;"
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def portfolio_cmd(update: Update, context: CallbackContext):
-    """View investment portfolio - /portfolio"""
     if not update.effective_user:
         return
     
@@ -1022,6 +1217,12 @@ async def portfolio_cmd(update: Update, context: CallbackContext):
         
         emoji = "📈" if change >= 0 else "📉"
         msg += f"{i}. {name}\n"
+        
+        if inv['type'] == 'stock':
+            current_price = inv.get('current_price', 0)
+            units = inv.get('units', 0)
+            msg += f"   Units: {units:.2f} @ ₹{current_price:.2f}\n"
+        
         msg += f"   Initial: <code>{initial}</code>\n"
         msg += f"   Current: <code>{value}</code>\n"
         msg += f"   {emoji} <code>{change:+.2f}%</code>\n\n"
@@ -1037,7 +1238,6 @@ async def portfolio_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def sellinvest_cmd(update: Update, context: CallbackContext):
-    """Sell investment - /sellinvest <number>"""
     if not update.effective_user:
         return
     
@@ -1072,127 +1272,7 @@ async def sellinvest_cmd(update: Update, context: CallbackContext):
     msg = f"<b>✅ Investment Sold</b>\n\nType: {safe_html(inv.get('name', 'Unknown'))}\nInitial: <code>{initial}</code>\nSold For: <code>{value}</code>\nProfit: <code>{profit:+d}</code>"
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def setgoal_cmd(update: Update, context: CallbackContext):
-    """Set savings goal - /setgoal <amount> <name>"""
-    if not update.effective_user:
-        return
-    
-    uid = update.effective_user.id
-    user = await get_user(uid)
-    if not user:
-        await update.message.reply_text("⚠️ Use /balance first")
-        return
-    
-    try:
-        target = int(context.args[0])
-        name = " ".join(context.args[1:])
-        if target <= 0 or not name:
-            raise ValueError
-    except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /setgoal &lt;amount&gt; &lt;name&gt;\n\nExample: /setgoal 50000 New character", parse_mode="HTML")
-        return
-    
-    goal = {
-        'name': safe_html(name),
-        'target': target,
-        'current': 0,
-        'created': datetime.utcnow()
-    }
-    
-    await user_collection.update_one({'id': uid}, {'$push': {'savings_goals': goal}})
-    await update.message.reply_text(f"<b>✅ Goal Set</b>\n\nGoal: {safe_html(name)}\nTarget: <code>{target}</code>\n\nUse /savegoal to add money", parse_mode="HTML")
-
-async def savegoal_cmd(update: Update, context: CallbackContext):
-    """Save towards goal - /savegoal <number> <amount>"""
-    if not update.effective_user:
-        return
-    
-    uid = update.effective_user.id
-    user = await get_user(uid)
-    if not user:
-        await update.message.reply_text("⚠️ No data")
-        return
-    
-    goals = user.get('savings_goals', [])
-    if not goals:
-        await update.message.reply_text("⚠️ No goals\n\nUse /setgoal to create one")
-        return
-    
-    try:
-        idx = int(context.args[0]) - 1
-        amt = int(context.args[1])
-        if idx < 0 or idx >= len(goals) or amt <= 0:
-            raise ValueError
-    except (IndexError, ValueError):
-        msg = "<b>🎯 Your Goals</b>\n\n"
-        for i, g in enumerate(goals, 1):
-            progress = (g['current'] / g['target'] * 100) if g['target'] > 0 else 0
-            msg += f"{i}. {safe_html(g['name'])}\n   {g['current']}/{g['target']} ({progress:.0f}%)\n\n"
-        msg += "Usage: /savegoal &lt;number&gt; &lt;amount&gt;"
-        await update.message.reply_text(msg, parse_mode="HTML")
-        return
-    
-    if user.get('balance', 0) < amt:
-        await update.message.reply_text("⚠️ Insufficient balance")
-        return
-    
-    goal = goals[idx]
-    goal['current'] += amt
-    
-    achieved = False
-    if goal['current'] >= goal['target']:
-        achieved = True
-        goal['current'] = goal['target']
-    
-    await user_collection.update_one({'id': uid}, {'$set': {'savings_goals': goals}, '$inc': {'balance': -amt}})
-    await add_transaction(uid, 'goal', -amt, f"{goal['name']}")
-    
-    progress = (goal['current'] / goal['target'] * 100) if goal['target'] > 0 else 0
-    msg = f"<b>✅ Added to Goal</b>\n\nGoal: {safe_html(goal['name'])}\nAdded: <code>{amt}</code>\nProgress: {goal['current']}/{goal['target']}\n{progress:.0f}%"
-    
-    if achieved:
-        msg += "\n\n🎉 Goal achieved!"
-        await user_collection.update_one({'id': uid}, {'$inc': {'user_xp': 50}})
-        
-        if 'goal_achiever' not in user.get('achievements', []):
-            await user_collection.update_one({'id': uid}, {'$push': {'achievements': 'goal_achiever'}})
-    
-    await update.message.reply_text(msg, parse_mode="HTML")
-
-async def cancelgoal_cmd(update: Update, context: CallbackContext):
-    """Cancel goal and withdraw - /cancelgoal <number>"""
-    if not update.effective_user:
-        return
-    
-    uid = update.effective_user.id
-    user = await get_user(uid)
-    if not user:
-        await update.message.reply_text("⚠️ No data")
-        return
-    
-    goals = user.get('savings_goals', [])
-    if not goals:
-        await update.message.reply_text("⚠️ No goals")
-        return
-    
-    try:
-        idx = int(context.args[0]) - 1
-        if idx < 0 or idx >= len(goals):
-            raise ValueError
-    except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /cancelgoal &lt;number&gt;", parse_mode="HTML")
-        return
-    
-    goal = goals[idx]
-    amt = goal['current']
-    
-    goals.pop(idx)
-    await user_collection.update_one({'id': uid}, {'$set': {'savings_goals': goals}, '$inc': {'balance': amt}})
-    await add_transaction(uid, 'withdraw_goal', amt, f"{goal['name']}")
-    await update.message.reply_text(f"<b>✅ Goal Withdrawn</b>\n\nGoal: {safe_html(goal['name'])}\nAmount: <code>{amt}</code>", parse_mode="HTML")
-
 async def buyinsurance_cmd(update: Update, context: CallbackContext):
-    """Buy insurance - /buyinsurance <type>"""
     if not update.effective_user:
         return
     
@@ -1207,7 +1287,9 @@ async def buyinsurance_cmd(update: Update, context: CallbackContext):
         if itype not in ['character', 'deposit']:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /buyinsurance &lt;type&gt;\n\nTypes:\n• character - Protect characters from seizure\n• deposit - Cover up to 50k in loan default\n\nPremium: 500 gold/month", parse_mode="HTML")
+        char_cov = BANK_CFG['insurance_char_coverage']
+        dep_cov = BANK_CFG['insurance_deposit_coverage']
+        await update.message.reply_text(f"Usage: /buyinsurance &lt;type&gt;\n\n<b>Types:</b>\n• character - Protect characters (up to {char_cov:,})\n• deposit - Cover loan defaults (up to {dep_cov:,})\n\nPremium: 500 gold/month\nAuto-renewal from wallet", parse_mode="HTML")
         return
     
     premium = BANK_CFG['insurance_premium']
@@ -1217,22 +1299,23 @@ async def buyinsurance_cmd(update: Update, context: CallbackContext):
     
     insurance = user.get('insurance', {})
     ins_key = 'char' if itype == 'character' else 'deposit'
+    premium_key = f'last_premium_{ins_key}'
     
     if insurance.get(ins_key):
         await update.message.reply_text("⚠️ Already have this insurance")
         return
     
     insurance[ins_key] = True
-    insurance['last_premium'] = datetime.utcnow()
+    insurance[premium_key] = datetime.utcnow()
     
     await user_collection.update_one({'id': uid}, {'$inc': {'balance': -premium}, '$set': {'insurance': insurance}})
     await add_transaction(uid, 'insurance', -premium, f"Insurance: {itype}")
     
     iname = "Character" if itype == 'character' else "Deposit"
-    await update.message.reply_text(f"<b>✅ Insurance Purchased</b>\n\nType: {iname}\nPremium: <code>{premium}</code>\nValid: 30 days\n\n🛡️ Protected", parse_mode="HTML")
+    coverage = BANK_CFG['insurance_char_coverage'] if itype == 'character' else BANK_CFG['insurance_deposit_coverage']
+    await update.message.reply_text(f"<b>✅ Insurance Purchased</b>\n\nType: {iname}\nCoverage: {coverage:,}\nPremium: <code>{premium}</code>\nValid: 30 days\n\n🛡️ Protected", parse_mode="HTML")
 
 async def buypremium_cmd(update: Update, context: CallbackContext):
-    """Buy premium membership - /buypremium"""
     if not update.effective_user:
         return
     
@@ -1255,7 +1338,6 @@ async def buypremium_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>💎 Premium Activated</b>\n\nDuration: 30 days\nCost: <code>{fee}</code>\n\n<b>Benefits:</b>\n✓ +500 daily reward\n✓ +1% interest rate\n✓ 200k max loan\n✓ Lower interest rates", parse_mode="HTML")
 
 async def setpin_cmd(update: Update, context: CallbackContext):
-    """Set account PIN - /setpin <4-digit>"""
     if not update.effective_user:
         return
     
@@ -1270,14 +1352,14 @@ async def setpin_cmd(update: Update, context: CallbackContext):
         if len(pin) != 4 or not pin.isdigit():
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /setpin &lt;4-digit&gt;", parse_mode="HTML")
+        await update.message.reply_text("Usage: /setpin &lt;4-digit&gt;\n\nExample: /setpin 1234\n\nKeep your PIN secure!", parse_mode="HTML")
         return
     
-    await user_collection.update_one({'id': uid}, {'$set': {'pin': pin}})
-    await update.message.reply_text("<b>✅ PIN Set</b>\n\nAccount secured\nUse /lockaccount to lock", parse_mode="HTML")
+    hashed = hash_pin(pin)
+    await user_collection.update_one({'id': uid}, {'$set': {'pin': hashed, 'failed_attempts': 0, 'pin_locked_until': None}})
+    await update.message.reply_text("<b>✅ PIN Set</b>\n\nAccount secured\nUse /lockaccount to lock\n\n⚠️ Don't share your PIN!", parse_mode="HTML")
 
 async def lockaccount_cmd(update: Update, context: CallbackContext):
-    """Lock account - /lockaccount"""
     if not update.effective_user:
         return
     
@@ -1291,11 +1373,14 @@ async def lockaccount_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ Set PIN first\n\nUse /setpin &lt;4-digit&gt;", parse_mode="HTML")
         return
     
+    if user.get('frozen'):
+        await update.message.reply_text("⚠️ Account already locked")
+        return
+    
     await user_collection.update_one({'id': uid}, {'$set': {'frozen': True}})
-    await update.message.reply_text("<b>🔒 Account Locked</b>\n\nAccount frozen\nUse /unlockaccount &lt;pin&gt; to unlock", parse_mode="HTML")
+    await update.message.reply_text("<b>🔒 Account Locked</b>\n\nAccount frozen\nAll transactions blocked\n\nUse /unlockaccount &lt;pin&gt; to unlock", parse_mode="HTML")
 
 async def unlockaccount_cmd(update: Update, context: CallbackContext):
-    """Unlock account - /unlockaccount <pin>"""
     if not update.effective_user:
         return
     
@@ -1306,7 +1391,7 @@ async def unlockaccount_cmd(update: Update, context: CallbackContext):
         return
     
     if not user.get('frozen'):
-        await update.message.reply_text("⚠️ Account not frozen")
+        await update.message.reply_text("⚠️ Account not locked")
         return
     
     try:
@@ -1315,15 +1400,63 @@ async def unlockaccount_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text("Usage: /unlockaccount &lt;pin&gt;", parse_mode="HTML")
         return
     
-    if user.get('pin') != pin:
-        await update.message.reply_text("⚠️ Incorrect PIN")
+    result = await verify_pin(uid, pin)
+    
+    if isinstance(result, str) and result.startswith("locked:"):
+        remaining = int(result.split(":")[1])
+        await update.message.reply_text(f"⚠️ Too many failed attempts\n\nAccount locked for: {fmt_time(remaining)}")
+        return
+    
+    if not result:
+        user = await get_user(uid)
+        attempts_left = BANK_CFG['max_pin_attempts'] - user.get('failed_attempts', 0)
+        await update.message.reply_text(f"⚠️ Incorrect PIN\n\nAttempts remaining: {attempts_left}")
         return
     
     await user_collection.update_one({'id': uid}, {'$set': {'frozen': False}})
-    await update.message.reply_text("<b>🔓 Account Unlocked</b>\n\nAccount active", parse_mode="HTML")
+    await update.message.reply_text("<b>🔓 Account Unlocked</b>\n\nAccount active\nTransactions enabled", parse_mode="HTML")
+
+async def changepin_cmd(update: Update, context: CallbackContext):
+    if not update.effective_user:
+        return
+    
+    uid = update.effective_user.id
+    user = await get_user(uid)
+    if not user:
+        await update.message.reply_text("⚠️ Use /balance first")
+        return
+    
+    if not user.get('pin'):
+        await update.message.reply_text("⚠️ No PIN set\n\nUse /setpin first")
+        return
+    
+    try:
+        old_pin = context.args[0]
+        new_pin = context.args[1]
+        if len(new_pin) != 4 or not new_pin.isdigit():
+            raise ValueError
+    except (IndexError, ValueError):
+        await update.message.reply_text("Usage: /changepin &lt;old_pin&gt; &lt;new_pin&gt;\n\nExample: /changepin 1234 5678", parse_mode="HTML")
+        return
+    
+    result = await verify_pin(uid, old_pin)
+    
+    if isinstance(result, str) and result.startswith("locked:"):
+        remaining = int(result.split(":")[1])
+        await update.message.reply_text(f"⚠️ Account locked\n\nTry again in: {fmt_time(remaining)}")
+        return
+    
+    if not result:
+        user = await get_user(uid)
+        attempts_left = BANK_CFG['max_pin_attempts'] - user.get('failed_attempts', 0)
+        await update.message.reply_text(f"⚠️ Incorrect old PIN\n\nAttempts remaining: {attempts_left}")
+        return
+    
+    hashed = hash_pin(new_pin)
+    await user_collection.update_one({'id': uid}, {'$set': {'pin': hashed, 'failed_attempts': 0}})
+    await update.message.reply_text("<b>✅ PIN Changed</b>\n\nNew PIN set successfully", parse_mode="HTML")
 
 async def autosetup_cmd(update: Update, context: CallbackContext):
-    """Setup auto-deposit - /autosetup <amount> <frequency>"""
     if not update.effective_user:
         return
     
@@ -1353,7 +1486,6 @@ async def autosetup_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(f"<b>✅ Auto-Deposit Set</b>\n\nAmount: <code>{amt}</code>\nFrequency: {freq}\n\n🔄 Activated", parse_mode="HTML")
 
 async def autostop_cmd(update: Update, context: CallbackContext):
-    """Stop auto-deposit - /autostop"""
     if not update.effective_user:
         return
     
@@ -1373,7 +1505,6 @@ async def autostop_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text("<b>✅ Auto-Deposit Stopped</b>\n\nDisabled", parse_mode="HTML")
 
 async def leaderboard_cmd(update: Update, context: CallbackContext):
-    """View top 10 richest - /leaderboard"""
     top_users = []
     async for user in user_collection.find().sort('bank', -1).limit(10):
         uid = user['id']
@@ -1410,27 +1541,7 @@ async def leaderboard_cmd(update: Update, context: CallbackContext):
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
-async def referral_cmd(update: Update, context: CallbackContext):
-    """View referral info - /referral"""
-    if not update.effective_user:
-        return
-    
-    uid = update.effective_user.id
-    user = await get_user(uid)
-    if not user:
-        await update.message.reply_text("⚠️ Use /balance first")
-        return
-    
-    referrals = user.get('referrals', [])
-    ref_code = f"REF{uid}"
-    bonus = len(referrals) * 1000
-    
-    msg = f"<b>💝 Referral Program</b>\n\nYour Code: <code>{ref_code}</code>\nReferrals: <code>{len(referrals)}</code>\nEarned: <code>{bonus}</code>\n\n💡 Earn 1000 gold per referral"
-    
-    await update.message.reply_text(msg, parse_mode="HTML")
-
 async def gamble_cmd(update: Update, context: CallbackContext):
-    """Gamble gold - /gamble <amount>"""
     if not update.effective_user:
         return
     
@@ -1466,18 +1577,17 @@ async def gamble_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def vaulthelp_cmd(update: Update, context: CallbackContext):
-    """View all commands - /vaulthelp"""
     help_text = """<b>💰 Vault System Commands</b>
 
 <b>📊 Basic</b>
 /bal - View balance
 /deposit - Deposit to bank
-/withdraw - Withdraw from bankd
+/withdraw - Withdraw from bank
 /cclaim - Claim daily reward
 
 <b>💳 Loans</b>
 /getloan - Borrow money (100k max)
-/emergencyloan - Fast loan (20k max)
+/emergencyloan - Fast loan (20k, even with active loan)
 /repayloan - Repay active loan
 /cleardebt - Clear permanent debt
 
@@ -1486,18 +1596,15 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
 /breakfd - Break FD early
 
 <b>📈 Investments</b>
-/investstock - Buy investments
+/investstock - Buy stocks
+/stocklist - View available stocks
 /portfolio - View portfolio
 /sellinvest - Sell investment
-
-<b>🎯 Savings Goals</b>
-/setgoal - Create goal
-/savegoal - Add to goal
-/cancelgoal - Cancel goal
 
 <b>🛡️ Security</b>
 /buyinsurance - Purchase insurance
 /setpin - Set account PIN
+/changepin - Change PIN
 /lockaccount - Lock account
 /unlockaccount - Unlock account
 
@@ -1513,7 +1620,6 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
 /pay - Send gold (reply to user)
 /userlevel - View level and rank
 /leaders - Top 10 richest
-/referral - Referral info
 /bgamble - Gamble gold
 /notifications - View alerts"""
 
@@ -1521,7 +1627,6 @@ async def vaulthelp_cmd(update: Update, context: CallbackContext):
     await update.message.reply_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
 async def callback_handler(update: Update, context: CallbackContext):
-    """Handle callback queries"""
     q = update.callback_query
     if not q or not q.data:
         return
@@ -1529,7 +1634,7 @@ async def callback_handler(update: Update, context: CallbackContext):
     data = q.data
     uid = q.from_user.id
 
-    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clear_", "confirm_", "cancel_", "invest_", "goals_", "insure_", "history_")
+    valid_prefixes = ("bal_", "bank_", "loan_", "repay_", "clear_", "confirm_", "cancel_", "invest_", "insure_", "history_")
     if not data.startswith(valid_prefixes):
         return
 
@@ -1579,7 +1684,9 @@ async def callback_handler(update: Update, context: CallbackContext):
             due = user.get('loan_due_date')
             if due:
                 left = (due - datetime.utcnow()).total_seconds()
-                msg += f"\n\n⚠️ Loan: <code>{loan}</code>\nDue: {fmt_time(left)}"
+                loan_type = user.get('loan_type', 'normal')
+                type_emoji = "⚡" if loan_type == 'emergency' else "💳"
+                msg += f"\n\n{type_emoji} Loan: <code>{loan}</code>\nDue: {fmt_time(left)}"
         if debt > 0:
             msg += f"\n\n🔴 Debt: <code>{debt}</code>"
         if interest > 0:
@@ -1594,8 +1701,8 @@ async def callback_handler(update: Update, context: CallbackContext):
         btns = [
             [InlineKeyboardButton("🔄", callback_data=f"bal_{uid}")],
             [InlineKeyboardButton("🏦", callback_data=f"bank_{uid}"), InlineKeyboardButton("💳", callback_data=f"loan_{uid}")],
-            [InlineKeyboardButton("📊", callback_data=f"invest_{uid}"), InlineKeyboardButton("🎯", callback_data=f"goals_{uid}")],
-            [InlineKeyboardButton("🛡️", callback_data=f"insure_{uid}"), InlineKeyboardButton("📜", callback_data=f"history_{uid}")]
+            [InlineKeyboardButton("📊", callback_data=f"invest_{uid}"), InlineKeyboardButton("🛡️", callback_data=f"insure_{uid}")],
+            [InlineKeyboardButton("📜", callback_data=f"history_{uid}")]
         ]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         await q.answer("✓")
@@ -1636,14 +1743,16 @@ async def callback_handler(update: Update, context: CallbackContext):
         if loan > 0:
             due = user.get('loan_due_date')
             left = (due - datetime.utcnow()).total_seconds()
-            msg = f"<b>💳 Active Loan</b>\n\nAmount: <code>{loan}</code>\nDue: {fmt_time(left)}\n\n/repayloan"
+            loan_type = user.get('loan_type', 'normal')
+            type_name = "Emergency" if loan_type == 'emergency' else "Regular"
+            msg = f"<b>💳 Active {type_name} Loan</b>\n\nAmount: <code>{loan}</code>\nDue: {fmt_time(left)}\n\n/repayloan"
             btns = [[InlineKeyboardButton("💰 Repay", callback_data=f"repay_{uid}")], [InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         else:
             max_loan = 200000 if user.get('premium') else 100000
             rate = 5 if credit >= 800 else 8 if credit >= 700 else 10
             
-            msg = f"<b>💳 Loan Information</b>\n\nMax Loan: <code>{max_loan:,}</code>\nInterest Rate: <code>{rate}%</code>\nDuration: 3 days\nCredit Score: <code>{credit}</code>\n\n/getloan &lt;amount&gt;\n/emergencyloan &lt;amount&gt;"
+            msg = f"<b>💳 Loan Information</b>\n\nMax Loan: <code>{max_loan:,}</code>\nInterest Rate: <code>{rate}%</code>\nDuration: 3 days\nCredit Score: <code>{credit}</code>\n\nEmergency Loan: 20k (2 days)\n\n/getloan &lt;amount&gt;\n/emergencyloan &lt;amount&gt;"
             btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
@@ -1657,28 +1766,7 @@ async def callback_handler(update: Update, context: CallbackContext):
         invs = user.get('investments', [])
         total_value = sum(inv['value'] for inv in invs)
         
-        msg = f"<b>📊 Investments</b>\n\nPortfolio Items: <code>{len(invs)}</code>\nTotal Value: <code>{total_value}</code>\n\n<b>Types:</b>\n• stock/bond\n• mutualfund_low/med/high\n\n/investstock &lt;type&gt; &lt;amount&gt;\n/portfolio\n/sellinvest &lt;number&gt;"
-        btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
-        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
-
-    elif data.startswith("goals_"):
-        target = int(data.split("_")[1])
-        if uid != target:
-            await q.answer("⚠️ Not your account", show_alert=True)
-            return
-
-        user = await get_user(uid)
-        goals = user.get('savings_goals', [])
-        
-        if goals:
-            msg = "<b>🎯 Savings Goals</b>\n\n"
-            for i, g in enumerate(goals, 1):
-                progress = (g['current'] / g['target'] * 100) if g['target'] > 0 else 0
-                msg += f"{i}. {safe_html(g['name'])}\n   {g['current']}/{g['target']} ({progress:.0f}%)\n\n"
-            msg += "/savegoal &lt;n&gt; &lt;amount&gt;\n/cancelgoal &lt;n&gt;"
-        else:
-            msg = "<b>🎯 Savings Goals</b>\n\n⚠️ No goals\n\n/setgoal &lt;amount&gt; &lt;name&gt;"
-        
+        msg = f"<b>📊 Investments</b>\n\nPortfolio Items: <code>{len(invs)}</code>\nTotal Value: <code>{total_value}</code>\n\n<b>Real Stocks Available:</b>\nNifty 50, Bank Nifty, Reliance, TCS, Infosys, HDFC, ICICI, SBI\n\n/stocklist - View all\n/investstock &lt;symbol&gt; &lt;amount&gt;\n/portfolio\n/sellinvest &lt;number&gt;"
         btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
@@ -1690,10 +1778,17 @@ async def callback_handler(update: Update, context: CallbackContext):
 
         user = await get_user(uid)
         insurance = user.get('insurance', {})
-        char_ins = "✅" if insurance.get('char') else "❌"
-        dep_ins = "✅" if insurance.get('deposit') else "❌"
         
-        msg = f"<b>🛡️ Insurance</b>\n\nCharacter Protection: {char_ins}\nDeposit Coverage: {dep_ins}\nPremium: 500/month\n\n/buyinsurance &lt;type&gt;"
+        char_ins = await check_insurance_validity(uid, 'char')
+        dep_ins = await check_insurance_validity(uid, 'deposit')
+        
+        char_status = "✅ Active" if char_ins else "❌ Inactive"
+        dep_status = "✅ Active" if dep_ins else "❌ Inactive"
+        
+        char_cov = BANK_CFG['insurance_char_coverage']
+        dep_cov = BANK_CFG['insurance_deposit_coverage']
+        
+        msg = f"<b>🛡️ Insurance</b>\n\nCharacter Protection: {char_status}\n• Coverage: {char_cov:,}\n\nDeposit Coverage: {dep_status}\n• Coverage: {dep_cov:,}\n\nPremium: 500/month\nAuto-renewal\n\n/buyinsurance &lt;type&gt;"
         btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
         await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
@@ -1741,8 +1836,9 @@ async def callback_handler(update: Update, context: CallbackContext):
             await q.answer(f"⚠️ Need: {loan}\nHave: {bal}", show_alert=True)
             return
 
-        await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None}})
-        await user_collection.update_one({'id': uid}, {'$push': {'loan_history': {'amount': loan, 'date': datetime.utcnow(), 'status': 'repaid'}}})
+        loan_type = user.get('loan_type', 'normal')
+        await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None}})
+        await user_collection.update_one({'id': uid}, {'$push': {'loan_history': {'amount': loan, 'date': datetime.utcnow(), 'type': loan_type, 'status': 'repaid'}}})
         await update_credit_score(uid, 20)
         await add_transaction(uid, 'repay', -loan, "Repaid")
         
@@ -1816,7 +1912,6 @@ async def callback_handler(update: Update, context: CallbackContext):
         await q.edit_message_text("<b>✗ Cancelled</b>\n\nPayment cancelled", parse_mode="HTML")
         await q.answer("✗")
 
-# Register handlers
 application.post_init = post_init
 
 application.add_handler(CommandHandler("bal", balance_cmd, block=False))
@@ -1834,21 +1929,19 @@ application.add_handler(CommandHandler("cclaim", dailyreward_cmd, block=False))
 application.add_handler(CommandHandler("userlevel", userlevel_cmd, block=False))
 application.add_handler(CommandHandler("txhistory", txhistory_cmd, block=False))
 application.add_handler(CommandHandler("investstock", investstock_cmd, block=False))
+application.add_handler(CommandHandler("stocklist", stocklist_cmd, block=False))
 application.add_handler(CommandHandler("portfolio", portfolio_cmd, block=False))
 application.add_handler(CommandHandler("sellinvest", sellinvest_cmd, block=False))
-application.add_handler(CommandHandler("setgoal", setgoal_cmd, block=False))
-application.add_handler(CommandHandler("savegoal", savegoal_cmd, block=False))
-application.add_handler(CommandHandler("cancelgoal", cancelgoal_cmd, block=False))
 application.add_handler(CommandHandler("buyinsurance", buyinsurance_cmd, block=False))
 application.add_handler(CommandHandler("buypremium", buypremium_cmd, block=False))
 application.add_handler(CommandHandler("setpin", setpin_cmd, block=False))
+application.add_handler(CommandHandler("changepin", changepin_cmd, block=False))
 application.add_handler(CommandHandler("lockaccount", lockaccount_cmd, block=False))
 application.add_handler(CommandHandler("unlockaccount", unlockaccount_cmd, block=False))
 application.add_handler(CommandHandler("autosetup", autosetup_cmd, block=False))
 application.add_handler(CommandHandler("autostop", autostop_cmd, block=False))
 application.add_handler(CommandHandler("leaders", leaderboard_cmd, block=False))
-application.add_handler(CommandHandler("referral", referral_cmd, block=False))
 application.add_handler(CommandHandler("bgamble", gamble_cmd, block=False))
 application.add_handler(CommandHandler("bankhelp", vaulthelp_cmd, block=False))
 
-application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clear_|confirm_|cancel_|invest_|goals_|insure_|history_)", block=False))
+application.add_handler(CallbackQueryHandler(callback_handler, pattern="^(bal_|bank_|loan_|repay_|clear_|confirm_|cancel_|invest_|insure_|history_)", block=False))
