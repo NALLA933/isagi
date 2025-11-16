@@ -480,9 +480,21 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_photo(
-        photo="https://te.legra.ph/file/e714526fdc85b8800e1de.jpg",
-        caption="<b>⚙️ Collection Display Mode</b>\n\nChoose how to display your collection:",
+    message_text = (
+        "╔══════════════════════╗\n"
+        "    ⚙️ <b>COLLECTION MODE</b> ⚙️\n"
+        "╚══════════════════════╝\n\n"
+        "✨ <b>Customize Your View</b> ✨\n\n"
+        "🎯 <b>Default Mode</b>\n"
+        "   └ View all characters together\n\n"
+        "🔮 <b>Rarity Filter</b>\n"
+        "   └ Sort by specific rarity types\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Choose your preferred display mode below!"
+    )
+
+    await update.message.reply_text(
+        text=message_text,
         reply_markup=reply_markup,
         parse_mode='HTML'
     )
