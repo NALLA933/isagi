@@ -23,6 +23,7 @@ BANK_CFG = {
     'max_premium_loan': 200000,
     'loan_days': 3,
     'emergency_loan_days': 2,
+    'emergency_loan_limit': 3,
     'penalty': 0.20,
     'emergency_penalty': 0.30,
     'char_value': {
@@ -132,6 +133,7 @@ async def init_user(uid):
         'loan_amount': 0,
         'loan_due_date': None,
         'loan_type': None,
+        'emergency_loan_count': 0,
         'notifications': [],
         'permanent_debt': 0,
         'characters': [],
@@ -826,12 +828,44 @@ async def emergency_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ Account frozen")
         return
     
+    emergency_count = user.get('emergency_loan_count', 0)
+    debt = user.get('permanent_debt', 0)
+    
+    if emergency_count >= BANK_CFG['emergency_loan_limit']:
+        if debt > 0:
+            await update.message.reply_text(
+                f"<b>⚠️ Emergency Loan Limit Reached</b>\n\n"
+                f"You have taken {emergency_count}/3 emergency loans.\n\n"
+                f"Outstanding Debt: <code>{debt}</code>\n\n"
+                f"Clear your debt with /cleardebt to unlock emergency loans again.",
+                parse_mode="HTML"
+            )
+        else:
+            await update.message.reply_text(
+                f"<b>⚠️ Emergency Loan Limit Reached</b>\n\n"
+                f"You have taken {emergency_count}/3 emergency loans.\n\n"
+                f"Repay your existing loans to unlock emergency loans again.",
+                parse_mode="HTML"
+            )
+        return
+    
     try:
         amt = int(context.args[0])
         if amt <= 0 or amt > 20000:
             raise ValueError
     except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /emergencyloan &lt;amount&gt;\n\nMax: 20,000\nInterest: 15%\nDuration: 2 days\nPenalty: 30%\n\nAvailable even with active loan", parse_mode="HTML")
+        remaining = BANK_CFG['emergency_loan_limit'] - emergency_count
+        await update.message.reply_text(
+            f"Usage: /emergencyloan &lt;amount&gt;\n\n"
+            f"Max: 20,000\n"
+            f"Interest: 15%\n"
+            f"Duration: 2 days\n"
+            f"Penalty: 30%\n\n"
+            f"Emergency Loans: {emergency_count}/{BANK_CFG['emergency_loan_limit']}\n"
+            f"Remaining: {remaining}\n\n"
+            f"Available even with active loan",
+            parse_mode="HTML"
+        )
         return
     
     interest = int(amt * 0.15)
@@ -840,13 +874,38 @@ async def emergency_cmd(update: Update, context: CallbackContext):
     
     curr_loan = user.get('loan_amount', 0)
     new_total = curr_loan + total
+    new_count = emergency_count + 1
     
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': amt}, '$set': {'loan_amount': new_total, 'loan_due_date': due, 'loan_type': 'emergency'}})
+    await user_collection.update_one(
+        {'id': uid}, 
+        {
+            '$inc': {'balance': amt}, 
+            '$set': {
+                'loan_amount': new_total, 
+                'loan_due_date': due, 
+                'loan_type': 'emergency',
+                'emergency_loan_count': new_count
+            }
+        }
+    )
     await add_transaction(uid, 'emergency', amt, "Emergency loan")
     
-    msg = f"<b>⚡ Emergency Loan</b>\n\nLoan: <code>{amt}</code>\nInterest: <code>{interest}</code>\nTotal: <code>{total}</code>\nDue: 2 days\n\n⚠️ Higher penalty: 30%"
+    remaining = BANK_CFG['emergency_loan_limit'] - new_count
+    
+    msg = f"<b>⚡ Emergency Loan Approved</b>\n\n"
+    msg += f"Loan: <code>{amt}</code>\n"
+    msg += f"Interest: <code>{interest}</code>\n"
+    msg += f"Total: <code>{total}</code>\n"
+    msg += f"Due: 2 days\n\n"
+    msg += f"⚠️ Higher penalty: 30%\n\n"
+    msg += f"Emergency Loans Used: {new_count}/{BANK_CFG['emergency_loan_limit']}\n"
+    msg += f"Remaining: {remaining}"
+    
     if curr_loan > 0:
-        msg += f"\n\nTotal Debt: <code>{new_total}</code>"
+        msg += f"\n\n<b>Total Debt:</b> <code>{new_total}</code>"
+    
+    if remaining == 0:
+        msg += "\n\n🔴 <b>Limit Reached!</b>\nClear debt to unlock more."
     
     await update.message.reply_text(msg, parse_mode="HTML")
 
@@ -871,11 +930,30 @@ async def repayloan_cmd(update: Update, context: CallbackContext):
         return
     
     loan_type = user.get('loan_type', 'normal')
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': -loan}, '$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None}})
+    
+    update_data = {
+        '$inc': {'balance': -loan}, 
+        '$set': {'loan_amount': 0, 'loan_due_date': None, 'loan_type': None}
+    }
+    
+    if loan_type == 'emergency':
+        emergency_count = user.get('emergency_loan_count', 0)
+        if emergency_count > 0:
+            update_data['$set']['emergency_loan_count'] = emergency_count - 1
+    
+    await user_collection.update_one({'id': uid}, update_data)
     await user_collection.update_one({'id': uid}, {'$push': {'loan_history': {'amount': loan, 'date': datetime.utcnow(), 'type': loan_type, 'status': 'repaid'}}})
     await update_credit_score(uid, 20)
     await add_transaction(uid, 'repay', -loan, "Loan repaid")
-    await update.message.reply_text(f"<b>✅ Loan Repaid</b>\n\nPaid: <code>{loan}</code>\nNew Balance: <code>{bal - loan}</code>\n\n✨ Credit Score +20", parse_mode="HTML")
+    
+    msg = f"<b>✅ Loan Repaid</b>\n\nPaid: <code>{loan}</code>\nNew Balance: <code>{bal - loan}</code>\n\n✨ Credit Score +20"
+    
+    if loan_type == 'emergency':
+        new_count = max(0, emergency_count - 1)
+        remaining = BANK_CFG['emergency_loan_limit'] - new_count
+        msg += f"\n\n⚡ Emergency Loans: {new_count}/{BANK_CFG['emergency_loan_limit']}\nRemaining: {remaining}"
+    
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def cleardebt_cmd(update: Update, context: CallbackContext):
     if not update.effective_user:
@@ -897,10 +975,24 @@ async def cleardebt_cmd(update: Update, context: CallbackContext):
         await update.message.reply_text(f"⚠️ Insufficient balance\n\nDebt: <code>{debt}</code>\nBalance: <code>{bal}</code>", parse_mode="HTML")
         return
     
-    await user_collection.update_one({'id': uid}, {'$inc': {'balance': -debt}, '$set': {'permanent_debt': 0}})
+    emergency_count = user.get('emergency_loan_count', 0)
+    
+    await user_collection.update_one(
+        {'id': uid}, 
+        {
+            '$inc': {'balance': -debt}, 
+            '$set': {'permanent_debt': 0, 'emergency_loan_count': 0}
+        }
+    )
     await update_credit_score(uid, 50)
     await add_transaction(uid, 'clear_debt', -debt, "Debt cleared")
-    await update.message.reply_text(f"<b>✅ Debt Cleared</b>\n\nPaid: <code>{debt}</code>\nNew Balance: <code>{bal - debt}</code>\n\n✅ Debt free!\n✨ Credit Score +50", parse_mode="HTML")
+    
+    msg = f"<b>✅ Debt Cleared</b>\n\nPaid: <code>{debt}</code>\nNew Balance: <code>{bal - debt}</code>\n\n✅ Debt free!\n✨ Credit Score +50"
+    
+    if emergency_count > 0:
+        msg += f"\n\n⚡ Emergency loans reset to 0/3"
+    
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def fixeddeposit_cmd(update: Update, context: CallbackContext):
     if not update.effective_user:
@@ -1850,27 +1942,47 @@ async def callback_handler(update: Update, context: CallbackContext):
         debt = user.get('permanent_debt', 0)
         
         if debt > 0:
-            msg = f"<b>🔴 Outstanding Debt</b>\n\nDebt: <code>{debt}</code>\nDaily Deduction: 10%\n\n/cleardebt"
+            emergency_count = user.get('emergency_loan_count', 0)
+            msg = f"<b>🔴 Outstanding Debt</b>\n\nDebt: <code>{debt}</code>\nDaily Deduction: 10%\n\n"
+            if emergency_count > 0:
+                msg += f"⚡ Emergency Loans: {emergency_count}/3\n\n"
+            msg += "/cleardebt"
             btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
             return
 
         loan = user.get('loan_amount', 0)
         credit = user.get('credit_score', 700)
+        emergency_count = user.get('emergency_loan_count', 0)
         
         if loan > 0:
             due = user.get('loan_due_date')
             left = (due - datetime.utcnow()).total_seconds()
             loan_type = user.get('loan_type', 'normal')
             type_name = "Emergency" if loan_type == 'emergency' else "Regular"
-            msg = f"<b>💳 Active {type_name} Loan</b>\n\nAmount: <code>{loan}</code>\nDue: {fmt_time(left)}\n\n/repayloan"
+            
+            msg = f"<b>💳 Active {type_name} Loan</b>\n\nAmount: <code>{loan}</code>\nDue: {fmt_time(left)}\n\n"
+            if loan_type == 'emergency':
+                remaining = BANK_CFG['emergency_loan_limit'] - emergency_count
+                msg += f"⚡ Emergency: {emergency_count}/{BANK_CFG['emergency_loan_limit']}\n\n"
+            msg += "/repayloan"
+            
             btns = [[InlineKeyboardButton("💰 Repay", callback_data=f"repay_{uid}")], [InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
         else:
             max_loan = 200000 if user.get('premium') else 100000
             rate = 5 if credit >= 800 else 8 if credit >= 700 else 10
+            emergency_remaining = BANK_CFG['emergency_loan_limit'] - emergency_count
             
-            msg = f"<b>💳 Loan Information</b>\n\nMax Loan: <code>{max_loan:,}</code>\nInterest Rate: <code>{rate}%</code>\nDuration: 3 days\nCredit Score: <code>{credit}</code>\n\nEmergency Loan: 20k (2 days)\n\n/getloan &lt;amount&gt;\n/emergencyloan &lt;amount&gt;"
+            msg = f"<b>💳 Loan Information</b>\n\n"
+            msg += f"Max Loan: <code>{max_loan:,}</code>\n"
+            msg += f"Interest Rate: <code>{rate}%</code>\n"
+            msg += f"Duration: 3 days\n"
+            msg += f"Credit Score: <code>{credit}</code>\n\n"
+            msg += f"⚡ Emergency: {emergency_count}/{BANK_CFG['emergency_loan_limit']}\n"
+            msg += f"Available: {emergency_remaining}\n\n"
+            msg += "/getloan &lt;amount&gt;\n/emergencyloan &lt;amount&gt;"
+            
             btns = [[InlineKeyboardButton("⬅️ Back", callback_data=f"bal_{uid}")]]
             await q.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
 
