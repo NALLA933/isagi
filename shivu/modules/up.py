@@ -1,252 +1,127 @@
 import re
-import json
-import aiohttp
-import urllib.parse
+import os
+import tempfile
+import asyncio
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
 from shivu import application
 
-async def get_ig_media_v2(url: str):
+# Install instaloader if not already: pip install instaloader
+try:
+    import instaloader
+except ImportError:
+    print("ERROR: Please install instaloader: pip install instaloader")
+    instaloader = None
+
+async def download_instagram_media(url: str):
     """
-    Enhanced Instagram downloader with multiple working APIs (November 2024)
+    Download Instagram media using Instaloader library
+    Returns list of file paths
     """
+    if not instaloader:
+        return None, "Instaloader library not installed"
     
-    # Extract shortcode from URL for better compatibility
-    shortcode_match = re.search(r'(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
-    shortcode = shortcode_match.group(1) if shortcode_match else None
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Origin': 'https://www.instagram.com',
-        'Referer': 'https://www.instagram.com/',
-    }
-    
-    async with aiohttp.ClientSession() as session:
+    try:
+        # Extract shortcode from URL
+        shortcode_match = re.search(r'(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+        if not shortcode_match:
+            return None, "Invalid Instagram URL format"
         
-        # Method 1: RapidAPI - Instagram Video Downloader (Free tier available)
-        try:
-            rapid_url = "https://instagram-video-downloader13.p.rapidapi.com/"
-            rapid_headers = {
-                "X-RapidAPI-Key": "YOUR_RAPIDAPI_KEY_HERE",  # Get free key from rapidapi.com
-                "X-RapidAPI-Host": "instagram-video-downloader13.p.rapidapi.com",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {"url": url}
-            
-            async with session.post(rapid_url, json=payload, headers=rapid_headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if data.get('success') and data.get('media'):
-                        media_list = []
-                        for item in data['media']:
-                            if item.get('url'):
-                                media_type = 'video' if item.get('type') == 'video' else 'photo'
-                                media_list.append({'type': media_type, 'url': item['url']})
-                        
-                        if media_list:
-                            return media_list
-        except Exception as e:
-            print(f"RapidAPI method failed: {e}")
+        shortcode = shortcode_match.group(1)
         
-        # Method 2: FastSaverAPI - Highly reliable (used by 50+ bots)
-        try:
-            fastsaver_url = "https://fastsaverapi.com/api/instagram"
-            fastsaver_payload = {"url": url}
-            fastsaver_headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "TelegramBot/1.0"
-            }
-            
-            async with session.post(fastsaver_url, json=fastsaver_payload, headers=fastsaver_headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if data.get('result'):
-                        media_list = []
-                        result = data['result']
-                        
-                        # Handle video
-                        if result.get('video'):
-                            for video in result['video']:
-                                if video.get('url'):
-                                    media_list.append({'type': 'video', 'url': video['url']})
-                        
-                        # Handle images
-                        if result.get('image'):
-                            for image in result['image']:
-                                if image.get('url'):
-                                    media_list.append({'type': 'photo', 'url': image['url']})
-                        
-                        if media_list:
-                            return media_list[:5]  # Limit to 5 items
-        except Exception as e:
-            print(f"FastSaverAPI method failed: {e}")
+        # Create Instaloader instance
+        L = instaloader.Instaloader(
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False,
+            post_metadata_txt_pattern='',
+        )
         
-        # Method 3: API-Insta (Reliable paid/free service)
-        try:
-            api_insta_url = f"https://api.api-insta.com/integration/content/fetch"
-            api_insta_headers = {
-                "Content-Type": "application/json",
-                "x-api-key": "YOUR_API_INSTA_KEY"  # Get from api-insta.com
-            }
-            
-            params = {"url": url}
-            
-            async with session.get(api_insta_url, params=params, headers=api_insta_headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if data.get('data') and data['data'].get('media'):
-                        media_list = []
-                        for item in data['data']['media']:
-                            if item.get('url'):
-                                media_type = item.get('type', 'video')
-                                media_list.append({'type': media_type, 'url': item['url']})
-                        
-                        if media_list:
-                            return media_list
-        except Exception as e:
-            print(f"API-Insta method failed: {e}")
+        # Create temporary directory for downloads
+        temp_dir = tempfile.mkdtemp()
         
-        # Method 4: SnapInsta API (No auth required - most reliable free option)
-        try:
-            snapinsta_url = "https://snapinsta.app/api/ajaxSearch"
-            snapinsta_payload = {
-                'q': url,
-                't': 'media',
-                'lang': 'en'
-            }
-            snapinsta_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Origin': 'https://snapinsta.app',
-                'Referer': 'https://snapinsta.app/'
-            }
-            
-            async with session.post(snapinsta_url, data=snapinsta_payload, headers=snapinsta_headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if data.get('data'):
-                        html = data['data']
-                        
-                        # Extract video URLs
-                        video_patterns = [
-                            r'href="(https://[^"]+\.cdninstagram\.com/[^"]+)"[^>]*>.*?Download.*?(?:Video|HD)',
-                            r'href="(https://[^"]+\.fbcdn\.net/[^"]+)"[^>]*>.*?Download',
-                            r'href="([^"]+)"[^>]*download[^>]*>.*?Download.*?Video'
-                        ]
-                        
-                        for pattern in video_patterns:
-                            video_matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
-                            if video_matches:
-                                # Get the highest quality (usually first)
-                                return [{'type': 'video', 'url': video_matches[0]}]
-                        
-                        # Extract image URLs
-                        img_patterns = [
-                            r'href="(https://[^"]+\.cdninstagram\.com/[^"]+\.jpg[^"]*)"',
-                            r'href="(https://[^"]+\.fbcdn\.net/[^"]+\.jpg[^"]*)"'
-                        ]
-                        
-                        for pattern in img_patterns:
-                            img_matches = re.findall(pattern, html)
-                            if img_matches:
-                                return [{'type': 'photo', 'url': img} for img in img_matches[:5]]
-        except Exception as e:
-            print(f"SnapInsta method failed: {e}")
+        # Run in executor to avoid blocking
+        loop = asyncio.get_event_loop()
         
-        # Method 5: Alternative direct Instagram embedding (works for public posts)
-        if shortcode:
+        def download_post():
             try:
-                embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
+                # Get post from shortcode
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
                 
-                async with session.get(embed_url, headers=headers, timeout=20) as resp:
-                    if resp.status == 200:
-                        html = await resp.text()
+                # Download post
+                L.download_post(post, target=temp_dir)
+                
+                # Collect downloaded files
+                files = []
+                for filename in os.listdir(temp_dir):
+                    if filename.endswith(('.jpg', '.png', '.mp4', '.webp')):
+                        full_path = os.path.join(temp_dir, filename)
                         
-                        # Find video URL in embedded player
-                        video_match = re.search(r'"video_url":"([^"]+)"', html)
-                        if video_match:
-                            video_url = video_match.group(1).replace('\\u0026', '&')
-                            return [{'type': 'video', 'url': video_url}]
+                        # Determine file type
+                        if filename.endswith('.mp4'):
+                            file_type = 'video'
+                        else:
+                            file_type = 'photo'
                         
-                        # Find image URL
-                        img_match = re.search(r'"display_url":"([^"]+)"', html)
-                        if img_match:
-                            img_url = img_match.group(1).replace('\\u0026', '&')
-                            return [{'type': 'photo', 'url': img_url}]
+                        files.append({
+                            'type': file_type,
+                            'path': full_path
+                        })
+                
+                return files, None
+            except instaloader.exceptions.InstaloaderException as e:
+                return None, str(e)
             except Exception as e:
-                print(f"Embed method failed: {e}")
+                return None, str(e)
         
-        # Method 6: Insta.savetube.me (Backup)
-        try:
-            savetube_url = "https://insta.savetube.me/downloadgram"
-            params = {'url': url}
-            savetube_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            async with session.get(savetube_url, params=params, headers=savetube_headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    # Handle various response formats
-                    media_url = None
-                    if isinstance(data, dict):
-                        media_url = (data.get('url') or 
-                                   data.get('download_url') or 
-                                   (data.get('links', [{}])[0].get('url') if data.get('links') else None))
-                    
-                    if media_url:
-                        return [{'type': 'video', 'url': media_url}]
-        except Exception as e:
-            print(f"SaveTube method failed: {e}")
+        # Execute download in thread pool
+        files, error = await loop.run_in_executor(None, download_post)
         
-        # Method 7: Y2Mate style API
-        try:
-            y2mate_url = "https://v3.y2mate.com/api/ajaxSearch/instagram"
-            y2mate_payload = {
-                'q': url,
-                'vt': 'downloader'
-            }
-            
-            async with session.post(y2mate_url, data=y2mate_payload, headers=headers, timeout=20) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if data.get('links') and data['links'].get('video'):
-                        for quality, link_data in data['links']['video'].items():
-                            if link_data.get('url'):
-                                return [{'type': 'video', 'url': link_data['url']}]
-        except Exception as e:
-            print(f"Y2Mate method failed: {e}")
-    
-    return None
+        if error:
+            # Cleanup temp directory
+            try:
+                import shutil
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+            return None, error
+        
+        return files, temp_dir
+        
+    except Exception as e:
+        return None, str(e)
 
 
 async def ig_download(update: Update, context: CallbackContext):
     """
-    Handle /ig and /insta commands with robust error handling
+    Handle /ig and /insta commands
     """
     message = update.message
     
+    if not instaloader:
+        await message.reply_text(
+            "❌ *Service Unavailable*\n\n"
+            "Instagram downloader is not properly configured.\n"
+            "Please contact the bot administrator.",
+            parse_mode='Markdown'
+        )
+        return
+    
     if not context.args:
         await message.reply_text(
-            "📸 *Instagram Downloader Bot*\n\n"
+            "📸 *Instagram Downloader*\n\n"
             "*Usage:* `/ig <instagram_url>`\n\n"
             "*Examples:*\n"
             "• `/ig https://www.instagram.com/p/ABC123/`\n"
             "• `/ig https://www.instagram.com/reel/XYZ789/`\n\n"
-            "*Supported:* Posts, Reels, Videos, Images, Carousels\n"
-            "*Note:* Only public accounts work",
+            "*Supported:*\n"
+            "✅ Posts (single/multiple images)\n"
+            "✅ Videos & Reels\n"
+            "✅ Public accounts only\n\n"
+            "*Note:* Private accounts are not supported",
             parse_mode='Markdown'
         )
         return
@@ -256,89 +131,144 @@ async def ig_download(update: Update, context: CallbackContext):
     # Validate Instagram URL
     if not re.search(r'instagram\.com/(p|reel|tv)/[A-Za-z0-9_-]+', url):
         await message.reply_text(
-            "❌ *Invalid Instagram URL!*\n\n"
-            "Please provide a valid Instagram post, reel, or video link.\n"
-            "Example: `https://www.instagram.com/p/ABC123/`",
+            "❌ *Invalid URL*\n\n"
+            "Please provide a valid Instagram post, reel, or video link.\n\n"
+            "*Example:* `https://www.instagram.com/p/ABC123/`",
             parse_mode='Markdown'
         )
         return
     
-    status_msg = await message.reply_text("⏳ *Downloading...* Please wait...", parse_mode='Markdown')
+    status_msg = await message.reply_text(
+        "⏳ *Downloading...*\n\nThis may take a few seconds...",
+        parse_mode='Markdown'
+    )
     
     try:
-        media = await get_ig_media_v2(url)
+        # Download media
+        files, temp_dir_or_error = await download_instagram_media(url)
         
-        if not media:
-            await status_msg.edit_text(
-                "❌ *Download Failed*\n\n"
-                "*Possible reasons:*\n"
-                "• Private account (we can only download public posts)\n"
-                "• Invalid or deleted post\n"
-                "• Instagram temporarily blocked the request\n"
-                "• Post contains restricted content\n\n"
-                "*Try:*\n"
-                "• Make sure the account is public\n"
-                "• Verify the URL is correct\n"
-                "• Try again in a few minutes",
-                parse_mode='Markdown'
-            )
+        if files is None:
+            error_msg = temp_dir_or_error
+            
+            # Provide helpful error messages
+            if "not found" in error_msg.lower() or "404" in error_msg:
+                await status_msg.edit_text(
+                    "❌ *Post Not Found*\n\n"
+                    "The post may have been deleted or the URL is incorrect.\n"
+                    "Please check the link and try again.",
+                    parse_mode='Markdown'
+                )
+            elif "private" in error_msg.lower() or "login" in error_msg.lower():
+                await status_msg.edit_text(
+                    "❌ *Private Account*\n\n"
+                    "This post is from a private account.\n"
+                    "Only public posts can be downloaded.",
+                    parse_mode='Markdown'
+                )
+            elif "rate" in error_msg.lower() or "limit" in error_msg.lower():
+                await status_msg.edit_text(
+                    "❌ *Rate Limited*\n\n"
+                    "Instagram has temporarily blocked our requests.\n"
+                    "Please try again in a few minutes.",
+                    parse_mode='Markdown'
+                )
+            else:
+                await status_msg.edit_text(
+                    f"❌ *Download Failed*\n\n"
+                    f"Error: `{error_msg[:100]}`\n\n"
+                    "Please try again later.",
+                    parse_mode='Markdown'
+                )
             return
         
-        await status_msg.edit_text(f"✅ Found {len(media)} file(s). Uploading...", parse_mode='Markdown')
-        
-        success_count = 0
-        for idx, item in enumerate(media, 1):
+        if not files:
+            await status_msg.edit_text(
+                "❌ *No Media Found*\n\n"
+                "No downloadable media was found in this post.",
+                parse_mode='Markdown'
+            )
+            # Cleanup
             try:
-                caption = f"📥 Downloaded {idx}/{len(media)}"
+                import shutil
+                shutil.rmtree(temp_dir_or_error)
+            except:
+                pass
+            return
+        
+        await status_msg.edit_text(
+            f"✅ Found {len(files)} file(s)\n📤 Uploading...",
+            parse_mode='Markdown'
+        )
+        
+        # Send files
+        success_count = 0
+        for idx, item in enumerate(files, 1):
+            try:
+                caption = f"📥 {idx}/{len(files)}"
                 
                 if item['type'] == 'video':
-                    await message.reply_video(
-                        item['url'],
-                        caption=caption,
-                        supports_streaming=True
-                    )
+                    with open(item['path'], 'rb') as video_file:
+                        await message.reply_video(
+                            video=video_file,
+                            caption=caption,
+                            supports_streaming=True
+                        )
                 else:
-                    await message.reply_photo(
-                        item['url'],
-                        caption=caption
-                    )
+                    with open(item['path'], 'rb') as photo_file:
+                        await message.reply_photo(
+                            photo=photo_file,
+                            caption=caption
+                        )
                 
                 success_count += 1
                 
             except Exception as e:
-                print(f"Error sending media {idx}: {e}")
-                # Try sending as document if direct upload fails
+                print(f"Error sending file {idx}: {e}")
+                # Try sending as document
                 try:
-                    await message.reply_document(
-                        item['url'],
-                        caption=f"📎 Media file {idx} ({item['type']})"
-                    )
+                    with open(item['path'], 'rb') as doc_file:
+                        await message.reply_document(
+                            document=doc_file,
+                            caption=f"📎 Media {idx} ({item['type']})"
+                        )
                     success_count += 1
                 except Exception as doc_error:
-                    print(f"Failed to send as document: {doc_error}")
+                    print(f"Failed to send file as document: {doc_error}")
         
-        # Delete status message after successful upload
+        # Delete status message
         try:
             await status_msg.delete()
         except:
             pass
         
+        # Cleanup temporary files
+        try:
+            import shutil
+            shutil.rmtree(temp_dir_or_error)
+        except Exception as cleanup_error:
+            print(f"Cleanup error: {cleanup_error}")
+        
         if success_count == 0:
             await message.reply_text(
-                "❌ Failed to upload media files.\n"
-                "The download links may have expired. Please try again."
+                "❌ *Upload Failed*\n\n"
+                "Could not send the downloaded files.\n"
+                "They may be too large or in an unsupported format.",
+                parse_mode='Markdown'
             )
     
     except Exception as e:
         error_message = str(e)
         print(f"Instagram download error: {error_message}")
         
-        await status_msg.edit_text(
-            f"❌ *An error occurred*\n\n"
-            f"Error: `{error_message[:100]}`\n\n"
-            "Please try again later or contact support if the issue persists.",
-            parse_mode='Markdown'
-        )
+        try:
+            await status_msg.edit_text(
+                f"❌ *An Error Occurred*\n\n"
+                f"```\n{error_message[:150]}\n```\n\n"
+                "Please try again later.",
+                parse_mode='Markdown'
+            )
+        except:
+            pass
 
 
 # Register command handlers
