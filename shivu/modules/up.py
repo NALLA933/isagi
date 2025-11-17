@@ -6,20 +6,20 @@ from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
 from shivu import application
 
-# Install instaloader if not already: pip install instaloader
+# Install: pip install instagrapi
 try:
-    import instaloader
+    from instagrapi import Client
+    from instagrapi.exceptions import ClientError, LoginRequired
 except ImportError:
-    print("ERROR: Please install instaloader: pip install instaloader")
-    instaloader = None
+    print("ERROR: Please install instagrapi: pip install instagrapi")
+    Client = None
 
-async def download_instagram_media(url: str):
+async def download_instagram_media_anonymous(url: str):
     """
-    Download Instagram media using Instaloader library
-    Returns list of file paths
+    Download Instagram media anonymously using instagrapi (no login required for public posts)
     """
-    if not instaloader:
-        return None, "Instaloader library not installed"
+    if not Client:
+        return None, "Instagrapi library not installed"
     
     try:
         # Extract shortcode from URL
@@ -29,18 +29,7 @@ async def download_instagram_media(url: str):
         
         shortcode = shortcode_match.group(1)
         
-        # Create Instaloader instance
-        L = instaloader.Instaloader(
-            download_videos=True,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            compress_json=False,
-            post_metadata_txt_pattern='',
-        )
-        
-        # Create temporary directory for downloads
+        # Create temporary directory
         temp_dir = tempfile.mkdtemp()
         
         # Run in executor to avoid blocking
@@ -48,40 +37,102 @@ async def download_instagram_media(url: str):
         
         def download_post():
             try:
-                # Get post from shortcode
-                post = instaloader.Post.from_shortcode(L.context, shortcode)
+                # Create client - no login needed for public posts
+                cl = Client()
+                cl.delay_range = [1, 3]
                 
-                # Download post
-                L.download_post(post, target=temp_dir)
+                # Get media info from shortcode (uses public web API - no login required)
+                media_pk = cl.media_pk_from_code(shortcode)
+                media_info = cl.media_info(media_pk)
                 
-                # Collect downloaded files
                 files = []
-                for filename in os.listdir(temp_dir):
-                    if filename.endswith(('.jpg', '.png', '.mp4', '.webp')):
-                        full_path = os.path.join(temp_dir, filename)
-                        
-                        # Determine file type
-                        if filename.endswith('.mp4'):
-                            file_type = 'video'
-                        else:
-                            file_type = 'photo'
-                        
-                        files.append({
-                            'type': file_type,
-                            'path': full_path
-                        })
+                
+                # Handle video
+                if media_info.media_type == 2 and media_info.video_url:
+                    # Download video
+                    video_path = cl.video_download(media_pk, folder=temp_dir)
+                    files.append({'type': 'video', 'path': str(video_path)})
+                
+                # Handle carousel/album (multiple images/videos)
+                elif media_info.media_type == 8 and media_info.resources:
+                    for resource in media_info.resources[:5]:  # Limit to 5
+                        if resource.video_url:
+                            video_path = cl.video_download(resource.pk, folder=temp_dir)
+                            files.append({'type': 'video', 'path': str(video_path)})
+                        elif resource.thumbnail_url:
+                            photo_path = cl.photo_download(resource.pk, folder=temp_dir)
+                            files.append({'type': 'photo', 'path': str(photo_path)})
+                
+                # Handle single image
+                elif media_info.media_type == 1:
+                    photo_path = cl.photo_download(media_pk, folder=temp_dir)
+                    files.append({'type': 'photo', 'path': str(photo_path)})
                 
                 return files, None
-            except instaloader.exceptions.InstaloaderException as e:
-                return None, str(e)
+                
+            except LoginRequired:
+                # If login is required, try alternative method
+                try:
+                    cl = Client()
+                    # Use public web endpoint without login
+                    media = cl.media_info_a1(shortcode)
+                    
+                    files = []
+                    
+                    # Download based on media type
+                    if media.video_url:
+                        import aiohttp
+                        import aiofiles
+                        
+                        async def download_file(url, path):
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(url) as resp:
+                                    if resp.status == 200:
+                                        async with aiofiles.open(path, 'wb') as f:
+                                            await f.write(await resp.read())
+                        
+                        video_path = os.path.join(temp_dir, f"{shortcode}.mp4")
+                        asyncio.run(download_file(media.video_url, video_path))
+                        files.append({'type': 'video', 'path': video_path})
+                    
+                    elif media.thumbnail_url:
+                        import aiohttp
+                        import aiofiles
+                        
+                        async def download_file(url, path):
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(url) as resp:
+                                    if resp.status == 200:
+                                        async with aiofiles.open(path, 'wb') as f:
+                                            await f.write(await resp.read())
+                        
+                        photo_path = os.path.join(temp_dir, f"{shortcode}.jpg")
+                        asyncio.run(download_file(media.thumbnail_url, photo_path))
+                        files.append({'type': 'photo', 'path': photo_path})
+                    
+                    return files, None
+                    
+                except Exception as e2:
+                    return None, f"Private post or login required: {str(e2)}"
+            
+            except ClientError as e:
+                if "challenge_required" in str(e).lower():
+                    return None, "Instagram challenge required - try again later"
+                elif "not found" in str(e).lower():
+                    return None, "Post not found or deleted"
+                elif "private" in str(e).lower():
+                    return None, "Private account - cannot download"
+                else:
+                    return None, str(e)
+            
             except Exception as e:
                 return None, str(e)
         
-        # Execute download in thread pool
+        # Execute download
         files, error = await loop.run_in_executor(None, download_post)
         
         if error:
-            # Cleanup temp directory
+            # Cleanup
             try:
                 import shutil
                 shutil.rmtree(temp_dir)
@@ -101,82 +152,88 @@ async def ig_download(update: Update, context: CallbackContext):
     """
     message = update.message
     
-    if not instaloader:
+    if not Client:
         await message.reply_text(
             "❌ *Service Unavailable*\n\n"
-            "Instagram downloader is not properly configured.\n"
-            "Please contact the bot administrator.",
+            "Instagram downloader is not configured.\n"
+            "Contact administrator.",
             parse_mode='Markdown'
         )
         return
     
     if not context.args:
         await message.reply_text(
-            "📸 *Instagram Downloader*\n\n"
+            "📸 *Instagram Downloader Bot*\n\n"
             "*Usage:* `/ig <instagram_url>`\n\n"
             "*Examples:*\n"
             "• `/ig https://www.instagram.com/p/ABC123/`\n"
             "• `/ig https://www.instagram.com/reel/XYZ789/`\n\n"
-            "*Supported:*\n"
-            "✅ Posts (single/multiple images)\n"
+            "*Supported Content:*\n"
+            "✅ Posts & Photos\n"
             "✅ Videos & Reels\n"
+            "✅ Carousels (multiple images)\n"
             "✅ Public accounts only\n\n"
-            "*Note:* Private accounts are not supported",
+            "*Note:* Private posts cannot be downloaded",
             parse_mode='Markdown'
         )
         return
     
     url = context.args[0]
     
-    # Validate Instagram URL
+    # Validate URL
     if not re.search(r'instagram\.com/(p|reel|tv)/[A-Za-z0-9_-]+', url):
         await message.reply_text(
             "❌ *Invalid URL*\n\n"
-            "Please provide a valid Instagram post, reel, or video link.\n\n"
-            "*Example:* `https://www.instagram.com/p/ABC123/`",
+            "Please provide a valid Instagram link.\n\n"
+            "*Format:* `https://www.instagram.com/p/CODE/`",
             parse_mode='Markdown'
         )
         return
     
     status_msg = await message.reply_text(
-        "⏳ *Downloading...*\n\nThis may take a few seconds...",
+        "⏳ *Downloading...*\n\nPlease wait...",
         parse_mode='Markdown'
     )
     
     try:
         # Download media
-        files, temp_dir_or_error = await download_instagram_media(url)
+        files, temp_dir_or_error = await download_instagram_media_anonymous(url)
         
         if files is None:
             error_msg = temp_dir_or_error
             
-            # Provide helpful error messages
-            if "not found" in error_msg.lower() or "404" in error_msg:
-                await status_msg.edit_text(
-                    "❌ *Post Not Found*\n\n"
-                    "The post may have been deleted or the URL is incorrect.\n"
-                    "Please check the link and try again.",
-                    parse_mode='Markdown'
-                )
-            elif "private" in error_msg.lower() or "login" in error_msg.lower():
+            # Provide specific error messages
+            if "private" in error_msg.lower():
                 await status_msg.edit_text(
                     "❌ *Private Account*\n\n"
                     "This post is from a private account.\n"
                     "Only public posts can be downloaded.",
                     parse_mode='Markdown'
                 )
-            elif "rate" in error_msg.lower() or "limit" in error_msg.lower():
+            elif "not found" in error_msg.lower():
                 await status_msg.edit_text(
-                    "❌ *Rate Limited*\n\n"
-                    "Instagram has temporarily blocked our requests.\n"
-                    "Please try again in a few minutes.",
+                    "❌ *Post Not Found*\n\n"
+                    "The post may have been deleted or URL is incorrect.",
+                    parse_mode='Markdown'
+                )
+            elif "challenge" in error_msg.lower() or "rate" in error_msg.lower():
+                await status_msg.edit_text(
+                    "❌ *Temporarily Blocked*\n\n"
+                    "Instagram has temporarily restricted access.\n"
+                    "Please try again in 5-10 minutes.",
+                    parse_mode='Markdown'
+                )
+            elif "login required" in error_msg.lower():
+                await status_msg.edit_text(
+                    "❌ *Login Required*\n\n"
+                    "This content requires authentication.\n"
+                    "The post may be from a private account.",
                     parse_mode='Markdown'
                 )
             else:
                 await status_msg.edit_text(
                     f"❌ *Download Failed*\n\n"
-                    f"Error: `{error_msg[:100]}`\n\n"
-                    "Please try again later.",
+                    f"Error: `{error_msg[:100]}`",
                     parse_mode='Markdown'
                 )
             return
@@ -184,7 +241,7 @@ async def ig_download(update: Update, context: CallbackContext):
         if not files:
             await status_msg.edit_text(
                 "❌ *No Media Found*\n\n"
-                "No downloadable media was found in this post.",
+                "No downloadable content in this post.",
                 parse_mode='Markdown'
             )
             # Cleanup
@@ -224,35 +281,33 @@ async def ig_download(update: Update, context: CallbackContext):
                 
             except Exception as e:
                 print(f"Error sending file {idx}: {e}")
-                # Try sending as document
+                # Try as document
                 try:
                     with open(item['path'], 'rb') as doc_file:
                         await message.reply_document(
                             document=doc_file,
-                            caption=f"📎 Media {idx} ({item['type']})"
+                            caption=f"📎 Media {idx}"
                         )
                     success_count += 1
-                except Exception as doc_error:
-                    print(f"Failed to send file as document: {doc_error}")
+                except:
+                    pass
         
-        # Delete status message
+        # Cleanup
         try:
             await status_msg.delete()
         except:
             pass
         
-        # Cleanup temporary files
         try:
             import shutil
             shutil.rmtree(temp_dir_or_error)
-        except Exception as cleanup_error:
-            print(f"Cleanup error: {cleanup_error}")
+        except:
+            pass
         
         if success_count == 0:
             await message.reply_text(
                 "❌ *Upload Failed*\n\n"
-                "Could not send the downloaded files.\n"
-                "They may be too large or in an unsupported format.",
+                "Could not send files to Telegram.",
                 parse_mode='Markdown'
             )
     
@@ -262,14 +317,13 @@ async def ig_download(update: Update, context: CallbackContext):
         
         try:
             await status_msg.edit_text(
-                f"❌ *An Error Occurred*\n\n"
-                f"```\n{error_message[:150]}\n```\n\n"
-                "Please try again later.",
+                f"❌ *Error Occurred*\n\n"
+                f"```\n{error_message[:150]}\n```",
                 parse_mode='Markdown'
             )
         except:
             pass
 
 
-# Register command handlers
+# Register handlers
 application.add_handler(CommandHandler(["ig", "insta", "instagram"], ig_download))
