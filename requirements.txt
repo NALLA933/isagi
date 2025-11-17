@@ -15,4 +15,4 @@ telegraph>=0.3.0
 redis>=6.2.0
 psutil
 httpx[http2]==0.27.2
-instaloader
+instagrapi
