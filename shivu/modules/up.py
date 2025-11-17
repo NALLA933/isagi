@@ -26,7 +26,7 @@ async def get_ig_media(url: str):
                             img_match = re.findall(r'href="([^"]+\.jpg[^"]*)"', html)
                             if img_match:
                                 return [{'type': 'photo', 'url': img} for img in img_match[:5]]
-            except:
+            except Exception as e:
                 continue
         
         try:
@@ -41,23 +41,36 @@ async def get_ig_media(url: str):
     return None
 
 async def ig_download(update: Update, context: CallbackContext):
+    message = update.message
+    
     if not context.args:
+        await message.reply_text("Please provide an Instagram URL.\nUsage: /ig <instagram_url>")
         return
     
     url = context.args[0]
-    media = await get_ig_media(url)
     
-    if not media:
-        return
+    status_msg = await message.reply_text("Downloading...")
     
-    for item in media:
-        try:
-            if item['type'] == 'video':
-                await update.message.reply_video(item['url'])
-            else:
-                await update.message.reply_photo(item['url'])
-        except:
-            pass
+    try:
+        media = await get_ig_media(url)
+        
+        if not media:
+            await status_msg.edit_text("Failed to download. Please check the URL and try again.")
+            return
+        
+        await status_msg.delete()
+        
+        for item in media:
+            try:
+                if item['type'] == 'video':
+                    await message.reply_video(item['url'])
+                else:
+                    await message.reply_photo(item['url'])
+            except Exception as e:
+                await message.reply_text(f"Error sending media: {str(e)}")
+    
+    except Exception as e:
+        await status_msg.edit_text(f"An error occurred: {str(e)}")
 
-# Add handlers
+# Add handler
 application.add_handler(CommandHandler(["ig", "insta"], ig_download))
