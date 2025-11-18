@@ -10,44 +10,41 @@ PHOTOS = ["https://files.catbox.moe/k3dhbe.mp4"]
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
 OWNERS = [{"name": "Thorfinn", "username": "ll_Thorfinn_ll"}]
-PARTNER_BOT_LINK = "https://t.me/Siyaprobot?start=_tgr_6Nl2njExN2Rl"
+PARTNER_BOT = "https://t.me/Siyaprobot?start=_tgr_6Nl2njExN2Rl"
 
 async def process_referral(user_id, first_name, referring_user_id, context):
     try:
         if user_id == referring_user_id:
             return False
-        referring_user = await user_collection.find_one({"id": referring_user_id})
+        
+        referring_user = await user_collection.find_one({"id": referring_user_id}, {"id": 1})
         if not referring_user:
             return False
-        new_user = await user_collection.find_one({"id": user_id})
+        
+        new_user = await user_collection.find_one({"id": user_id}, {"referred_by": 1})
         if new_user and new_user.get('referred_by'):
             return False
         
-        await user_collection.update_one(
-            {"id": user_id},
-            {"$set": {"referred_by": referring_user_id}, "$inc": {"balance": NEW_USER_BONUS}}
-        )
-        await user_collection.update_one(
-            {"id": referring_user_id},
-            {
-                "$inc": {
-                    "balance": REFERRER_REWARD,
-                    "referred_users": 1,
-                    "pass_data.tasks.invites": 1,
-                    "pass_data.total_invite_earnings": REFERRER_REWARD
-                },
-                "$push": {"invited_user_ids": user_id}
-            }
-        )
+        await user_collection.bulk_write([
+            {"updateOne": {
+                "filter": {"id": user_id},
+                "update": {"$set": {"referred_by": referring_user_id}, "$inc": {"balance": NEW_USER_BONUS}}
+            }},
+            {"updateOne": {
+                "filter": {"id": referring_user_id},
+                "update": {
+                    "$inc": {
+                        "balance": REFERRER_REWARD,
+                        "referred_users": 1,
+                        "pass_data.tasks.invites": 1,
+                        "pass_data.total_invite_earnings": REFERRER_REWARD
+                    },
+                    "$push": {"invited_user_ids": user_id}
+                }
+            }}
+        ])
         
-        msg = f"""<b>Referral Confirmed</b>
-
-New user <b>{escape(first_name)}</b> has joined through your referral link.
-
-<b>Earned:</b> {REFERRER_REWARD:,} gold
-<b>Progress:</b> Task completed +1
-
-Continue sharing your link to earn more rewards."""
+        msg = f"<b>Referral Confirmed</b>\n\nNew user <b>{escape(first_name)}</b> joined via your link.\n\n<b>Earned:</b> {REFERRER_REWARD:,} gold\n<b>Progress:</b> +1 task"
         
         try:
             await context.bot.send_message(chat_id=referring_user_id, text=msg, parse_mode='HTML')
@@ -101,57 +98,33 @@ async def start(update: Update, context: CallbackContext):
         }
         await user_collection.insert_one(new_user)
         user_data = new_user
-        await track_bot_start(user_id, first_name, username, is_new_user)
+        context.application.create_task(track_bot_start(user_id, first_name, username, is_new_user))
         if referring_user_id:
-            await process_referral(user_id, first_name, referring_user_id, context)
+            context.application.create_task(process_referral(user_id, first_name, referring_user_id, context))
     else:
-        await track_bot_start(user_id, first_name, username, is_new_user)
+        context.application.create_task(track_bot_start(user_id, first_name, username, is_new_user))
     
     balance = user_data.get('balance', 0)
-    totals = await user_totals_collection.find_one({'id': user_id})
-    chars = totals.get('count', 0) if totals else 0
+    chars = 0
     refs = user_data.get('referred_users', 0)
     tier = user_data.get('pass_data', {}).get('tier', 'free').title()
     
     welcome_msg = "Welcome to Pick Catcher" if is_new_user else f"Welcome back, {first_name}"
-    bonus_msg = f"\n\nYou've received a referral bonus of {NEW_USER_BONUS} gold." if (is_new_user and referring_user_id) else ""
+    bonus_msg = f"\n\nReferral bonus: {NEW_USER_BONUS} gold received." if (is_new_user and referring_user_id) else ""
     
-    caption = f"""<b>{welcome_msg}</b>
-
-Pick Catcher is an anime character collection bot. Add me to your group to start collecting rare characters, trade with other users, and build your ultimate collection.{bonus_msg}
-
-<b>Account Overview</b>
-
-Membership: {tier}
-Balance: {balance:,} gold
-Collection: {chars} characters
-Referrals: {refs} users"""
+    caption = f"<b>{welcome_msg}</b>\n\nCollect rare anime characters, trade with users, and build your ultimate collection.{bonus_msg}\n\n<b>Account Overview</b>\n\nTier: {tier}\nGold: {balance:,}\nCharacters: {chars}\nReferrals: {refs}"
     
     keyboard = [
         [InlineKeyboardButton("Add to Group", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
-        [InlineKeyboardButton("Try Our Partner Bot - Siyapro", url=PARTNER_BOT_LINK)],
-        [
-            InlineKeyboardButton("Support", url=f'https://t.me/{SUPPORT_CHAT}'),
-            InlineKeyboardButton("Updates", url='https://t.me/PICK_X_UPDATE')
-        ],
-        [
-            InlineKeyboardButton("Commands", callback_data='help'),
-            InlineKeyboardButton("Statistics", callback_data='stats')
-        ],
-        [
-            InlineKeyboardButton("Referral Program", callback_data='referral'),
-            InlineKeyboardButton("Membership", callback_data='pass_info')
-        ],
+        [InlineKeyboardButton("Try Partner Bot", url=PARTNER_BOT)],
+        [InlineKeyboardButton("Support", url=f'https://t.me/{SUPPORT_CHAT}'), InlineKeyboardButton("Updates", url='https://t.me/PICK_X_UPDATE')],
+        [InlineKeyboardButton("Commands", callback_data='help'), InlineKeyboardButton("Stats", callback_data='stats')],
+        [InlineKeyboardButton("Referral", callback_data='referral'), InlineKeyboardButton("Premium", callback_data='pass_info')],
         [InlineKeyboardButton("About", callback_data='credits')]
     ]
     
     try:
-        await update.message.reply_text(
-            text=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML',
-            disable_web_page_preview=False
-        )
+        await update.message.reply_text(text=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
     except Exception as e:
         LOGGER.error(f"Start error: {e}")
 
@@ -163,16 +136,13 @@ async def button_callback(update: Update, context: CallbackContext):
     user_data = await user_collection.find_one({"id": user_id})
     
     if not user_data:
-        await query.answer("Please start the bot first using /start", show_alert=True)
+        await query.answer("Start bot first with /start", show_alert=True)
         return
     
     if query.data == 'credits':
-        text = f"""<b>About Pick Catcher</b>
-
-Pick Catcher is developed and maintained by a dedicated team committed to providing the best anime character collection experience.
-
-<b>Development Team</b>"""
+        text = "<b>About Pick Catcher</b>\n\nDeveloped by a dedicated team for anime collectors.\n\n<b>Development Team</b>"
         buttons = []
+        
         if OWNERS:
             for owner in OWNERS:
                 buttons.append([InlineKeyboardButton(f"{owner['name']} - Owner", url=f"https://t.me/{owner['username']}")])
@@ -182,71 +152,34 @@ Pick Catcher is developed and maintained by a dedicated team committed to provid
             if sudo_users_db:
                 text += "\n\n<b>Support Team</b>"
                 for sudo in sudo_users_db:
-                    sudo_title = sudo.get('sudo_title', 'Support Staff')
+                    sudo_title = sudo.get('sudo_title', 'Support')
                     sudo_username = sudo.get('username', '')
                     if sudo_username:
-                        buttons.append([InlineKeyboardButton(f"{sudo_title}", url=f"https://t.me/{sudo_username}")])
+                        buttons.append([InlineKeyboardButton(sudo_title, url=f"https://t.me/{sudo_username}")])
         except Exception as e:
-            LOGGER.error(f"Error fetching sudo users: {e}")
+            LOGGER.error(f"Error fetching sudo: {e}")
         
         buttons.append([InlineKeyboardButton("Back", callback_data='back')])
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML', disable_web_page_preview=False)
     
     elif query.data == 'help':
-        text = f"""<b>Available Commands</b>
-
-<b>Character Management</b>
-/grab - Identify and collect spawned characters
-/fav - Set your favorite character for display
-/harem - Browse your character collection
-
-<b>Economy</b>
-/balance - View your current gold balance
-/pay - Transfer gold to another user
-/claim - Collect your daily reward
-/roll - Participate in gold gambling
-
-<b>Trading</b>
-/trade - Initiate a character trade
-/gift - Send a character to another user
-
-<b>Leaderboards</b>
-/top - View global rankings
-
-Use these commands in groups where the bot is added. For detailed information about any command, use /help followed by the command name.
-
-<b>Recommended:</b> Check out our partner bot for more features."""
+        text = "<b>Commands</b>\n\n<b>Gameplay</b>\n/grab - Collect characters\n/fav - Set favorite\n/harem - View collection\n\n<b>Economy</b>\n/balance - Check gold\n/pay - Send gold\n/claim - Daily reward\n/roll - Gamble\n\n<b>Social</b>\n/trade - Trade characters\n/gift - Gift character\n/top - Leaderboards"
         keyboard = [
-            [InlineKeyboardButton("Try Siyapro Bot", url=PARTNER_BOT_LINK)],
+            [InlineKeyboardButton("Partner Bot", url=PARTNER_BOT)],
             [InlineKeyboardButton("Back", callback_data='back')]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
     
     elif query.data == 'stats':
         balance = user_data.get('balance', 0)
-        totals = await user_totals_collection.find_one({'id': user_id})
-        chars = totals.get('count', 0) if totals else 0
         refs = user_data.get('referred_users', 0)
         pass_data = user_data.get('pass_data', {})
         tier = pass_data.get('tier', 'free').title()
         weekly_claims = pass_data.get('weekly_claims', 0)
         streak = pass_data.get('streak_count', 0)
-        total_invited_earnings = pass_data.get('total_invite_earnings', 0)
+        total_earnings = pass_data.get('total_invite_earnings', 0)
         
-        text = f"""<b>Account Statistics</b>
-
-<b>Financial Overview</b>
-Current Balance: {balance:,} gold
-Referral Earnings: {total_invited_earnings:,} gold
-
-<b>Collection Progress</b>
-Total Characters: {chars}
-Weekly Claims: {weekly_claims}
-
-<b>Achievements</b>
-Daily Streak: {streak} days
-Total Referrals: {refs} users
-Membership Tier: {tier}"""
+        text = f"<b>Statistics</b>\n\n<b>Financial</b>\nBalance: {balance:,} gold\nReferral Earnings: {total_earnings:,}\n\n<b>Collection</b>\nWeekly Claims: {weekly_claims}\n\n<b>Progress</b>\nStreak: {streak} days\nReferrals: {refs}\nTier: {tier}"
         keyboard = [[InlineKeyboardButton("Back", callback_data='back')]]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
     
@@ -255,92 +188,35 @@ Membership Tier: {tier}"""
         count = user_data.get('referred_users', 0)
         earned = count * REFERRER_REWARD
         
-        text = f"""<b>Referral Program</b>
-
-Earn rewards by inviting new users to Pick Catcher. Share your unique referral link and receive gold for each successful registration.
-
-<b>Reward Structure</b>
-Your reward per referral: {REFERRER_REWARD:,} gold
-New user signup bonus: {NEW_USER_BONUS:,} gold
-
-<b>Your Performance</b>
-Total referrals: {count} users
-Total earned: {earned:,} gold
-
-<b>Your Referral Link</b>
-{link}
-
-Share this link with friends to start earning rewards immediately."""
+        text = f"<b>Referral Program</b>\n\nEarn {REFERRER_REWARD:,} gold per referral.\nNew users get {NEW_USER_BONUS:,} gold.\n\n<b>Your Stats</b>\nReferrals: {count}\nEarned: {earned:,} gold\n\n<b>Your Link</b>\n{link}"
         keyboard = [
-            [InlineKeyboardButton("Share Link", url=f"https://t.me/share/url?url={link}")],
+            [InlineKeyboardButton("Share", url=f"https://t.me/share/url?url={link}")],
             [InlineKeyboardButton("Back", callback_data='back')]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
     
     elif query.data == 'pass_info':
         tier = user_data.get('pass_data', {}).get('tier', 'free').title()
-        text = f"""<b>Membership Tiers</b>
-
-Current tier: {tier}
-
-<b>Free Membership</b>
-Access to basic features
-Standard reward rates
-Community support
-
-<b>Premium Membership</b>
-2x daily reward multiplier
-Access to exclusive characters
-Priority customer support
-Enhanced trading options
-
-<b>Elite Membership</b>
-3x daily reward multiplier
-Mythic character collection unlocked
-Custom profile customization
-VIP event access
-Dedicated support channel
-
-To upgrade your membership, please contact our support team for pricing and payment options."""
+        text = f"<b>Membership</b>\n\nCurrent: {tier}\n\n<b>Free</b>\nBasic features\n\n<b>Premium</b>\n2x rewards\nExclusive characters\n\n<b>Elite</b>\n3x rewards\nMythic characters\nCustom badges\nVIP access"
         keyboard = [
-            [InlineKeyboardButton("Contact Support", url=f'https://t.me/{SUPPORT_CHAT}')],
+            [InlineKeyboardButton("Upgrade", url=f'https://t.me/{SUPPORT_CHAT}')],
             [InlineKeyboardButton("Back", callback_data='back')]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
     
     elif query.data == 'back':
         balance = user_data.get('balance', 0)
-        totals = await user_totals_collection.find_one({'id': user_id})
-        chars = totals.get('count', 0) if totals else 0
         refs = user_data.get('referred_users', 0)
         tier = user_data.get('pass_data', {}).get('tier', 'free').title()
         first_name = query.from_user.first_name
         
-        caption = f"""<b>Welcome back, {first_name}</b>
-
-Pick Catcher is an anime character collection bot. Add me to your group to start collecting rare characters, trade with other users, and build your ultimate collection.
-
-<b>Account Overview</b>
-
-Membership: {tier}
-Balance: {balance:,} gold
-Collection: {chars} characters
-Referrals: {refs} users"""
+        caption = f"<b>Welcome back, {first_name}</b>\n\nCollect rare anime characters, trade with users, and build your ultimate collection.\n\n<b>Account</b>\n\nTier: {tier}\nGold: {balance:,}\nCharacters: 0\nReferrals: {refs}"
         keyboard = [
             [InlineKeyboardButton("Add to Group", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
-            [InlineKeyboardButton("Try Our Partner Bot - Siyapro", url=PARTNER_BOT_LINK)],
-            [
-                InlineKeyboardButton("Support", url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton("Updates", url='https://t.me/PICK_X_UPDATE')
-            ],
-            [
-                InlineKeyboardButton("Commands", callback_data='help'),
-                InlineKeyboardButton("Statistics", callback_data='stats')
-            ],
-            [
-                InlineKeyboardButton("Referral Program", callback_data='referral'),
-                InlineKeyboardButton("Membership", callback_data='pass_info')
-            ],
+            [InlineKeyboardButton("Try Partner Bot", url=PARTNER_BOT)],
+            [InlineKeyboardButton("Support", url=f'https://t.me/{SUPPORT_CHAT}'), InlineKeyboardButton("Updates", url='https://t.me/PICK_X_UPDATE')],
+            [InlineKeyboardButton("Commands", callback_data='help'), InlineKeyboardButton("Stats", callback_data='stats')],
+            [InlineKeyboardButton("Referral", callback_data='referral'), InlineKeyboardButton("Premium", callback_data='pass_info')],
             [InlineKeyboardButton("About", callback_data='credits')]
         ]
         await query.edit_message_text(text=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', disable_web_page_preview=False)
