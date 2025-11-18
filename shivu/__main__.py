@@ -214,6 +214,10 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         if not update.message:
             return
 
+        # IMPORTANT: Skip bot messages - only count user messages
+        if update.effective_user.is_bot:
+            return
+
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         chat_id_str = str(chat_id)
@@ -235,9 +239,10 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             message_counts[chat_id_str] += 1
 
             # Determine message content type for logging
-            msg_content = "unknown"
+            msg_content = "text"
             if update.message.text:
                 if update.message.text.startswith('/'):
+                    # Count commands but log them differently
                     msg_content = f"command: {update.message.text.split()[0]}"
                 else:
                     msg_content = "text"
@@ -260,10 +265,8 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             else:
                 msg_content = "other_media"
 
-            sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
-
             # Log the current count for this specific group
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{chat_frequency} | {sender_type} {user_id} | {msg_content}")
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{chat_frequency} | 👤user {user_id} | {msg_content}")
 
             # Check if we've reached the threshold for THIS group
             if message_counts[chat_id_str] >= chat_frequency:
@@ -272,7 +275,13 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                     LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
                     currently_spawning[chat_id_str] = True
                     message_counts[chat_id_str] = 0  # Reset counter for THIS group
-                    asyncio.create_task(send_image(update, context))
+                    
+                    # Spawn immediately without waiting
+                    try:
+                        await send_image(update, context)
+                    except Exception as spawn_error:
+                        LOGGER.error(f"Error spawning character: {spawn_error}")
+                        currently_spawning[chat_id_str] = False
                 else:
                     LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
 
