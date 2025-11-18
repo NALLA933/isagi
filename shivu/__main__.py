@@ -206,21 +206,43 @@ async def despawn_character(chat_id, message_id, character, context):
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
+        # Debug: Log that function was called
+        LOGGER.info(f"🔍 message_counter called - update type: {type(update)}")
+        
+        # Check if we have effective_chat
+        if not update.effective_chat:
+            LOGGER.warning("⚠️ No effective_chat in update")
+            return
+            
+        LOGGER.info(f"🔍 Chat type: {update.effective_chat.type}")
+        
         # Only count messages in groups
         if update.effective_chat.type not in ['group', 'supergroup']:
+            LOGGER.info(f"⏭️ Skipping non-group chat: {update.effective_chat.type}")
             return
 
         # Skip if there's no message object
         if not update.message:
+            LOGGER.info("⏭️ No message object in update")
             return
+            
+        # Check if we have effective_user
+        if not update.effective_user:
+            LOGGER.warning("⚠️ No effective_user in update")
+            return
+
+        LOGGER.info(f"🔍 User: {update.effective_user.first_name} (ID: {update.effective_user.id}) | is_bot: {update.effective_user.is_bot}")
 
         # IMPORTANT: Skip bot messages - only count user messages
         if update.effective_user.is_bot:
+            LOGGER.info(f"⏭️ Skipping bot message from {update.effective_user.first_name}")
             return
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         chat_id_str = str(chat_id)
+        
+        LOGGER.info(f"✅ COUNTING MESSAGE in chat {chat_id_str}")
 
         # Initialize lock for this chat if it doesn't exist
         if chat_id_str not in locks:
@@ -234,17 +256,25 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             # Initialize message count for this chat if it doesn't exist
             if chat_id_str not in message_counts:
                 message_counts[chat_id_str] = 0
+                LOGGER.info(f"🆕 Initialized counter for chat {chat_id_str}")
+
+            # Get old count
+            old_count = message_counts[chat_id_str]
 
             # Increment message count for THIS specific group - COUNT ALL USER MESSAGES
             message_counts[chat_id_str] += 1
+            
+            new_count = message_counts[chat_id_str]
+            
+            LOGGER.info(f"➕ Counter incremented: {old_count} → {new_count}")
 
             # Determine message content type for logging
-            msg_content = "text"
+            msg_content = "unknown"
             if update.message.text:
                 if update.message.text.startswith('/'):
-                    msg_content = f"command: {update.message.text[:50]}"  # Show command
+                    msg_content = f"command: {update.message.text[:50]}"
                 else:
-                    msg_content = f"text: {update.message.text[:30]}..."  # Show preview
+                    msg_content = f"text: '{update.message.text[:30]}...'"
             elif update.message.photo:
                 msg_content = "photo"
             elif update.message.video:
@@ -267,7 +297,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             user_name = update.effective_user.first_name or "Unknown"
             
             # Log EVERY message with detailed info
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{chat_frequency} | 👤 {user_name} (ID:{user_id}) | Type: {msg_content}")
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {new_count}/{chat_frequency} | 👤 {user_name} (ID:{user_id}) | Type: {msg_content}")
 
             # Check if we've reached the threshold (30 messages) for THIS group
             if message_counts[chat_id_str] >= chat_frequency:
@@ -276,6 +306,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                     LOGGER.info(f"🎯✨ SPAWN TRIGGERED! Chat {chat_id} reached {message_counts[chat_id_str]} messages!")
                     currently_spawning[chat_id_str] = True
                     message_counts[chat_id_str] = 0  # Reset counter for THIS group
+                    LOGGER.info(f"🔄 Counter reset to 0 for chat {chat_id_str}")
                     
                     # Spawn immediately without waiting
                     try:
@@ -285,10 +316,10 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                         LOGGER.error(traceback.format_exc())
                         currently_spawning[chat_id_str] = False
                 else:
-                    LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, keeping count at {message_counts[chat_id_str]}")
+                    LOGGER.warning(f"⏭️ Spawn already in progress for chat {chat_id}, keeping count at {message_counts[chat_id_str]}")
 
     except Exception as e:
-        LOGGER.error(f"❌ Error in message_counter: {e}")
+        LOGGER.error(f"❌ CRITICAL Error in message_counter: {e}")
         LOGGER.error(traceback.format_exc())
 
 
