@@ -150,7 +150,7 @@ async def despawn_character(chat_id, message_id, character, context):
             last_characters.pop(chat_id, None)
             spawn_messages.pop(chat_id, None)
             spawn_message_links.pop(chat_id, None)
-            currently_spawning.pop(str(chat_id), None)
+            currently_spawning.pop(chat_id, None)
             return
 
         try:
@@ -197,7 +197,7 @@ async def despawn_character(chat_id, message_id, character, context):
         last_characters.pop(chat_id, None)
         spawn_messages.pop(chat_id, None)
         spawn_message_links.pop(chat_id, None)
-        currently_spawning.pop(str(chat_id), None)
+        currently_spawning.pop(chat_id, None)
 
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
@@ -206,169 +206,87 @@ async def despawn_character(chat_id, message_id, character, context):
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
-        # Debug: Log that function was called
-        LOGGER.info(f"🔍 message_counter called - update type: {type(update)}")
-        
-        # Check if we have effective_chat
-        if not update.effective_chat:
-            LOGGER.warning("⚠️ No effective_chat in update")
-            return
-            
-        LOGGER.info(f"🔍 Chat type: {update.effective_chat.type}")
-        
-        # Only count messages in groups
         if update.effective_chat.type not in ['group', 'supergroup']:
-            LOGGER.info(f"⏭️ Skipping non-group chat: {update.effective_chat.type}")
             return
 
-        # Skip if there's no message object
-        if not update.message:
-            LOGGER.info("⏭️ No message object in update")
-            return
-            
-        # Check if we have effective_user
-        if not update.effective_user:
-            LOGGER.warning("⚠️ No effective_user in update")
-            return
-
-        LOGGER.info(f"🔍 User: {update.effective_user.first_name} (ID: {update.effective_user.id}) | is_bot: {update.effective_user.is_bot}")
-
-        # IMPORTANT: Skip bot messages - only count user messages
-        if update.effective_user.is_bot:
-            LOGGER.info(f"⏭️ Skipping bot message from {update.effective_user.first_name}")
+        if not update.message and not update.edited_message:
             return
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         chat_id_str = str(chat_id)
-        
-        LOGGER.info(f"✅ COUNTING MESSAGE in chat {chat_id_str}")
 
-        # Initialize lock for this chat if it doesn't exist
         if chat_id_str not in locks:
             locks[chat_id_str] = asyncio.Lock()
         lock = locks[chat_id_str]
 
         async with lock:
-            # Use fixed MESSAGE_FREQUENCY (30) for all groups
-            chat_frequency = MESSAGE_FREQUENCY
-
-            # Initialize message count for this chat if it doesn't exist
             if chat_id_str not in message_counts:
                 message_counts[chat_id_str] = 0
-                LOGGER.info(f"🆕 Initialized counter for chat {chat_id_str}")
 
-            # Get old count
-            old_count = message_counts[chat_id_str]
-
-            # Increment message count for THIS specific group - COUNT ALL USER MESSAGES
             message_counts[chat_id_str] += 1
             
-            new_count = message_counts[chat_id_str]
-            
-            LOGGER.info(f"➕ Counter incremented: {old_count} → {new_count}")
-
-            # Determine message content type for logging
             msg_content = "unknown"
-            if update.message.text:
-                if update.message.text.startswith('/'):
-                    msg_content = f"command: {update.message.text[:50]}"
+            if update.message:
+                if update.message.text:
+                    if update.message.text.startswith('/'):
+                        msg_content = f"command: {update.message.text.split()[0]}"
+                    else:
+                        msg_content = "text"
+                elif update.message.photo:
+                    msg_content = "photo"
+                elif update.message.video:
+                    msg_content = "video"
+                elif update.message.document:
+                    msg_content = "document"
+                elif update.message.sticker:
+                    msg_content = "sticker"
+                elif update.message.animation:
+                    msg_content = "animation"
+                elif update.message.voice:
+                    msg_content = "voice"
+                elif update.message.audio:
+                    msg_content = "audio"
+                elif update.message.video_note:
+                    msg_content = "video_note"
                 else:
-                    msg_content = f"text: '{update.message.text[:30]}...'"
-            elif update.message.photo:
-                msg_content = "photo"
-            elif update.message.video:
-                msg_content = "video"
-            elif update.message.document:
-                msg_content = "document"
-            elif update.message.sticker:
-                msg_content = "sticker"
-            elif update.message.animation:
-                msg_content = "animation"
-            elif update.message.voice:
-                msg_content = "voice"
-            elif update.message.audio:
-                msg_content = "audio"
-            elif update.message.video_note:
-                msg_content = "video_note"
-            else:
-                msg_content = "other_media"
-
-            user_name = update.effective_user.first_name or "Unknown"
+                    msg_content = "other_media"
             
-            # Log EVERY message with detailed info
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {new_count}/{chat_frequency} | 👤 {user_name} (ID:{user_id}) | Type: {msg_content}")
+            sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
+            
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | {msg_content}")
 
-            # Check if we've reached the threshold (30 messages) for THIS group
-            if message_counts[chat_id_str] >= chat_frequency:
-                # Make sure we're not already spawning in this group
+            if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
                 if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
-                    LOGGER.info(f"🎯✨ SPAWN TRIGGERED! Chat {chat_id} reached {message_counts[chat_id_str]} messages!")
+                    LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
                     currently_spawning[chat_id_str] = True
-                    message_counts[chat_id_str] = 0  # Reset counter for THIS group
-                    LOGGER.info(f"🔄 Counter reset to 0 for chat {chat_id_str}")
-                    
-                    # Spawn immediately without waiting
-                    try:
-                        await send_image(update, context)
-                    except Exception as spawn_error:
-                        LOGGER.error(f"❌ Error spawning character: {spawn_error}")
-                        LOGGER.error(traceback.format_exc())
-                        currently_spawning[chat_id_str] = False
+                    message_counts[chat_id_str] = 0
+                    asyncio.create_task(send_image(update, context))
                 else:
-                    LOGGER.warning(f"⏭️ Spawn already in progress for chat {chat_id}, keeping count at {message_counts[chat_id_str]}")
+                    LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
 
     except Exception as e:
-        LOGGER.error(f"❌ CRITICAL Error in message_counter: {e}")
+        LOGGER.error(f"Error in message_counter: {e}")
         LOGGER.error(traceback.format_exc())
 
 
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
-    chat_id_str = str(chat_id)
 
     try:
-        # Use asyncio.gather to run database queries in parallel
-        all_chars_task = collection.find({}).to_list(length=None)
-        group_setting_task = None
-        settings_task = None
-        
-        if group_rarity_collection is not None and get_group_exclusive is not None:
-            group_setting_task = get_group_exclusive(chat_id)
-        
-        if spawn_settings_collection is not None and get_spawn_settings is not None:
-            settings_task = get_spawn_settings()
-        
-        # Wait for all queries simultaneously
-        if group_setting_task and settings_task:
-            all_characters, group_setting, settings = await asyncio.gather(
-                all_chars_task, group_setting_task, settings_task
-            )
-        elif group_setting_task:
-            all_characters, group_setting = await asyncio.gather(all_chars_task, group_setting_task)
-            settings = None
-        elif settings_task:
-            all_characters, settings = await asyncio.gather(all_chars_task, settings_task)
-            group_setting = None
-        else:
-            all_characters = await all_chars_task
-            group_setting = None
-            settings = None
+        all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
             LOGGER.warning(f"No characters available for spawn in chat {chat_id}")
-            currently_spawning[chat_id_str] = False
+            currently_spawning[str(chat_id)] = False
             return
 
-        # Initialize sent_characters if needed
         if chat_id not in sent_characters:
             sent_characters[chat_id] = []
 
-        # Reset if all characters have been sent
         if len(sent_characters[chat_id]) >= len(all_characters):
             sent_characters[chat_id] = []
 
-        # Filter available characters (not yet sent in this chat)
         available_characters = [
             c for c in all_characters
             if 'id' in c and c.get('id') not in sent_characters[chat_id]
@@ -378,104 +296,91 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             available_characters = all_characters
             sent_characters[chat_id] = []
 
-        # Get global rarities
-        global_rarities = settings.get('rarities', {}) if settings else {}
-
-        # Filter allowed characters based on rarity settings
         allowed_characters = []
         for char in available_characters:
-            # Quick checks first
-            if char.get('removed', False):
-                continue
-            
-            # Video check
-            is_video = char.get('is_video', False)
-            if is_video and chat_id != AMV_ALLOWED_GROUP_ID:
-                continue
-            
-            # Rarity check
-            char_rarity = char.get('rarity', '🟢 Common')
-            rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
-            
-            # Check if rarity is enabled
-            if rarity_emoji in global_rarities:
-                if not global_rarities[rarity_emoji].get('enabled', True):
-                    continue
-            
-            allowed_characters.append(char)
+            if await is_character_allowed(char, chat_id):
+                allowed_characters.append(char)
 
         if not allowed_characters:
             LOGGER.warning(f"No allowed characters for spawn in chat {chat_id}")
-            currently_spawning[chat_id_str] = False
+            currently_spawning[str(chat_id)] = False
             return
 
-        # Select character using weighted random selection
         character = None
-        
-        # Build rarity pools
-        rarity_pools = {}
-        for char in allowed_characters:
-            char_rarity = char.get('rarity', '🟢 Common')
-            emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
-            
-            if emoji not in rarity_pools:
-                rarity_pools[emoji] = []
-            rarity_pools[emoji].append(char)
+        selected_rarity = None
 
-        weighted_choices = []
+        try:
+            group_setting = None
+            if group_rarity_collection is not None and get_group_exclusive is not None:
+                group_setting = await get_group_exclusive(chat_id)
 
-        # Add group exclusive if exists
-        if group_setting:
-            exclusive_emoji = group_setting['rarity_emoji']
-            exclusive_chance = group_setting.get('chance', 10.0)
+            global_rarities = {}
+            if spawn_settings_collection is not None and get_spawn_settings is not None:
+                settings = await get_spawn_settings()
+                global_rarities = settings.get('rarities', {}) if settings else {}
 
-            if exclusive_emoji in rarity_pools and rarity_pools[exclusive_emoji]:
-                weighted_choices.append({
-                    'emoji': exclusive_emoji,
-                    'chars': rarity_pools[exclusive_emoji],
-                    'chance': exclusive_chance,
-                    'is_exclusive': True
-                })
+            rarity_pools = {}
+            for char in allowed_characters:
+                char_rarity = char.get('rarity', '🟢 Common')
+                emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
 
-        # Add global rarities
-        for emoji, rarity_data in global_rarities.items():
-            if not rarity_data.get('enabled', True):
-                continue
+                if emoji not in rarity_pools:
+                    rarity_pools[emoji] = []
+                rarity_pools[emoji].append(char)
 
-            if group_setting and emoji == group_setting['rarity_emoji']:
-                continue
+            weighted_choices = []
 
-            if emoji in rarity_pools and rarity_pools[emoji]:
-                weighted_choices.append({
-                    'emoji': emoji,
-                    'chars': rarity_pools[emoji],
-                    'chance': rarity_data.get('chance', 5.0),
-                    'is_exclusive': False
-                })
+            if group_setting:
+                exclusive_emoji = group_setting['rarity_emoji']
+                exclusive_chance = group_setting.get('chance', 10.0)
 
-        # Select character
-        if weighted_choices:
-            total_chance = sum(choice['chance'] for choice in weighted_choices)
-            rand = random.uniform(0, total_chance)
+                if exclusive_emoji in rarity_pools and rarity_pools[exclusive_emoji]:
+                    weighted_choices.append({
+                        'emoji': exclusive_emoji,
+                        'chars': rarity_pools[exclusive_emoji],
+                        'chance': exclusive_chance,
+                        'is_exclusive': True
+                    })
 
-            cumulative = 0
-            for choice in weighted_choices:
-                cumulative += choice['chance']
-                if rand <= cumulative:
-                    character = random.choice(choice['chars'])
-                    break
+            for emoji, rarity_data in global_rarities.items():
+                if not rarity_data.get('enabled', True):
+                    continue
+
+                if group_setting and emoji == group_setting['rarity_emoji']:
+                    continue
+
+                if emoji in rarity_pools and rarity_pools[emoji]:
+                    weighted_choices.append({
+                        'emoji': emoji,
+                        'chars': rarity_pools[emoji],
+                        'chance': rarity_data.get('chance', 5.0),
+                        'is_exclusive': False
+                    })
+
+            if weighted_choices:
+                total_chance = sum(choice['chance'] for choice in weighted_choices)
+                rand = random.uniform(0, total_chance)
+
+                cumulative = 0
+                for choice in weighted_choices:
+                    cumulative += choice['chance']
+                    if rand <= cumulative:
+                        character = random.choice(choice['chars'])
+                        selected_rarity = choice['emoji']
+                        break
+
+        except Exception as e:
+            LOGGER.error(f"Error in weighted selection: {e}\n{traceback.format_exc()}")
 
         if not character:
             character = random.choice(allowed_characters)
 
-        # Update tracking
         sent_characters[chat_id].append(character['id'])
         last_characters[chat_id] = character
 
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
-        # Get rarity info
         rarity = character.get('rarity', 'Common')
         if isinstance(rarity, str) and ' ' in rarity:
             rarity_emoji = rarity.split(' ')[0]
@@ -484,7 +389,6 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        # Prepare caption
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
 
@@ -493,7 +397,6 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
-        # Send media (reduced timeouts for faster response)
         if is_video:
             spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
@@ -501,10 +404,10 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 caption=caption,
                 parse_mode='Markdown',
                 supports_streaming=True,
-                read_timeout=60,
-                write_timeout=60,
-                connect_timeout=30,
-                pool_timeout=30
+                read_timeout=300,
+                write_timeout=300,
+                connect_timeout=60,
+                pool_timeout=60
             )
         else:
             spawn_msg = await context.bot.send_photo(
@@ -512,30 +415,27 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 photo=media_url,
                 caption=caption,
                 parse_mode='Markdown',
-                read_timeout=60,
-                write_timeout=60
+                read_timeout=180,
+                write_timeout=180
             )
 
-        # Store spawn info
         spawn_messages[chat_id] = spawn_msg.message_id
 
         chat_username = update.effective_chat.username
         if chat_username:
             spawn_message_links[chat_id] = f"https://t.me/{chat_username}/{spawn_msg.message_id}"
         else:
-            chat_id_str_link = str(chat_id).replace('-100', '')
-            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str_link}/{spawn_msg.message_id}"
+            chat_id_str = str(chat_id).replace('-100', '')
+            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str}/{spawn_msg.message_id}"
 
-        # Release the spawn lock
-        currently_spawning[chat_id_str] = False
+        currently_spawning[str(chat_id)] = False
 
-        # Schedule despawn in background
         asyncio.create_task(despawn_character(chat_id, spawn_msg.message_id, character, context))
 
     except Exception as e:
         LOGGER.error(f"Error in send_image: {e}")
         LOGGER.error(traceback.format_exc())
-        currently_spawning[chat_id_str] = False
+        currently_spawning[str(chat_id)] = False
 
 
 async def guess(update: Update, context: CallbackContext) -> None:
@@ -717,24 +617,8 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-async def check_counts(update: Update, context: CallbackContext) -> None:
-    """Debug command to check message counts"""
-    chat_id = str(update.effective_chat.id)
-    count = message_counts.get(chat_id, 0)
-    spawning = currently_spawning.get(chat_id, False)
-    
-    await update.message.reply_text(
-        f"📊 Debug Info:\n"
-        f"Current count: {count}\n"
-        f"Required: {MESSAGE_FREQUENCY}\n"
-        f"Spawning: {spawning}\n"
-        f"Chat ID: {chat_id}"
-    )
-
-
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
-    application.add_handler(CommandHandler("checkcount", check_counts, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
     LOGGER.info("🚀 Bot starting...")
