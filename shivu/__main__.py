@@ -22,8 +22,6 @@ top_global_groups_collection = db['top_global_groups']
 MESSAGE_FREQUENCY = 30
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
-SPAM_THRESHOLD = 10
-SPAM_TIME_WINDOW = 20
 
 locks = {}
 message_counts = {}
@@ -32,7 +30,7 @@ last_characters = {}
 first_correct_guesses = {}
 spawn_messages = {}
 spawn_message_links = {}
-user_message_times = {}
+currently_spawning = {}
 
 spawn_settings_collection = None
 group_rarity_collection = None
@@ -65,24 +63,6 @@ try:
     LOGGER.info("✅ Backup system initialized")
 except Exception as e:
     LOGGER.warning(f"⚠️ Backup system not available: {e}")
-
-
-def is_spam_user(user_id, chat_id):
-    key = f"{chat_id}:{user_id}"
-    current_time = time()
-    
-    if key not in user_message_times:
-        user_message_times[key] = deque(maxlen=SPAM_THRESHOLD)
-    
-    user_message_times[key].append(current_time)
-    
-    if len(user_message_times[key]) >= SPAM_THRESHOLD:
-        time_diff = current_time - user_message_times[key][0]
-        if time_diff <= SPAM_TIME_WINDOW:
-            LOGGER.warning(f"🚫 Spam detected: User {user_id} in chat {chat_id} - {SPAM_THRESHOLD} messages in {time_diff:.2f}s")
-            return True
-    
-    return False
 
 
 async def is_character_allowed(character, chat_id=None):
@@ -170,6 +150,7 @@ async def despawn_character(chat_id, message_id, character, context):
             last_characters.pop(chat_id, None)
             spawn_messages.pop(chat_id, None)
             spawn_message_links.pop(chat_id, None)
+            currently_spawning.pop(chat_id, None)
             return
 
         try:
@@ -216,6 +197,7 @@ async def despawn_character(chat_id, message_id, character, context):
         last_characters.pop(chat_id, None)
         spawn_messages.pop(chat_id, None)
         spawn_message_links.pop(chat_id, None)
+        currently_spawning.pop(chat_id, None)
 
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
@@ -227,16 +209,11 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        if not update.message:
+        if not update.message and not update.edited_message:
             return
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
-
-        if is_spam_user(user_id, chat_id):
-            LOGGER.debug(f"⏭️ Skipping spam user {user_id} in chat {chat_id}")
-            return
-
         chat_id_str = str(chat_id)
 
         if chat_id_str not in locks:
@@ -249,15 +226,44 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
 
             message_counts[chat_id_str] += 1
             
-            msg_type = "command" if update.message.text and update.message.text.startswith('/') else "message"
-            sender_type = "bot" if update.effective_user.is_bot else "user"
+            msg_content = "unknown"
+            if update.message:
+                if update.message.text:
+                    if update.message.text.startswith('/'):
+                        msg_content = f"command: {update.message.text.split()[0]}"
+                    else:
+                        msg_content = "text"
+                elif update.message.photo:
+                    msg_content = "photo"
+                elif update.message.video:
+                    msg_content = "video"
+                elif update.message.document:
+                    msg_content = "document"
+                elif update.message.sticker:
+                    msg_content = "sticker"
+                elif update.message.animation:
+                    msg_content = "animation"
+                elif update.message.voice:
+                    msg_content = "voice"
+                elif update.message.audio:
+                    msg_content = "audio"
+                elif update.message.video_note:
+                    msg_content = "video_note"
+                else:
+                    msg_content = "other_media"
             
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | type: {msg_type}")
+            sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
+            
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | {msg_content}")
 
             if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
-                LOGGER.info(f"🎯 Spawning character in chat {chat_id} after {message_counts[chat_id_str]} messages")
-                await send_image(update, context)
-                message_counts[chat_id_str] = 0
+                if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
+                    LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
+                    currently_spawning[chat_id_str] = True
+                    message_counts[chat_id_str] = 0
+                    asyncio.create_task(send_image(update, context))
+                else:
+                    LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
@@ -272,6 +278,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if not all_characters:
             LOGGER.warning(f"No characters available for spawn in chat {chat_id}")
+            currently_spawning[str(chat_id)] = False
             return
 
         if chat_id not in sent_characters:
@@ -296,6 +303,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if not allowed_characters:
             LOGGER.warning(f"No allowed characters for spawn in chat {chat_id}")
+            currently_spawning[str(chat_id)] = False
             return
 
         character = None
@@ -420,11 +428,14 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             chat_id_str = str(chat_id).replace('-100', '')
             spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str}/{spawn_msg.message_id}"
 
+        currently_spawning[str(chat_id)] = False
+
         asyncio.create_task(despawn_character(chat_id, spawn_msg.message_id, character, context))
 
     except Exception as e:
         LOGGER.error(f"Error in send_image: {e}")
         LOGGER.error(traceback.format_exc())
+        currently_spawning[str(chat_id)] = False
 
 
 async def guess(update: Update, context: CallbackContext) -> None:
