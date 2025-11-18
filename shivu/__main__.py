@@ -221,6 +221,9 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         lock = locks[chat_id_str]
 
         async with lock:
+            # Get the message frequency for this specific chat
+            chat_frequency = await get_chat_message_frequency(chat_id)
+            
             if chat_id_str not in message_counts:
                 message_counts[chat_id_str] = 0
 
@@ -254,16 +257,19 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             
             sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
             
-            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | {msg_content}")
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{chat_frequency} | {sender_type} {user_id} | {msg_content}")
 
-            if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
+            # Use chat_frequency instead of MESSAGE_FREQUENCY
+            if message_counts[chat_id_str] >= chat_frequency:
                 if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
                     LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
                     currently_spawning[chat_id_str] = True
-                    message_counts[chat_id_str] = 0
+                    message_counts[chat_id_str] = 0  # Reset counter for this chat
                     asyncio.create_task(send_image(update, context))
                 else:
                     LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
+                    # Don't reset the counter if spawn is in progress
+                    message_counts[chat_id_str] = chat_frequency  # Keep it at threshold
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
