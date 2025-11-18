@@ -292,21 +292,50 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
 
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
+    chat_id_str = str(chat_id)
 
     try:
-        all_characters = list(await collection.find({}).to_list(length=None))
+        # Use asyncio.gather to run database queries in parallel
+        all_chars_task = collection.find({}).to_list(length=None)
+        group_setting_task = None
+        settings_task = None
+        
+        if group_rarity_collection is not None and get_group_exclusive is not None:
+            group_setting_task = get_group_exclusive(chat_id)
+        
+        if spawn_settings_collection is not None and get_spawn_settings is not None:
+            settings_task = get_spawn_settings()
+        
+        # Wait for all queries simultaneously
+        if group_setting_task and settings_task:
+            all_characters, group_setting, settings = await asyncio.gather(
+                all_chars_task, group_setting_task, settings_task
+            )
+        elif group_setting_task:
+            all_characters, group_setting = await asyncio.gather(all_chars_task, group_setting_task)
+            settings = None
+        elif settings_task:
+            all_characters, settings = await asyncio.gather(all_chars_task, settings_task)
+            group_setting = None
+        else:
+            all_characters = await all_chars_task
+            group_setting = None
+            settings = None
 
         if not all_characters:
             LOGGER.warning(f"No characters available for spawn in chat {chat_id}")
-            currently_spawning[str(chat_id)] = False
+            currently_spawning[chat_id_str] = False
             return
 
+        # Initialize sent_characters if needed
         if chat_id not in sent_characters:
             sent_characters[chat_id] = []
 
+        # Reset if all characters have been sent
         if len(sent_characters[chat_id]) >= len(all_characters):
             sent_characters[chat_id] = []
 
+        # Filter available characters (not yet sent in this chat)
         available_characters = [
             c for c in all_characters
             if 'id' in c and c.get('id') not in sent_characters[chat_id]
@@ -316,91 +345,104 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             available_characters = all_characters
             sent_characters[chat_id] = []
 
+        # Get global rarities
+        global_rarities = settings.get('rarities', {}) if settings else {}
+
+        # Filter allowed characters based on rarity settings
         allowed_characters = []
         for char in available_characters:
-            if await is_character_allowed(char, chat_id):
-                allowed_characters.append(char)
+            # Quick checks first
+            if char.get('removed', False):
+                continue
+            
+            # Video check
+            is_video = char.get('is_video', False)
+            if is_video and chat_id != AMV_ALLOWED_GROUP_ID:
+                continue
+            
+            # Rarity check
+            char_rarity = char.get('rarity', '🟢 Common')
+            rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
+            
+            # Check if rarity is enabled
+            if rarity_emoji in global_rarities:
+                if not global_rarities[rarity_emoji].get('enabled', True):
+                    continue
+            
+            allowed_characters.append(char)
 
         if not allowed_characters:
             LOGGER.warning(f"No allowed characters for spawn in chat {chat_id}")
-            currently_spawning[str(chat_id)] = False
+            currently_spawning[chat_id_str] = False
             return
 
+        # Select character using weighted random selection
         character = None
-        selected_rarity = None
+        
+        # Build rarity pools
+        rarity_pools = {}
+        for char in allowed_characters:
+            char_rarity = char.get('rarity', '🟢 Common')
+            emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
+            
+            if emoji not in rarity_pools:
+                rarity_pools[emoji] = []
+            rarity_pools[emoji].append(char)
 
-        try:
-            group_setting = None
-            if group_rarity_collection is not None and get_group_exclusive is not None:
-                group_setting = await get_group_exclusive(chat_id)
+        weighted_choices = []
 
-            global_rarities = {}
-            if spawn_settings_collection is not None and get_spawn_settings is not None:
-                settings = await get_spawn_settings()
-                global_rarities = settings.get('rarities', {}) if settings else {}
+        # Add group exclusive if exists
+        if group_setting:
+            exclusive_emoji = group_setting['rarity_emoji']
+            exclusive_chance = group_setting.get('chance', 10.0)
 
-            rarity_pools = {}
-            for char in allowed_characters:
-                char_rarity = char.get('rarity', '🟢 Common')
-                emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
+            if exclusive_emoji in rarity_pools and rarity_pools[exclusive_emoji]:
+                weighted_choices.append({
+                    'emoji': exclusive_emoji,
+                    'chars': rarity_pools[exclusive_emoji],
+                    'chance': exclusive_chance,
+                    'is_exclusive': True
+                })
 
-                if emoji not in rarity_pools:
-                    rarity_pools[emoji] = []
-                rarity_pools[emoji].append(char)
+        # Add global rarities
+        for emoji, rarity_data in global_rarities.items():
+            if not rarity_data.get('enabled', True):
+                continue
 
-            weighted_choices = []
+            if group_setting and emoji == group_setting['rarity_emoji']:
+                continue
 
-            if group_setting:
-                exclusive_emoji = group_setting['rarity_emoji']
-                exclusive_chance = group_setting.get('chance', 10.0)
+            if emoji in rarity_pools and rarity_pools[emoji]:
+                weighted_choices.append({
+                    'emoji': emoji,
+                    'chars': rarity_pools[emoji],
+                    'chance': rarity_data.get('chance', 5.0),
+                    'is_exclusive': False
+                })
 
-                if exclusive_emoji in rarity_pools and rarity_pools[exclusive_emoji]:
-                    weighted_choices.append({
-                        'emoji': exclusive_emoji,
-                        'chars': rarity_pools[exclusive_emoji],
-                        'chance': exclusive_chance,
-                        'is_exclusive': True
-                    })
+        # Select character
+        if weighted_choices:
+            total_chance = sum(choice['chance'] for choice in weighted_choices)
+            rand = random.uniform(0, total_chance)
 
-            for emoji, rarity_data in global_rarities.items():
-                if not rarity_data.get('enabled', True):
-                    continue
-
-                if group_setting and emoji == group_setting['rarity_emoji']:
-                    continue
-
-                if emoji in rarity_pools and rarity_pools[emoji]:
-                    weighted_choices.append({
-                        'emoji': emoji,
-                        'chars': rarity_pools[emoji],
-                        'chance': rarity_data.get('chance', 5.0),
-                        'is_exclusive': False
-                    })
-
-            if weighted_choices:
-                total_chance = sum(choice['chance'] for choice in weighted_choices)
-                rand = random.uniform(0, total_chance)
-
-                cumulative = 0
-                for choice in weighted_choices:
-                    cumulative += choice['chance']
-                    if rand <= cumulative:
-                        character = random.choice(choice['chars'])
-                        selected_rarity = choice['emoji']
-                        break
-
-        except Exception as e:
-            LOGGER.error(f"Error in weighted selection: {e}\n{traceback.format_exc()}")
+            cumulative = 0
+            for choice in weighted_choices:
+                cumulative += choice['chance']
+                if rand <= cumulative:
+                    character = random.choice(choice['chars'])
+                    break
 
         if not character:
             character = random.choice(allowed_characters)
 
+        # Update tracking
         sent_characters[chat_id].append(character['id'])
         last_characters[chat_id] = character
 
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
+        # Get rarity info
         rarity = character.get('rarity', 'Common')
         if isinstance(rarity, str) and ' ' in rarity:
             rarity_emoji = rarity.split(' ')[0]
@@ -409,6 +451,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
+        # Prepare caption
         caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
 /grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
 
@@ -417,6 +460,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
+        # Send media (reduced timeouts for faster response)
         if is_video:
             spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
@@ -424,10 +468,10 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 caption=caption,
                 parse_mode='Markdown',
                 supports_streaming=True,
-                read_timeout=300,
-                write_timeout=300,
-                connect_timeout=60,
-                pool_timeout=60
+                read_timeout=60,
+                write_timeout=60,
+                connect_timeout=30,
+                pool_timeout=30
             )
         else:
             spawn_msg = await context.bot.send_photo(
@@ -435,27 +479,30 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 photo=media_url,
                 caption=caption,
                 parse_mode='Markdown',
-                read_timeout=180,
-                write_timeout=180
+                read_timeout=60,
+                write_timeout=60
             )
 
+        # Store spawn info
         spawn_messages[chat_id] = spawn_msg.message_id
 
         chat_username = update.effective_chat.username
         if chat_username:
             spawn_message_links[chat_id] = f"https://t.me/{chat_username}/{spawn_msg.message_id}"
         else:
-            chat_id_str = str(chat_id).replace('-100', '')
-            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str}/{spawn_msg.message_id}"
+            chat_id_str_link = str(chat_id).replace('-100', '')
+            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str_link}/{spawn_msg.message_id}"
 
-        currently_spawning[str(chat_id)] = False
+        # Release the spawn lock
+        currently_spawning[chat_id_str] = False
 
+        # Schedule despawn in background
         asyncio.create_task(despawn_character(chat_id, spawn_msg.message_id, character, context))
 
     except Exception as e:
         LOGGER.error(f"Error in send_image: {e}")
         LOGGER.error(traceback.format_exc())
-        currently_spawning[str(chat_id)] = False
+        currently_spawning[chat_id_str] = False
 
 
 async def guess(update: Update, context: CallbackContext) -> None:
