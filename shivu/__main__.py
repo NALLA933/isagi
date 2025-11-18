@@ -150,7 +150,7 @@ async def despawn_character(chat_id, message_id, character, context):
             last_characters.pop(chat_id, None)
             spawn_messages.pop(chat_id, None)
             spawn_message_links.pop(chat_id, None)
-            currently_spawning.pop(chat_id, None)
+            currently_spawning.pop(str(chat_id), None)
             return
 
         try:
@@ -197,7 +197,7 @@ async def despawn_character(chat_id, message_id, character, context):
         last_characters.pop(chat_id, None)
         spawn_messages.pop(chat_id, None)
         spawn_message_links.pop(chat_id, None)
-        currently_spawning.pop(chat_id, None)
+        currently_spawning.pop(str(chat_id), None)
 
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
@@ -206,16 +206,19 @@ async def despawn_character(chat_id, message_id, character, context):
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
+        # Only count messages in groups
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        if not update.message and not update.edited_message:
+        # Skip edited messages and non-message updates
+        if not update.message:
             return
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         chat_id_str = str(chat_id)
 
+        # Initialize lock for this chat if it doesn't exist
         if chat_id_str not in locks:
             locks[chat_id_str] = asyncio.Lock()
         lock = locks[chat_id_str]
@@ -223,53 +226,55 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         async with lock:
             # Get the message frequency for this specific chat
             chat_frequency = await get_chat_message_frequency(chat_id)
-            
+
+            # Initialize message count for this chat if it doesn't exist
             if chat_id_str not in message_counts:
                 message_counts[chat_id_str] = 0
 
+            # Increment message count for THIS specific group
             message_counts[chat_id_str] += 1
-            
+
+            # Determine message content type for logging
             msg_content = "unknown"
-            if update.message:
-                if update.message.text:
-                    if update.message.text.startswith('/'):
-                        msg_content = f"command: {update.message.text.split()[0]}"
-                    else:
-                        msg_content = "text"
-                elif update.message.photo:
-                    msg_content = "photo"
-                elif update.message.video:
-                    msg_content = "video"
-                elif update.message.document:
-                    msg_content = "document"
-                elif update.message.sticker:
-                    msg_content = "sticker"
-                elif update.message.animation:
-                    msg_content = "animation"
-                elif update.message.voice:
-                    msg_content = "voice"
-                elif update.message.audio:
-                    msg_content = "audio"
-                elif update.message.video_note:
-                    msg_content = "video_note"
+            if update.message.text:
+                if update.message.text.startswith('/'):
+                    msg_content = f"command: {update.message.text.split()[0]}"
                 else:
-                    msg_content = "other_media"
-            
+                    msg_content = "text"
+            elif update.message.photo:
+                msg_content = "photo"
+            elif update.message.video:
+                msg_content = "video"
+            elif update.message.document:
+                msg_content = "document"
+            elif update.message.sticker:
+                msg_content = "sticker"
+            elif update.message.animation:
+                msg_content = "animation"
+            elif update.message.voice:
+                msg_content = "voice"
+            elif update.message.audio:
+                msg_content = "audio"
+            elif update.message.video_note:
+                msg_content = "video_note"
+            else:
+                msg_content = "other_media"
+
             sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
-            
+
+            # Log the current count for this specific group
             LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{chat_frequency} | {sender_type} {user_id} | {msg_content}")
 
-            # Use chat_frequency instead of MESSAGE_FREQUENCY
+            # Check if we've reached the threshold for THIS group
             if message_counts[chat_id_str] >= chat_frequency:
+                # Make sure we're not already spawning in this group
                 if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
                     LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
                     currently_spawning[chat_id_str] = True
-                    message_counts[chat_id_str] = 0  # Reset counter for this chat
+                    message_counts[chat_id_str] = 0  # Reset counter for THIS group
                     asyncio.create_task(send_image(update, context))
                 else:
                     LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
-                    # Don't reset the counter if spawn is in progress
-                    message_counts[chat_id_str] = chat_frequency  # Keep it at threshold
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
@@ -623,8 +628,25 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
+async def check_counts(update: Update, context: CallbackContext) -> None:
+    """Debug command to check message counts"""
+    chat_id = str(update.effective_chat.id)
+    count = message_counts.get(chat_id, 0)
+    frequency = await get_chat_message_frequency(update.effective_chat.id)
+    spawning = currently_spawning.get(chat_id, False)
+    
+    await update.message.reply_text(
+        f"📊 Debug Info:\n"
+        f"Current count: {count}\n"
+        f"Required: {frequency}\n"
+        f"Spawning: {spawning}\n"
+        f"Chat ID: {chat_id}"
+    )
+
+
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
+    application.add_handler(CommandHandler("checkcount", check_counts, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
     LOGGER.info("🚀 Bot starting...")
