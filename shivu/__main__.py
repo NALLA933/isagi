@@ -37,17 +37,13 @@ group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
-# Load all modules EXCEPT backup (we'll load it later)
 for module_name in ALL_MODULES:
     try:
-        if module_name == 'backup':  # Skip backup for now
-            continue
         importlib.import_module("shivu.modules." + module_name)
         LOGGER.info(f"✅ Module loaded: {module_name}")
     except Exception as e:
         LOGGER.error(f"❌ Module failed: {module_name} - {e}")
 
-# Load rarity system
 try:
     from shivu.modules.rarity import (
         spawn_settings_collection as ssc,
@@ -60,6 +56,13 @@ try:
     LOGGER.info("✅ Rarity system loaded")
 except Exception as e:
     LOGGER.warning(f"⚠️ Rarity system not available: {e}")
+
+try:
+    from shivu.modules.backup import setup_backup_handlers
+    setup_backup_handlers(application)
+    LOGGER.info("✅ Backup system initialized")
+except Exception as e:
+    LOGGER.warning(f"⚠️ Backup system not available: {e}")
 
 
 async def is_character_allowed(character, chat_id=None):
@@ -614,41 +617,11 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-async def startup_backup(context):
-    """Create a backup 30 seconds after bot starts - called by job queue"""
-    try:
-        LOGGER.info("📦 Running startup backup...")
-        from shivu.modules.backup import create_backup
-        backup_file, size = await create_backup()
-        if backup_file:
-            LOGGER.info(f"✅ Startup backup created: {size:.2f} MB")
-        else:
-            LOGGER.error("❌ Startup backup failed")
-    except Exception as e:
-        LOGGER.error(f"❌ Startup backup error: {e}")
-        LOGGER.error(traceback.format_exc())
-
-
 def main() -> None:
-    """Main function to start the bot"""
-    # Add command and message handlers
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    # Initialize backup system - scheduler will start via job queue
-    try:
-        from shivu.modules.backup import setup_backup_handlers
-        setup_backup_handlers(application)
-        LOGGER.info("✅ Backup system handlers registered")
-        
-        # Schedule startup backup using job queue (will run after event loop starts)
-        application.job_queue.run_once(startup_backup, when=30)
-        
-    except Exception as e:
-        LOGGER.error(f"❌ Backup system failed to initialize: {e}")
-        LOGGER.error(traceback.format_exc())
-
-    LOGGER.info("🚀 Bot starting...")
+    LOGGER.info("Bot starting...")
     application.run_polling(drop_pending_updates=True)
 
 
