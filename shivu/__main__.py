@@ -636,13 +636,13 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    # Initialize backup system AFTER application is ready
+    # Initialize backup system - scheduler will start automatically after event loop starts
     try:
         from shivu.modules.backup import setup_backup_handlers
         setup_backup_handlers(application)
-        LOGGER.info("✅ Backup system initialized")
+        LOGGER.info("✅ Backup system handlers registered")
         
-        # Schedule startup backup
+        # Schedule startup backup (will run after event loop starts)
         asyncio.create_task(startup_backup())
         
     except Exception as e:
