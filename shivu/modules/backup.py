@@ -277,10 +277,38 @@ async def hourly_backup_job(application):
             pass
 
 
-def setup_backup_handlers(application):
-    """Setup backup command handlers and scheduler"""
+async def start_scheduler(application):
+    """Start the backup scheduler after event loop is running"""
     global scheduler
+    
+    try:
+        LOGGER.info("🔧 Starting backup scheduler...")
+        
+        # Create scheduler
+        scheduler = AsyncIOScheduler()
+        
+        # Schedule hourly backup
+        scheduler.add_job(
+            hourly_backup_job,
+            'interval',
+            hours=1,
+            args=[application],
+            id='hourly_backup',
+            replace_existing=True,
+            max_instances=1
+        )
+        
+        # Start scheduler
+        scheduler.start()
+        LOGGER.info("✅ Backup scheduler started - hourly backups enabled")
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to start scheduler: {e}")
+        LOGGER.error(traceback.format_exc())
 
+
+def setup_backup_handlers(application):
+    """Setup backup command handlers"""
     LOGGER.info("🔧 Setting up backup handlers...")
     
     # Add command handlers
@@ -288,38 +316,16 @@ def setup_backup_handlers(application):
     application.add_handler(CommandHandler("restore", restore_command, block=False))
     application.add_handler(CommandHandler("listbackups", list_backups_command, block=False))
     application.add_handler(CommandHandler("testbackup", test_backup_command, block=False))
-
-    # Create scheduler
-    scheduler = AsyncIOScheduler(timezone='UTC')
     
-    # Wrapper function to run async job in scheduler
-    def run_backup_job():
-        """Wrapper to run async backup job"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If event loop is running, create task
-                asyncio.create_task(hourly_backup_job(application))
-            else:
-                # If not running, run until complete
-                loop.run_until_complete(hourly_backup_job(application))
-        except Exception as e:
-            LOGGER.error(f"Error in backup job wrapper: {e}")
-            LOGGER.error(traceback.format_exc())
+    # Schedule the scheduler to start after a delay (when event loop is running)
+    async def delayed_scheduler_start():
+        await asyncio.sleep(5)  # Wait 5 seconds for event loop to be fully ready
+        await start_scheduler(application)
     
-    # Schedule hourly backup
-    scheduler.add_job(
-        run_backup_job,
-        'interval',
-        hours=1,
-        id='hourly_backup',
-        replace_existing=True,
-        max_instances=1
-    )
+    # Create the task
+    asyncio.create_task(delayed_scheduler_start())
     
-    # Start scheduler
-    scheduler.start()
-    LOGGER.info("✅ Backup scheduler started - hourly backups enabled")
+    LOGGER.info("✅ Backup handlers registered")
     LOGGER.info("📋 Commands available: /backup, /restore, /listbackups, /testbackup")
 
 
@@ -328,5 +334,6 @@ __all__ = [
     'setup_backup_handlers',
     'create_backup',
     'restore_backup',
-    'hourly_backup_job'
+    'hourly_backup_job',
+    'start_scheduler'
 ]
