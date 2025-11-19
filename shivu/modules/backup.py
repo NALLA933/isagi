@@ -277,8 +277,8 @@ async def hourly_backup_job(application):
             pass
 
 
-async def start_scheduler(application):
-    """Start the backup scheduler after event loop is running"""
+async def start_scheduler(context):
+    """Start the backup scheduler - called by job queue after bot starts"""
     global scheduler
     
     try:
@@ -292,7 +292,7 @@ async def start_scheduler(application):
             hourly_backup_job,
             'interval',
             hours=1,
-            args=[application],
+            args=[context.application],
             id='hourly_backup',
             replace_existing=True,
             max_instances=1
@@ -308,7 +308,7 @@ async def start_scheduler(application):
 
 
 def setup_backup_handlers(application):
-    """Setup backup command handlers"""
+    """Setup backup command handlers and schedule scheduler start"""
     LOGGER.info("🔧 Setting up backup handlers...")
     
     # Add command handlers
@@ -317,13 +317,8 @@ def setup_backup_handlers(application):
     application.add_handler(CommandHandler("listbackups", list_backups_command, block=False))
     application.add_handler(CommandHandler("testbackup", test_backup_command, block=False))
     
-    # Schedule the scheduler to start after a delay (when event loop is running)
-    async def delayed_scheduler_start():
-        await asyncio.sleep(5)  # Wait 5 seconds for event loop to be fully ready
-        await start_scheduler(application)
-    
-    # Create the task
-    asyncio.create_task(delayed_scheduler_start())
+    # Use job queue to start scheduler after 5 seconds (when event loop is running)
+    application.job_queue.run_once(start_scheduler, when=5)
     
     LOGGER.info("✅ Backup handlers registered")
     LOGGER.info("📋 Commands available: /backup, /restore, /listbackups, /testbackup")
