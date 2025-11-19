@@ -614,10 +614,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-async def startup_backup():
-    """Create a backup 30 seconds after bot starts"""
+async def startup_backup(context):
+    """Create a backup 30 seconds after bot starts - called by job queue"""
     try:
-        await asyncio.sleep(30)
         LOGGER.info("📦 Running startup backup...")
         from shivu.modules.backup import create_backup
         backup_file, size = await create_backup()
@@ -636,14 +635,14 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    # Initialize backup system - scheduler will start automatically after event loop starts
+    # Initialize backup system - scheduler will start via job queue
     try:
         from shivu.modules.backup import setup_backup_handlers
         setup_backup_handlers(application)
         LOGGER.info("✅ Backup system handlers registered")
         
-        # Schedule startup backup (will run after event loop starts)
-        asyncio.create_task(startup_backup())
+        # Schedule startup backup using job queue (will run after event loop starts)
+        application.job_queue.run_once(startup_backup, when=30)
         
     except Exception as e:
         LOGGER.error(f"❌ Backup system failed to initialize: {e}")
