@@ -7,9 +7,7 @@ from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collecti
 from shivu.modules.chatlog import track_bot_start
 
 PHOTOS = [
-    "https://files.catbox.moe/k3dhbe.mp4",
-    "https://graph.org/file/example2.jpg",
-    "https://graph.org/file/example3.jpg"
+    "https://files.catbox.moe/k3dhbe.mp4"
 ]
 
 REFERRER_REWARD = 1000
