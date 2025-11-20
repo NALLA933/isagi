@@ -36,17 +36,17 @@ HAREM_MODE_MAPPING = {
 def is_video_url(url):
     if not url:
         return False
-    
+
     url_lower = url.lower()
-    
+
     video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
     if any(url_lower.endswith(ext) for ext in video_extensions):
         return True
-    
+
     video_patterns = ['/video/', '/videos/', 'video=', 'v=', '.mp4?', '/stream/']
     if any(pattern in url_lower for pattern in video_patterns):
         return True
-    
+
     return False
 
 
@@ -54,7 +54,7 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
     try:
         if not is_video:
             is_video = is_video_url(media_url)
-        
+
         if is_video:
             try:
                 return await message.reply_video(
@@ -414,21 +414,6 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
 
 
 async def set_hmode(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
-    
-    # Get current mode
-    user = await user_collection.find_one({'id': user_id})
-    current_mode = user.get('smode', 'default') if user else 'default'
-    
-    # Get display info for current mode
-    if current_mode == 'default':
-        current_display = "ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs"
-        current_emoji = "🌟"
-    else:
-        rarity_display = HAREM_MODE_MAPPING.get(current_mode, "Unknown")
-        current_emoji = rarity_display.split(' ')[0] if isinstance(rarity_display, str) else "💎"
-        current_display = ' '.join(rarity_display.split(' ')[1:]) if isinstance(rarity_display, str) else current_mode
-    
     keyboard = [
         [
             InlineKeyboardButton("ᴅᴇғᴀᴜʟᴛ", callback_data="harem_mode_default"),
@@ -441,15 +426,11 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
         "╭─────────────────╮\n"
         "│  <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴍᴏᴅᴇ</b>  │\n"
         "╰─────────────────╯\n\n"
-        f"<b>ᴄᴜʀʀᴇɴᴛ ғɪʟᴛᴇʀ:</b> {current_emoji} <code>{current_display}</code>\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
         "◆ <b>ᴅᴇғᴀᴜʟᴛ</b>\n"
         "  sʜᴏᴡ ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
         "◆ <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
         "  ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ᴛɪᴇʀ\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
-        "<i>💡 ғɪʟᴛᴇʀ ᴀᴘᴘʟɪᴇs ᴛᴏ ʙᴏᴛʜ</i>\n"
-        "<i>/harem ᴀɴᴅ ɪɴʟɪɴᴇ ᴍᴏᴅᴇ</i>"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
     )
 
     await update.message.reply_text(
@@ -502,7 +483,7 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     query = update.callback_query
-    
+
     message_text = (
         "╭─────────────────╮\n"
         "│ <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>  │\n"
@@ -512,7 +493,7 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
         "ᴄʜᴏᴏsᴇ ᴀ ʀᴀʀɪᴛʏ ᴇᴍᴏᴊɪ\n"
         "ᴛᴏ ғɪʟᴛᴇʀ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ"
     )
-    
+
     await query.edit_message_text(
         text=message_text,
         reply_markup=reply_markup,
@@ -533,7 +514,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 {'$set': {'smode': 'default'}}
             )
             await query.answer("✓ ᴍᴏᴅᴇ sᴇᴛ ᴛᴏ ᴅᴇғᴀᴜʟᴛ", show_alert=False)
-            
+
             success_text = (
                 "╭─────────────────╮\n"
                 "│   <b>ᴍᴏᴅᴇ ᴜᴘᴅᴀᴛᴇᴅ</b>   │\n"
@@ -545,7 +526,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 "sʜᴏᴡɪɴɢ ʏᴏᴜʀ ᴄᴏᴍᴘʟᴇᴛᴇ\n"
                 "ᴄʜᴀʀᴀᴄᴛᴇʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ"
             )
-            
+
             await query.edit_message_text(
                 text=success_text,
                 parse_mode='HTML'
@@ -562,7 +543,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             message_text = (
                 "╭─────────────────╮\n"
                 "│  <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴍᴏᴅᴇ</b>  │\n"
@@ -573,7 +554,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 "  ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ᴛɪᴇʀ\n\n"
                 "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
             )
-            
+
             await query.edit_message_text(
                 text=message_text,
                 reply_markup=reply_markup,
@@ -584,7 +565,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         elif data.startswith("harem_mode_"):
             mode_name = data.replace("harem_mode_", "")
             rarity_display = HAREM_MODE_MAPPING.get(mode_name, "Unknown")
-            
+
             # Extract just the emoji
             rarity_emoji = rarity_display.split(' ')[0] if isinstance(rarity_display, str) else "💎"
             rarity_name = ' '.join(rarity_display.split(' ')[1:]) if isinstance(rarity_display, str) else mode_name
@@ -594,7 +575,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 {'$set': {'smode': mode_name}}
             )
             await query.answer(f"✓ {rarity_name} ғɪʟᴛᴇʀ ᴀᴄᴛɪᴠᴀᴛᴇᴅ", show_alert=False)
-            
+
             success_text = (
                 "╭─────────────────╮\n"
                 "│  <b>ғɪʟᴛᴇʀ ᴀᴘᴘʟɪᴇᴅ</b>  │\n"
@@ -606,7 +587,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 f"ᴅɪsᴘʟᴀʏɪɴɢ ᴏɴʟʏ\n"
                 f"{rarity_name.lower()} ᴄʜᴀʀᴀᴄᴛᴇʀs"
             )
-            
+
             await query.edit_message_text(
                 text=success_text,
                 parse_mode='HTML'
