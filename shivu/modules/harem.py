@@ -416,24 +416,18 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
 async def set_hmode(update: Update, context: CallbackContext) -> None:
     keyboard = [
         [
-            InlineKeyboardButton("🌟 Default View", callback_data="harem_mode_default"),
-            InlineKeyboardButton("💎 Rarity Filter", callback_data="harem_mode_rarity"),
+            InlineKeyboardButton("🌟 default", callback_data="harem_mode_default"),
+            InlineKeyboardButton("💎 filter by rarity", callback_data="harem_mode_rarity"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     message_text = (
-        "✦ ───────────── ✦\n"
-        "    <b>🎨 COLLECTION DISPLAY 🎨</b>\n"
-        "✦ ───────────── ✦\n\n"
-        "🌟 <b>Default View</b>\n"
-        "   Show all your amazing characters\n"
-        "   in one beautiful collection\n\n"
-        "💎 <b>Rarity Filter</b>\n"
-        "   Filter by specific rarity tiers\n"
-        "   to showcase your favorites\n\n"
-        "✦ ───────────── ✦\n"
-        "<i>Select your preferred viewing mode</i>"
+        "<b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴅɪsᴘʟᴀʏ ᴍᴏᴅᴇ</b>\n\n"
+        "🌟 <b>ᴅᴇғᴀᴜʟᴛ</b>\n"
+        "sʜᴏᴡ ᴀʟʟ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
+        "💎 <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
+        "ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ʀᴀʀɪᴛʏ ᴛɪᴇʀs"
     )
 
     await update.message.reply_text(
@@ -446,41 +440,47 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
 async def hmode_rarity(update: Update, context: CallbackContext) -> None:
     keyboard = [
         [
-            InlineKeyboardButton("🟢 Common", callback_data="harem_mode_common"),
-            InlineKeyboardButton("🟣 Rare", callback_data="harem_mode_rare"),
-            InlineKeyboardButton("🟡 Legendary", callback_data="harem_mode_legendary"),
+            InlineKeyboardButton("🟢 ᴄᴏᴍᴍᴏɴ", callback_data="harem_mode_common"),
+            InlineKeyboardButton("🟣 ʀᴀʀᴇ", callback_data="harem_mode_rare"),
         ],
         [
-            InlineKeyboardButton("💮 Special", callback_data="harem_mode_special"),
-            InlineKeyboardButton("💫 Neon", callback_data="harem_mode_neon"),
-            InlineKeyboardButton("✨ Manga", callback_data="harem_mode_manga"),
+            InlineKeyboardButton("🟡 ʟᴇɢᴇɴᴅᴀʀʏ", callback_data="harem_mode_legendary"),
+            InlineKeyboardButton("💮 sᴘᴇᴄɪᴀʟ", callback_data="harem_mode_special"),
         ],
         [
-            InlineKeyboardButton("🎭 Cosplay", callback_data="harem_mode_cosplay"),
-            InlineKeyboardButton("🎐 Celestial", callback_data="harem_mode_celestial"),
-            InlineKeyboardButton("🔮 Premium", callback_data="harem_mode_premium"),
+            InlineKeyboardButton("💫 ɴᴇᴏɴ", callback_data="harem_mode_neon"),
+            InlineKeyboardButton("✨ ᴍᴀɴɢᴀ", callback_data="harem_mode_manga"),
         ],
         [
-            InlineKeyboardButton("💋 Erotic", callback_data="harem_mode_erotic"),
-            InlineKeyboardButton("🌤 Summer", callback_data="harem_mode_summer"),
-            InlineKeyboardButton("☃️ Winter", callback_data="harem_mode_winter"),
+            InlineKeyboardButton("🎭 ᴄᴏsᴘʟᴀʏ", callback_data="harem_mode_cosplay"),
+            InlineKeyboardButton("🎐 ᴄᴇʟᴇsᴛɪᴀʟ", callback_data="harem_mode_celestial"),
         ],
         [
-            InlineKeyboardButton("☔️ Monsoon", callback_data="harem_mode_monsoon"),
-            InlineKeyboardButton("💝 Valentine", callback_data="harem_mode_valentine"),
-            InlineKeyboardButton("🎃 Halloween", callback_data="harem_mode_halloween"),
+            InlineKeyboardButton("🔮 ᴘʀᴇᴍɪᴜᴍ", callback_data="harem_mode_premium"),
+            InlineKeyboardButton("💋 ᴇʀᴏᴛɪᴄ", callback_data="harem_mode_erotic"),
         ],
         [
-            InlineKeyboardButton("🎄 Christmas", callback_data="harem_mode_christmas"),
-            InlineKeyboardButton("🏵 Mythic", callback_data="harem_mode_mythic"),
-            InlineKeyboardButton("🎗 Events", callback_data="harem_mode_events"),
+            InlineKeyboardButton("🌤 sᴜᴍᴍᴇʀ", callback_data="harem_mode_summer"),
+            InlineKeyboardButton("☃️ ᴡɪɴᴛᴇʀ", callback_data="harem_mode_winter"),
         ],
         [
-            InlineKeyboardButton("🎥 AMV", callback_data="harem_mode_amv"),
-            InlineKeyboardButton("👼 Tiny", callback_data="harem_mode_tiny"),
+            InlineKeyboardButton("☔️ ᴍᴏɴsᴏᴏɴ", callback_data="harem_mode_monsoon"),
+            InlineKeyboardButton("💝 ᴠᴀʟᴇɴᴛɪɴᴇ", callback_data="harem_mode_valentine"),
         ],
         [
-            InlineKeyboardButton("« Back", callback_data="harem_mode_back"),
+            InlineKeyboardButton("🎃 ʜᴀʟʟᴏᴡᴇᴇɴ", callback_data="harem_mode_halloween"),
+            InlineKeyboardButton("🎄 ᴄʜʀɪsᴛᴍᴀs", callback_data="harem_mode_christmas"),
+        ],
+        [
+            InlineKeyboardButton("🏵 ᴍʏᴛʜɪᴄ", callback_data="harem_mode_mythic"),
+            InlineKeyboardButton("🎗 ᴇᴠᴇɴᴛs", callback_data="harem_mode_events"),
+        ],
+        [
+            InlineKeyboardButton("🎥 ᴀᴍᴠ", callback_data="harem_mode_amv"),
+            InlineKeyboardButton("👼 ᴛɪɴʏ", callback_data="harem_mode_tiny"),
+        ],
+        [
+            InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="harem_mode_back"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -488,11 +488,9 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     
     message_text = (
-        "✦ ───────────── ✦\n"
-        "    <b>💎 RARITY SELECTION 💎</b>\n"
-        "✦ ───────────── ✦\n\n"
-        "<i>Choose a rarity tier to filter</i>\n"
-        "<i>your collection display</i>"
+        "<b>sᴇʟᴇᴄᴛ ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n\n"
+        "ᴄʜᴏᴏsᴇ ᴀ ʀᴀʀɪᴛʏ ᴛɪᴇʀ ᴛᴏ ғɪʟᴛᴇʀ\n"
+        "ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴅɪsᴘʟᴀʏ"
     )
     
     await query.edit_message_text(
@@ -514,15 +512,13 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 {'id': user_id}, 
                 {'$set': {'smode': 'default'}}
             )
-            await query.answer("✅ Mode set to Default", show_alert=False)
+            await query.answer("✅ ᴍᴏᴅᴇ sᴇᴛ ᴛᴏ ᴅᴇғᴀᴜʟᴛ", show_alert=False)
             
             success_text = (
-                "✦ ───────────── ✦\n"
-                "    <b>✅ MODE UPDATED ✅</b>\n"
-                "✦ ───────────── ✦\n\n"
-                "🌟 <b>Current Filter:</b> All Characters\n\n"
-                "<i>Your collection is now showing</i>\n"
-                "<i>all your amazing characters!</i>"
+                "<b>ᴍᴏᴅᴇ ᴜᴘᴅᴀᴛᴇᴅ</b>\n\n"
+                "🌟 <b>ᴄᴜʀʀᴇɴᴛ ғɪʟᴛᴇʀ:</b> ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
+                "ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ ɪs ɴᴏᴡ sʜᴏᴡɪɴɢ\n"
+                "ᴀʟʟ ʏᴏᴜʀ ᴀᴍᴀᴢɪɴɢ ᴄʜᴀʀᴀᴄᴛᴇʀs"
             )
             
             await query.edit_message_text(
@@ -536,24 +532,18 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         elif data == "harem_mode_back":
             keyboard = [
                 [
-                    InlineKeyboardButton("🌟 Default View", callback_data="harem_mode_default"),
-                    InlineKeyboardButton("💎 Rarity Filter", callback_data="harem_mode_rarity"),
+                    InlineKeyboardButton("ᴅᴇғᴀᴜʟᴛ", callback_data="harem_mode_default"),
+                    InlineKeyboardButton("ғɪʟᴛᴇʀ ʙʏ ʀᴀʀɪᴛʏ", callback_data="harem_mode_rarity"),
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             message_text = (
-                "✦ ───────────── ✦\n"
-                "    <b>🎨 COLLECTION DISPLAY 🎨</b>\n"
-                "✦ ───────────── ✦\n\n"
-                "🌟 <b>Default View</b>\n"
-                "   Show all your amazing characters\n"
-                "   in one beautiful collection\n\n"
-                "💎 <b>Rarity Filter</b>\n"
-                "   Filter by specific rarity tiers\n"
-                "   to showcase your favorites\n\n"
-                "✦ ───────────── ✦\n"
-                "<i>Select your preferred viewing mode</i>"
+                "<b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴅɪsᴘʟᴀʏ ᴍᴏᴅᴇ</b>\n\n"
+                "<b>ᴅᴇғᴀᴜʟᴛ</b>\n"
+                "sʜᴏᴡ ᴀʟʟ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
+                "<b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
+                "ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ʀᴀʀɪᴛʏ ᴛɪᴇʀs"
             )
             
             await query.edit_message_text(
@@ -566,20 +556,22 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         elif data.startswith("harem_mode_"):
             mode_name = data.replace("harem_mode_", "")
             rarity_display = HAREM_MODE_MAPPING.get(mode_name, "Unknown")
+            
+            # Extract just the emoji
+            rarity_emoji = rarity_display.split(' ')[0] if isinstance(rarity_display, str) else "💎"
+            rarity_name = ' '.join(rarity_display.split(' ')[1:]) if isinstance(rarity_display, str) else mode_name
 
             await user_collection.update_one(
                 {'id': user_id}, 
                 {'$set': {'smode': mode_name}}
             )
-            await query.answer(f"✅ Filter set to {rarity_display}", show_alert=False)
+            await query.answer(f"✅ ғɪʟᴛᴇʀ sᴇᴛ ᴛᴏ {rarity_name}", show_alert=False)
             
             success_text = (
-                "✦ ───────────── ✦\n"
-                "    <b>✅ FILTER APPLIED ✅</b>\n"
-                "✦ ───────────── ✦\n\n"
-                f"💎 <b>Current Filter:</b> {rarity_display}\n\n"
-                "<i>Your collection now displays</i>\n"
-                f"<i>only {rarity_display} characters!</i>"
+                "<b>ғɪʟᴛᴇʀ ᴀᴘᴘʟɪᴇᴅ</b>\n\n"
+                f"{rarity_emoji} <b>ᴄᴜʀʀᴇɴᴛ ғɪʟᴛᴇʀ:</b> {rarity_name}\n\n"
+                "ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ ɴᴏᴡ ᴅɪsᴘʟᴀʏs\n"
+                f"ᴏɴʟʏ {rarity_name} ᴄʜᴀʀᴀᴄᴛᴇʀs"
             )
             
             await query.edit_message_text(
@@ -591,7 +583,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         print(f"Error in mode button: {e}")
         import traceback
         traceback.print_exc()
-        await query.answer("❌ Error updating mode", show_alert=True)
+        await query.answer("❌ ᴇʀʀᴏʀ ᴜᴘᴅᴀᴛɪɴɢ ᴍᴏᴅᴇ", show_alert=True)
 
 
 application.add_handler(CommandHandler(["harem"], harem, block=False))
