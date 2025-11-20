@@ -53,9 +53,7 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             }
         )
 
-        msg = f"""{random.choice(VIDEOS)}
-
-<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
+        msg = f"""<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
 
 <b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ
 
@@ -169,9 +167,8 @@ async def start(update: Update, context: CallbackContext):
         welcome = "ᴡᴇʟᴄᴏᴍᴇ" if is_new_user else "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ"
         bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
-        caption = f"""{random.choice(VIDEOS)}
-
-<b>{welcome}</b>
+        video_url = random.choice(VIDEOS)
+        caption = f"""<b>{welcome}</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ
@@ -200,7 +197,7 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML',
             link_preview_options=LinkPreviewOptions(
-                url=random.choice(VIDEOS),
+                url=video_url,
                 show_above_text=True,
                 prefer_large_media=True
             )
@@ -234,9 +231,7 @@ async def button_callback(update: Update, context: CallbackContext):
         video_url = random.choice(VIDEOS)
 
         if query.data == 'credits':
-            text = f"""{video_url}
-
-<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
+            text = f"""<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
 sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
 
@@ -316,9 +311,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             )
 
         elif query.data == 'help':
-            text = f"""{video_url}
-
-<b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
+            text = f"""<b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
 
 /grab - ɢᴜᴇss ᴄʜᴀʀᴀᴄᴛᴇʀ
 /fav - sᴇᴛ ғᴀᴠᴏʀɪᴛᴇ
