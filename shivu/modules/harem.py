@@ -414,6 +414,21 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
 
 
 async def set_hmode(update: Update, context: CallbackContext) -> None:
+    user_id = update.effective_user.id
+    
+    # Get current mode
+    user = await user_collection.find_one({'id': user_id})
+    current_mode = user.get('smode', 'default') if user else 'default'
+    
+    # Get display info for current mode
+    if current_mode == 'default':
+        current_display = "ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs"
+        current_emoji = "🌟"
+    else:
+        rarity_display = HAREM_MODE_MAPPING.get(current_mode, "Unknown")
+        current_emoji = rarity_display.split(' ')[0] if isinstance(rarity_display, str) else "💎"
+        current_display = ' '.join(rarity_display.split(' ')[1:]) if isinstance(rarity_display, str) else current_mode
+    
     keyboard = [
         [
             InlineKeyboardButton("ᴅᴇғᴀᴜʟᴛ", callback_data="harem_mode_default"),
@@ -426,11 +441,15 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
         "╭─────────────────╮\n"
         "│  <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴍᴏᴅᴇ</b>  │\n"
         "╰─────────────────╯\n\n"
+        f"<b>ᴄᴜʀʀᴇɴᴛ ғɪʟᴛᴇʀ:</b> {current_emoji} <code>{current_display}</code>\n\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
         "◆ <b>ᴅᴇғᴀᴜʟᴛ</b>\n"
         "  sʜᴏᴡ ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
         "◆ <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
         "  ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ᴛɪᴇʀ\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        "<i>💡 ғɪʟᴛᴇʀ ᴀᴘᴘʟɪᴇs ᴛᴏ ʙᴏᴛʜ</i>\n"
+        "<i>/harem ᴀɴᴅ ɪɴʟɪɴᴇ ᴍᴏᴅᴇ</i>"
     )
 
     await update.message.reply_text(
