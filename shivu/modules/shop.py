@@ -9,6 +9,9 @@ collection = db['anime_characters_lol']
 shop_collection = db['shop']
 characters_collection = collection
 shop_history_collection = db['shop_history']
+giveaway_collection = db['giveaways']
+auction_collection = db['auctions']
+bid_collection = db['bids']
 
 sudo_users = ["8297659126", "8420981179", "5147822244"]
 
@@ -120,7 +123,6 @@ async def rmshop(update: Update, context: CallbackContext):
 
     try:
         char_id = context.args[0]
-
         shop_item = await shop_collection.find_one({"id": char_id})
         if not shop_item:
             await update.message.reply_text(f"⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ɪᴅ {char_id} ɪs ɴᴏᴛ ɪɴ ᴛʜᴇ sʜᴏᴘ.")
@@ -229,9 +231,7 @@ def build_caption(waifu: dict, shop_item: dict, page: int, total: int, user_data
     views = shop_item.get("views", 0)
     
     is_video = rarity == "🎥 AMV"
-    
     limit_text = "ᴜɴʟɪᴍɪᴛᴇᴅ" if limit is None else f"{sold}/{limit}"
-
     sold_out = False
     already_bought = False
 
@@ -292,6 +292,15 @@ def build_caption(waifu: dict, shop_item: dict, page: int, total: int, user_data
 async def shop(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
+    active_auction = await auction_collection.find_one({
+        "status": "active",
+        "end_time": {"$gt": datetime.utcnow()}
+    })
+    
+    if active_auction:
+        await show_auction_shop(update, context, active_auction)
+        return
+    
     sort_by = [("featured", -1), ("added_at", -1)]
     filter_query = {}
     
@@ -314,10 +323,10 @@ async def shop(update: Update, context: CallbackContext):
         await update.message.reply_text(
             "🏪 ᴛʜᴇ sʜᴏᴘ ɪs ᴄᴜʀʀᴇɴᴛʟʏ ᴇᴍᴘᴛʏ. ᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ!\n\n"
             "<b>sᴏʀᴛɪɴɢ ᴏᴘᴛɪᴏɴs:</b>\n"
-            "• /shop featured - ғᴇᴀᴛᴜʀᴇᴅ ɪᴛᴇᴍs\n"
-            "• /shop cheap - ʟᴏᴡᴇsᴛ ᴘʀɪᴄᴇ ғɪʀsᴛ\n"
-            "• /shop expensive - ʜɪɢʜᴇsᴛ ᴘʀɪᴄᴇ ғɪʀsᴛ\n"
-            "• /shop discount - ʙᴇsᴛ ᴅɪsᴄᴏᴜɴᴛs ғɪʀsᴛ",
+            "• /shop featured\n"
+            "• /shop cheap\n"
+            "• /shop expensive\n"
+            "• /shop discount",
             parse_mode="HTML"
         )
         return
@@ -341,32 +350,30 @@ async def shop(update: Update, context: CallbackContext):
     nav_buttons = []
 
     if not sold_out:
-        action_buttons.append(InlineKeyboardButton("💳 ʙᴜʏ", callback_data=f"shop_buy_{char_id}"))
+        action_buttons.append(InlineKeyboardButton("💳 ʙᴜʏ", callback_data=f"shopbuy_{char_id}"))
     
     if action_buttons:
         buttons.append(action_buttons)
 
     if total_pages > 1:
         if page > 0:
-            nav_buttons.append(InlineKeyboardButton("◀️", callback_data=f"shop_page_{page-1}"))
-        nav_buttons.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="shop_pageinfo"))
+            nav_buttons.append(InlineKeyboardButton("◀️", callback_data=f"shoppg_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="shoppginfo"))
         if page < total_pages - 1:
-            nav_buttons.append(InlineKeyboardButton("▶️", callback_data=f"shop_page_{page+1}"))
+            nav_buttons.append(InlineKeyboardButton("▶️", callback_data=f"shoppg_{page+1}"))
     
     if nav_buttons:
         buttons.append(nav_buttons)
     
-    sort_buttons = [
-        InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="shop_sort_featured"),
-        InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="shop_sort_cheap")
-    ]
-    buttons.append(sort_buttons)
+    buttons.append([
+        InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="shopsort_featured"),
+        InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="shopsort_cheap")
+    ])
     
-    sort_buttons2 = [
-        InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="shop_sort_expensive"),
-        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="shop_sort_discount")
-    ]
-    buttons.append(sort_buttons2)
+    buttons.append([
+        InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="shopsort_expensive"),
+        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="shopsort_discount")
+    ])
 
     markup = InlineKeyboardMarkup(buttons)
 
@@ -428,6 +435,505 @@ async def shophistory(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
 
+async def startgiveaway(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    if not await is_sudo_user(user_id):
+        await update.message.reply_text("⛔️ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.")
+        return
+
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "⚠️ <b>ᴜsᴀɢᴇ:</b> /startgiveaway <character_id> <duration_hours> <min_activity>\n\n"
+            "<b>ᴇxᴀᴍᴘʟᴇs:</b>\n"
+            "• /startgiveaway ABC123 24 10\n"
+            "• /startgiveaway ABC123 48 20",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        char_id = context.args[0]
+        duration_hours = int(context.args[1])
+        min_activity = int(context.args[2])
+
+        if duration_hours <= 0 or min_activity < 0:
+            await update.message.reply_text("⚠️ ᴅᴜʀᴀᴛɪᴏɴ ᴀɴᴅ ᴍɪɴɪᴍᴜᴍ ᴀᴄᴛɪᴠɪᴛʏ ᴍᴜsᴛ ʙᴇ ᴘᴏsɪᴛɪᴠᴇ.")
+            return
+
+        character = await characters_collection.find_one({"id": char_id})
+        if not character:
+            await update.message.reply_text(f"⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ɪᴅ {char_id} ɴᴏᴛ ғᴏᴜɴᴅ.")
+            return
+
+        active_giveaway = await giveaway_collection.find_one({"status": "active"})
+        if active_giveaway:
+            await update.message.reply_text("⚠️ ᴛʜᴇʀᴇ's ᴀʟʀᴇᴀᴅʏ ᴀɴ ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ!")
+            return
+
+        end_time = datetime.utcnow() + timedelta(hours=duration_hours)
+
+        giveaway = {
+            "character_id": char_id,
+            "start_time": datetime.utcnow(),
+            "end_time": end_time,
+            "min_activity": min_activity,
+            "participants": [],
+            "status": "active",
+            "created_by": user_id,
+            "winner": None
+        }
+
+        await giveaway_collection.insert_one(giveaway)
+
+        img_url = character.get("img_url", "")
+        caption = (
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🎉 ɢɪᴠᴇᴀᴡᴀʏ sᴛᴀʀᴛᴇᴅ!  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
+            f"🎭 {character.get('anime', 'Unknown')}\n"
+            f"💫 {character.get('rarity', 'Unknown')}\n\n"
+            f"⏰ ᴇɴᴅs: <b>{end_time.strftime('%d %b %Y, %H:%M UTC')}</b>\n"
+            f"📊 ᴍɪɴ ᴀᴄᴛɪᴠɪᴛʏ: <b>{min_activity}</b> ᴄʜᴀʀs ᴄᴏʟʟᴇᴄᴛᴇᴅ\n"
+            f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: <b>0</b>\n\n"
+            f"ᴄʟɪᴄᴋ ᴊᴏɪɴ ᴛᴏ ᴘᴀʀᴛɪᴄɪᴘᴀᴛᴇ!"
+        )
+
+        buttons = [[InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="giveaway_join")]]
+        markup = InlineKeyboardMarkup(buttons)
+
+        if character.get("rarity") == "🎥 AMV":
+            await update.message.reply_video(
+                video=img_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        else:
+            await update.message.reply_photo(
+                photo=img_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+
+    except ValueError:
+        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɪɴᴘᴜᴛ. ᴘʟᴇᴀsᴇ ᴜsᴇ ɴᴜᴍʙᴇʀs.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def endgiveaway(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    if not await is_sudo_user(user_id):
+        await update.message.reply_text("⛔️ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.")
+        return
+
+    try:
+        giveaway = await giveaway_collection.find_one({"status": "active"})
+        if not giveaway:
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ ғᴏᴜɴᴅ.")
+            return
+
+        participants = giveaway.get("participants", [])
+        if not participants:
+            await update.message.reply_text("⚠️ ɴᴏ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs ɪɴ ᴛʜᴇ ɢɪᴠᴇᴀᴡᴀʏ.")
+            await giveaway_collection.update_one(
+                {"_id": giveaway["_id"]},
+                {"$set": {"status": "ended"}}
+            )
+            return
+
+        winner_id = random.choice(participants)
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+
+        await user_collection.update_one(
+            {"id": winner_id},
+            {"$push": {"characters": character}},
+            upsert=True
+        )
+
+        await giveaway_collection.update_one(
+            {"_id": giveaway["_id"]},
+            {"$set": {"status": "ended", "winner": winner_id, "end_time": datetime.utcnow()}}
+        )
+
+        winner_user = await context.bot.get_chat(winner_id)
+        winner_name = winner_user.first_name if winner_user else f"User {winner_id}"
+
+        await update.message.reply_text(
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🎊 ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ!  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
+            f"🏆 ᴡɪɴɴᴇʀ: <a href='tg://user?id={winner_id}'>{winner_name}</a>\n"
+            f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: <b>{len(participants)}</b>\n\n"
+            f"ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! 🎉",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def giveawaystatus(update: Update, context: CallbackContext):
+    try:
+        giveaway = await giveaway_collection.find_one({"status": "active"})
+        if not giveaway:
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ.")
+            return
+
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+        participants = giveaway.get("participants", [])
+        end_time = giveaway.get("end_time")
+        time_left = end_time - datetime.utcnow()
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
+
+        await update.message.reply_text(
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🎉 ɢɪᴠᴇᴀᴡᴀʏ sᴛᴀᴛᴜs  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
+            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: <b>{hours_left}h {minutes_left}m</b>\n"
+            f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: <b>{len(participants)}</b>\n"
+            f"📊 ᴍɪɴ ᴀᴄᴛɪᴠɪᴛʏ: <b>{giveaway['min_activity']}</b> ᴄʜᴀʀs",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def startauction(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    if not await is_sudo_user(user_id):
+        await update.message.reply_text("⛔️ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.")
+        return
+
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "⚠️ <b>ᴜsᴀɢᴇ:</b> /startauction <character_id> <starting_bid> <duration_hours>\n\n"
+            "<b>ᴇxᴀᴍᴘʟᴇs:</b>\n"
+            "• /startauction ABC123 10000 24\n"
+            "• /startauction ABC123 50000 48",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        char_id = context.args[0]
+        starting_bid = int(context.args[1])
+        duration_hours = int(context.args[2])
+
+        if starting_bid <= 0 or duration_hours <= 0:
+            await update.message.reply_text("⚠️ sᴛᴀʀᴛɪɴɢ ʙɪᴅ ᴀɴᴅ ᴅᴜʀᴀᴛɪᴏɴ ᴍᴜsᴛ ʙᴇ ᴘᴏsɪᴛɪᴠᴇ.")
+            return
+
+        character = await characters_collection.find_one({"id": char_id})
+        if not character:
+            await update.message.reply_text(f"⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ɪᴅ {char_id} ɴᴏᴛ ғᴏᴜɴᴅ.")
+            return
+
+        active_auction = await auction_collection.find_one({"status": "active"})
+        if active_auction:
+            await update.message.reply_text("⚠️ ᴛʜᴇʀᴇ's ᴀʟʀᴇᴀᴅʏ ᴀɴ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ!")
+            return
+
+        end_time = datetime.utcnow() + timedelta(hours=duration_hours)
+
+        auction = {
+            "character_id": char_id,
+            "starting_bid": starting_bid,
+            "current_bid": starting_bid,
+            "highest_bidder": None,
+            "start_time": datetime.utcnow(),
+            "end_time": end_time,
+            "status": "active",
+            "created_by": user_id,
+            "bid_count": 0
+        }
+
+        await auction_collection.insert_one(auction)
+
+        img_url = character.get("img_url", "")
+        caption = (
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🔨 ᴀᴜᴄᴛɪᴏɴ sᴛᴀʀᴛᴇᴅ!  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"💎 <b>{character['name']}</b>\n"
+            f"🎭 {character.get('anime', 'Unknown')}\n"
+            f"💫 {character.get('rarity', 'Unknown')}\n\n"
+            f"💰 sᴛᴀʀᴛɪɴɢ ʙɪᴅ: <b>{starting_bid:,}</b> ɢᴏʟᴅ\n"
+            f"🏆 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{starting_bid:,}</b> ɢᴏʟᴅ\n"
+            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: <b>ɴᴏɴᴇ</b>\n"
+            f"⏰ ᴇɴᴅs: <b>{end_time.strftime('%d %b %Y, %H:%M UTC')}</b>\n\n"
+            f"ᴜsᴇ /shop ᴛᴏ ᴠɪᴇᴡ ᴀɴᴅ ᴘʟᴀᴄᴇ ʙɪᴅs!"
+        )
+
+        buttons = [[InlineKeyboardButton("🔨 ᴠɪᴇᴡ ᴀᴜᴄᴛɪᴏɴ", callback_data="auction_view")]]
+        markup = InlineKeyboardMarkup(buttons)
+
+        if character.get("rarity") == "🎥 AMV":
+            await update.message.reply_video(
+                video=img_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        else:
+            await update.message.reply_photo(
+                photo=img_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+
+    except ValueError:
+        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɪɴᴘᴜᴛ. ᴘʟᴇᴀsᴇ ᴜsᴇ ɴᴜᴍʙᴇʀs.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def endauction(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    if not await is_sudo_user(user_id):
+        await update.message.reply_text("⛔️ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴘᴇʀᴍɪssɪᴏɴ ᴛᴏ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.")
+        return
+
+    try:
+        auction = await auction_collection.find_one({"status": "active"})
+        if not auction:
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ғᴏᴜɴᴅ.")
+            return
+
+        highest_bidder = auction.get("highest_bidder")
+        character = await characters_collection.find_one({"id": auction["character_id"]})
+
+        if highest_bidder:
+            final_bid = auction.get("current_bid")
+            
+            await user_collection.update_one(
+                {"id": highest_bidder},
+                {
+                    "$inc": {"balance": -final_bid},
+                    "$push": {"characters": character}
+                }
+            )
+
+            await bid_collection.insert_one({
+                "auction_id": auction["_id"],
+                "user_id": highest_bidder,
+                "amount": final_bid,
+                "timestamp": datetime.utcnow(),
+                "won": True
+            })
+
+            winner_user = await context.bot.get_chat(highest_bidder)
+            winner_name = winner_user.first_name if winner_user else f"User {highest_bidder}"
+
+            await update.message.reply_text(
+                f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+                f"<b>│  🎊 ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ!  │</b>\n"
+                f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+                f"💎 <b>{character['name']}</b>\n"
+                f"🏆 ᴡɪɴɴᴇʀ: <a href='tg://user?id={highest_bidder}'>{winner_name}</a>\n"
+                f"💰 ғɪɴᴀʟ ʙɪᴅ: <b>{final_bid:,}</b> ɢᴏʟᴅ\n"
+                f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: <b>{auction['bid_count']}</b>\n\n"
+                f"ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! 🎉",
+                parse_mode="HTML"
+            )
+        else:
+            await update.message.reply_text(
+                f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+                f"<b>│  ⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ  │</b>\n"
+                f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+                f"ɴᴏ ʙɪᴅs ᴡᴇʀᴇ ᴘʟᴀᴄᴇᴅ.",
+                parse_mode="HTML"
+            )
+
+        await auction_collection.update_one(
+            {"_id": auction["_id"]},
+            {"$set": {"status": "ended", "end_time": datetime.utcnow()}}
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def auctionstatus(update: Update, context: CallbackContext):
+    try:
+        auction = await auction_collection.find_one({"status": "active"})
+        if not auction:
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ.")
+            return
+
+        character = await characters_collection.find_one({"id": auction["character_id"]})
+        end_time = auction.get("end_time")
+        time_left = end_time - datetime.utcnow()
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
+
+        highest_bidder = auction.get("highest_bidder")
+        bidder_text = "ɴᴏɴᴇ"
+        if highest_bidder:
+            try:
+                bidder_user = await context.bot.get_chat(highest_bidder)
+                bidder_text = bidder_user.first_name
+            except:
+                bidder_text = f"User {highest_bidder}"
+
+        await update.message.reply_text(
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🔨 ᴀᴜᴄᴛɪᴏɴ sᴛᴀᴛᴜs  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"💎 <b>{character['name']}</b>\n"
+            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction['current_bid']:,}</b> ɢᴏʟᴅ\n"
+            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: <b>{bidder_text}</b>\n"
+            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: <b>{hours_left}h {minutes_left}m</b>\n"
+            f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: <b>{auction['bid_count']}</b>",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
+async def show_auction_shop(update: Update, context: CallbackContext, auction: dict):
+    user_id = update.effective_user.id
+    char_id = auction["character_id"]
+    
+    character = await characters_collection.find_one({"id": char_id})
+    if not character:
+        await update.message.reply_text("⚠️ ᴀᴜᴄᴛɪᴏɴ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ.")
+        return
+
+    end_time = auction.get("end_time")
+    time_left = end_time - datetime.utcnow()
+    hours_left = int(time_left.total_seconds() / 3600)
+    minutes_left = int((time_left.total_seconds() % 3600) / 60)
+
+    highest_bidder = auction.get("highest_bidder")
+    bidder_text = "ɴᴏɴᴇ"
+    if highest_bidder:
+        try:
+            bidder_user = await context.bot.get_chat(highest_bidder)
+            bidder_text = bidder_user.first_name
+        except:
+            bidder_text = f"User {highest_bidder}"
+
+    img_url = character.get("img_url", "")
+    is_video = character.get("rarity") == "🎥 AMV"
+
+    caption = (
+        f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+        f"<b>│  🔨 ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ  │</b>\n"
+        f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+        f"💎 <b>{character['name']}</b>\n\n"
+        f"🎭 ᴀɴɪᴍᴇ: <code>{character.get('anime', 'Unknown')}</code>\n"
+        f"💫 ʀᴀʀɪᴛʏ: {character.get('rarity', 'Unknown')}\n"
+        f"🔖 ɪᴅ: <code>{char_id}</code>\n\n"
+        f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction['current_bid']:,}</b> ɢᴏʟᴅ\n"
+        f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: <b>{bidder_text}</b>\n"
+        f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: <b>{hours_left}h {minutes_left}m</b>\n"
+        f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: <b>{auction['bid_count']}</b>\n\n"
+        f"ᴇɴᴛᴇʀ ʏᴏᴜʀ ʙɪᴅ ᴀᴍᴏᴜɴᴛ:"
+    )
+
+    context.user_data['auction_mode'] = True
+    context.user_data['auction_id'] = str(auction['_id'])
+
+    buttons = [
+        [
+            InlineKeyboardButton(f"+{auction['current_bid']//10:,}", callback_data=f"aucbid_{auction['current_bid']//10}"),
+            InlineKeyboardButton(f"+{auction['current_bid']//5:,}", callback_data=f"aucbid_{auction['current_bid']//5}")
+        ],
+        [
+            InlineKeyboardButton(f"+{auction['current_bid']//2:,}", callback_data=f"aucbid_{auction['current_bid']//2}"),
+            InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="auc_cancel")
+        ]
+    ]
+    markup = InlineKeyboardMarkup(buttons)
+
+    if is_video:
+        msg = await update.message.reply_video(
+            video=img_url,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=markup
+        )
+    else:
+        msg = await update.message.reply_photo(
+            photo=img_url,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=markup
+        )
+
+    context.user_data['auction_message_id'] = msg.message_id
+
+async def placebiد(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text("⚠️ <b>ᴜsᴀɢᴇ:</b> /bid <amount>\n\n<b>ᴇxᴀᴍᴘʟᴇ:</b> /bid 15000", parse_mode="HTML")
+        return
+
+    try:
+        bid_amount = int(context.args[0])
+        
+        auction = await auction_collection.find_one({"status": "active"})
+        if not auction:
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ғᴏᴜɴᴅ.")
+            return
+
+        current_bid = auction.get("current_bid")
+        min_bid = int(current_bid * 1.05)
+
+        if bid_amount < min_bid:
+            await update.message.reply_text(f"⚠️ ʙɪᴅ ᴍᴜsᴛ ʙᴇ ᴀᴛ ʟᴇᴀsᴛ <b>{min_bid:,}</b> ɢᴏʟᴅ (5% ᴍᴏʀᴇ ᴛʜᴀɴ ᴄᴜʀʀᴇɴᴛ ʙɪᴅ).", parse_mode="HTML")
+            return
+
+        user_data = await user_collection.find_one({"id": user_id})
+        balance = user_data.get("balance", 0) if user_data else 0
+
+        if balance < bid_amount:
+            await update.message.reply_text(f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ! ʏᴏᴜ ʜᴀᴠᴇ <b>{balance:,}</b> ɢᴏʟᴅ.", parse_mode="HTML")
+            return
+
+        await auction_collection.update_one(
+            {"_id": auction["_id"]},
+            {
+                "$set": {
+                    "current_bid": bid_amount,
+                    "highest_bidder": user_id
+                },
+                "$inc": {"bid_count": 1}
+            }
+        )
+
+        await bid_collection.insert_one({
+            "auction_id": auction["_id"],
+            "user_id": user_id,
+            "amount": bid_amount,
+            "timestamp": datetime.utcnow()
+        })
+
+        character = await characters_collection.find_one({"id": auction["character_id"]})
+        
+        await update.message.reply_text(
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  ✅ ʙɪᴅ ᴘʟᴀᴄᴇᴅ!  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"💎 <b>{character['name']}</b>\n"
+            f"💰 ʏᴏᴜʀ ʙɪᴅ: <b>{bid_amount:,}</b> ɢᴏʟᴅ\n\n"
+            f"ɢᴏᴏᴅ ʟᴜᴄᴋ! 🍀",
+            parse_mode="HTML"
+        )
+
+    except ValueError:
+        await update.message.reply_text("⚠️ ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+
 async def shop_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
@@ -460,32 +966,30 @@ async def shop_callback(update: Update, context: CallbackContext):
         nav_buttons = []
 
         if not sold_out:
-            action_buttons.append(InlineKeyboardButton("💳 ʙᴜʏ", callback_data=f"shop_buy_{char_id}"))
+            action_buttons.append(InlineKeyboardButton("💳 ʙᴜʏ", callback_data=f"shopbuy_{char_id}"))
         
         if action_buttons:
             buttons.append(action_buttons)
 
         if len(shop_items_ids) > 1:
             if page > 0:
-                nav_buttons.append(InlineKeyboardButton("◀️", callback_data=f"shop_page_{page-1}"))
-            nav_buttons.append(InlineKeyboardButton(f"{page+1}/{len(shop_items_ids)}", callback_data="shop_pageinfo"))
+                nav_buttons.append(InlineKeyboardButton("◀️", callback_data=f"shoppg_{page-1}"))
+            nav_buttons.append(InlineKeyboardButton(f"{page+1}/{len(shop_items_ids)}", callback_data="shoppginfo"))
             if page < len(shop_items_ids) - 1:
-                nav_buttons.append(InlineKeyboardButton("▶️", callback_data=f"shop_page_{page+1}"))
+                nav_buttons.append(InlineKeyboardButton("▶️", callback_data=f"shoppg_{page+1}"))
 
         if nav_buttons:
             buttons.append(nav_buttons)
 
-        sort_buttons = [
-            InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="shop_sort_featured"),
-            InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="shop_sort_cheap")
-        ]
-        buttons.append(sort_buttons)
+        buttons.append([
+            InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="shopsort_featured"),
+            InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="shopsort_cheap")
+        ])
         
-        sort_buttons2 = [
-            InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="shop_sort_expensive"),
-            InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="shop_sort_discount")
-        ]
-        buttons.append(sort_buttons2)
+        buttons.append([
+            InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="shopsort_expensive"),
+            InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="shopsort_discount")
+        ])
 
         markup = InlineKeyboardMarkup(buttons)
 
@@ -500,7 +1004,7 @@ async def shop_callback(update: Update, context: CallbackContext):
                     media=InputMediaPhoto(media=media_url, caption=caption, parse_mode="HTML"),
                     reply_markup=markup
                 )
-        except Exception as e:
+        except:
             try:
                 await query.edit_message_caption(
                     caption=caption,
@@ -510,15 +1014,15 @@ async def shop_callback(update: Update, context: CallbackContext):
             except:
                 pass
 
-    if data.startswith("shop_page_"):
-        page = int(data.split("_")[2])
+    if data.startswith("shoppg_"):
+        page = int(data.split("_")[1])
         await render_shop_page(page)
 
-    elif data == "shop_pageinfo":
+    elif data == "shoppginfo":
         await query.answer()
 
-    elif data.startswith("shop_sort_"):
-        sort_type = data.split("_")[2]
+    elif data.startswith("shopsort_"):
+        sort_type = data.split("_")[1]
         
         sort_by = [("featured", -1), ("added_at", -1)]
         filter_query = {}
@@ -547,8 +1051,8 @@ async def shop_callback(update: Update, context: CallbackContext):
         await render_shop_page(0)
         await query.answer(f"sᴏʀᴛᴇᴅ ʙʏ {sort_type}", show_alert=False)
 
-    elif data.startswith("shop_buy_"):
-        char_id = data.split("_", 2)[2]
+    elif data.startswith("shopbuy_"):
+        char_id = data.split("_", 1)[1]
 
         shop_item = await shop_collection.find_one({"id": char_id})
         character = await characters_collection.find_one({"id": char_id})
@@ -581,8 +1085,8 @@ async def shop_callback(update: Update, context: CallbackContext):
         
         buttons = [
             [
-                InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ", callback_data=f"shop_confirm_{char_id}"),
-                InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="shop_cancel")
+                InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ", callback_data=f"shopconf_{char_id}"),
+                InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="shopcancel")
             ]
         ]
         markup = InlineKeyboardMarkup(buttons)
@@ -601,8 +1105,8 @@ async def shop_callback(update: Update, context: CallbackContext):
             reply_markup=markup
         )
 
-    elif data.startswith("shop_confirm_"):
-        char_id = data.split("_", 2)[2]
+    elif data.startswith("shopconf_"):
+        char_id = data.split("_", 1)[1]
 
         shop_item = await shop_collection.find_one({"id": char_id})
         character = await characters_collection.find_one({"id": char_id})
@@ -675,7 +1179,7 @@ async def shop_callback(update: Update, context: CallbackContext):
         )
         await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇ sᴜᴄᴄᴇssғᴜʟ!", show_alert=False)
 
-    elif data == "shop_cancel":
+    elif data == "shopcancel":
         page = context.user_data.get('shop_page', 0)
         shop_items_ids = context.user_data.get('shop_items', [])
 
@@ -686,9 +1190,169 @@ async def shop_callback(update: Update, context: CallbackContext):
         await render_shop_page(page)
         await query.answer("ᴘᴜʀᴄʜᴀsᴇ ᴄᴀɴᴄᴇʟʟᴇᴅ.", show_alert=False)
 
+async def giveaway_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "giveaway_join":
+        giveaway = await giveaway_collection.find_one({"status": "active"})
+        if not giveaway:
+            await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ʜᴀs ᴇɴᴅᴇᴅ.", show_alert=True)
+            return
+
+        user_data = await user_collection.find_one({"id": user_id})
+        if not user_data:
+            await query.answer("⚠️ ʏᴏᴜ ɴᴇᴇᴅ ᴛᴏ sᴛᴀʀᴛ ᴘʟᴀʏɪɴɢ ғɪʀsᴛ!", show_alert=True)
+            return
+
+        user_chars = user_data.get("characters", [])
+        if len(user_chars) < giveaway.get("min_activity", 0):
+            await query.answer(
+                f"⚠️ ʏᴏᴜ ɴᴇᴇᴅ ᴀᴛ ʟᴇᴀsᴛ {giveaway['min_activity']} ᴄʜᴀʀᴀᴄᴛᴇʀs ᴛᴏ ᴊᴏɪɴ!",
+                show_alert=True
+            )
+            return
+
+        if user_id in giveaway.get("participants", []):
+            await query.answer("⚠️ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴊᴏɪɴᴇᴅ ᴛʜɪs ɢɪᴠᴇᴀᴡᴀʏ!", show_alert=True)
+            return
+
+        await giveaway_collection.update_one(
+            {"_id": giveaway["_id"]},
+            {"$push": {"participants": user_id}}
+        )
+
+        participants_count = len(giveaway.get("participants", [])) + 1
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+        end_time = giveaway.get("end_time")
+
+        caption = (
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🎉 ɢɪᴠᴇᴀᴡᴀʏ sᴛᴀʀᴛᴇᴅ!  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
+            f"🎭 {character.get('anime', 'Unknown')}\n"
+            f"💫 {character.get('rarity', 'Unknown')}\n\n"
+            f"⏰ ᴇɴᴅs: <b>{end_time.strftime('%d %b %Y, %H:%M UTC')}</b>\n"
+            f"📊 ᴍɪɴ ᴀᴄᴛɪᴠɪᴛʏ: <b>{giveaway['min_activity']}</b> ᴄʜᴀʀs ᴄᴏʟʟᴇᴄᴛᴇᴅ\n"
+            f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: <b>{participants_count}</b>\n\n"
+            f"ᴄʟɪᴄᴋ ᴊᴏɪɴ ᴛᴏ ᴘᴀʀᴛɪᴄɪᴘᴀᴛᴇ!"
+        )
+
+        buttons = [[InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="giveaway_join")]]
+        markup = InlineKeyboardMarkup(buttons)
+
+        try:
+            await query.edit_message_caption(
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        except:
+            pass
+
+        await query.answer("✅ ʏᴏᴜ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ ᴛʜᴇ ɢɪᴠᴇᴀᴡᴀʏ!", show_alert=False)
+
+async def auction_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "auction_view":
+        auction = await auction_collection.find_one({"status": "active"})
+        if not auction:
+            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ʜᴀs ᴇɴᴅᴇᴅ.", show_alert=True)
+            return
+
+        character = await characters_collection.find_one({"id": auction["character_id"]})
+        end_time = auction.get("end_time")
+        time_left = end_time - datetime.utcnow()
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
+
+        highest_bidder = auction.get("highest_bidder")
+        bidder_text = "ɴᴏɴᴇ"
+        if highest_bidder:
+            try:
+                bidder_user = await context.bot.get_chat(highest_bidder)
+                bidder_text = bidder_user.first_name
+            except:
+                bidder_text = f"User {highest_bidder}"
+
+        caption = (
+            f"<b>╭─━━━━━━━━━━━━━━━━━━─╮</b>\n"
+            f"<b>│  🔨 ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ  │</b>\n"
+            f"<b>╰─━━━━━━━━━━━━━━━━━━─╯</b>\n\n"
+            f"💎 <b>{character['name']}</b>\n\n"
+            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction['current_bid']:,}</b> ɢᴏʟᴅ\n"
+            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: <b>{bidder_text}</b>\n"
+            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: <b>{hours_left}h {minutes_left}m</b>\n"
+            f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: <b>{auction['bid_count']}</b>\n\n"
+            f"ᴜsᴇ /bid <amount> ᴛᴏ ᴘʟᴀᴄᴇ ʏᴏᴜʀ ʙɪᴅ!"
+        )
+
+        try:
+            await query.edit_message_caption(
+                caption=caption,
+                parse_mode="HTML"
+            )
+        except:
+            pass
+
+    elif data.startswith("aucbid_"):
+        increment = int(data.split("_")[1])
+        auction = await auction_collection.find_one({"status": "active"})
+        
+        if not auction:
+            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ʜᴀs ᴇɴᴅᴇᴅ.", show_alert=True)
+            return
+
+        bid_amount = auction.get("current_bid") + increment
+        user_data = await user_collection.find_one({"id": user_id})
+        balance = user_data.get("balance", 0) if user_data else 0
+
+        if balance < bid_amount:
+            await query.answer(f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ! ʏᴏᴜ ʜᴀᴠᴇ {balance:,} ɢᴏʟᴅ.", show_alert=True)
+            return
+
+        await auction_collection.update_one(
+            {"_id": auction["_id"]},
+            {
+                "$set": {
+                    "current_bid": bid_amount,
+                    "highest_bidder": user_id
+                },
+                "$inc": {"bid_count": 1}
+            }
+        )
+
+        await bid_collection.insert_one({
+            "auction_id": auction["_id"],
+            "user_id": user_id,
+            "amount": bid_amount,
+            "timestamp": datetime.utcnow()
+        })
+
+        await query.answer(f"✅ ʙɪᴅ ᴘʟᴀᴄᴇᴅ: {bid_amount:,} ɢᴏʟᴅ!", show_alert=False)
+
+    elif data == "auc_cancel":
+        await query.answer("ᴀᴜᴄᴛɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.", show_alert=False)
+
 application.add_handler(CommandHandler("shop", shop, block=False))
 application.add_handler(CommandHandler("addshop", addshop, block=False))
 application.add_handler(CommandHandler("rmshop", rmshop, block=False))
 application.add_handler(CommandHandler("updateshop", updateshop, block=False))
 application.add_handler(CommandHandler("shophistory", shophistory, block=False))
-application.add_handler(CallbackQueryHandler(shop_callback, pattern=r"^shop_", block=False))
+application.add_handler(CommandHandler("startgiveaway", startgiveaway, block=False))
+application.add_handler(CommandHandler("endgiveaway", endgiveaway, block=False))
+application.add_handler(CommandHandler("giveawaystatus", giveawaystatus, block=False))
+application.add_handler(CommandHandler("startauction", startauction, block=False))
+application.add_handler(CommandHandler("endauction", endauction, block=False))
+application.add_handler(CommandHandler("auctionstatus", auctionstatus, block=False))
+application.add_handler(CommandHandler("bid", placebiد, block=False))
+application.add_handler(CallbackQueryHandler(shop_callback, pattern=r"^shop", block=False))
+application.add_handler(CallbackQueryHandler(giveaway_callback, pattern=r"^giveaway_", block=False))
+application.add_handler(CallbackQueryHandler(auction_callback, pattern=r"^auc", block=False))
