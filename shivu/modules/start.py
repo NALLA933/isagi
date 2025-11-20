@@ -53,7 +53,7 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             }
         )
 
-        msg = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
+        msg = f"""[​](​{random.choice(VIDEOS)})<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
 
 <b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ
 
@@ -162,7 +162,8 @@ async def start(update: Update, context: CallbackContext):
         welcome = "ᴡᴇʟᴄᴏᴍᴇ" if is_new_user else "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ"
         bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
-        caption = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>{welcome}</b>
+        video_url = random.choice(VIDEOS)
+        caption = f"""[​](​{video_url})<b>{welcome}</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ
@@ -218,7 +219,7 @@ async def button_callback(update: Update, context: CallbackContext):
             return
 
         if query.data == 'credits':
-            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
+            text = f"""[​](​{random.choice(VIDEOS)})<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
 sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
 
@@ -318,7 +319,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             count = user_data.get('referred_users', 0)
             earned = count * REFERRER_REWARD
 
-            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
+            text = f"""[​](​{random.choice(VIDEOS)})<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
 
 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
 ᴇᴀʀɴᴇᴅ: <b>{earned:,}</b> ɢᴏʟᴅ
@@ -352,7 +353,7 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
 
             refs = user_data.get('referred_users', 0)
 
-            caption = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+            caption = f"""[​](​{random.choice(VIDEOS)})<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
