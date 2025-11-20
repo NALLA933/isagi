@@ -1,61 +1,103 @@
-import random
-from pyrogram import Client
+import asyncio
+from pyrogram import Client, filters
 from pyrogram.types import Message
-from pyrogram import filters
-from pyrogram.types import(InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, Message)
-from pyrogram.errors import PeerIdInvalid, BadRequest
+from pyrogram.errors import PeerIdInvalid, BadRequest, FloodWait
 from shivu import user_collection, shivuu as app, LEAVELOGS, JOINLOGS
 
 
-async def lul_message(chat_id: int, message: str):
-    try:
-        await app.send_message(chat_id=chat_id, text=message)
-    except (PeerIdInvalid, BadRequest) as e:
-        print(f"Failed to send message to {chat_id}: {e}")
-    except Exception as e:
-        print(f"Unexpected error sending message: {e}")
+async def send_log_message(chat_id: int, message: str, retries: int = 3):
+    for attempt in range(retries):
+        try:
+            await app.send_message(chat_id=chat_id, text=message)
+            return True
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+        except (PeerIdInvalid, BadRequest):
+            if attempt < retries - 1:
+                await asyncio.sleep(2)
+                try:
+                    await app.get_chat(chat_id)
+                    await asyncio.sleep(1)
+                except:
+                    pass
+            else:
+                return False
+        except Exception:
+            if attempt < retries - 1:
+                await asyncio.sleep(2)
+            else:
+                return False
+    return False
 
 
-# Track every bot start
 async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
-    """Log every bot start to JOINLOGS"""
     try:
         user_mention = f"<a href='tg://user?id={user_id}'>{first_name}</a>"
-        username_str = f"@{username}" if username else "ɴᴏ ᴜsᴇʀɴᴀᴍᴇ"
+        username_str = f"@{username}" if username else "No Username"
 
         if is_new:
-            # Count total users in database
             total_users = await user_collection.count_documents({})
-            status = f"ɴᴇᴡ ᴜsᴇʀ #{total_users}"
+            status = f"New User #{total_users}"
         else:
-            status = "ʀᴇᴛᴜʀɴɪɴɢ ᴜsᴇʀ"
+            status = "Returning User"
 
-        start_log = f"˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n#BOTSTART\n sᴛᴀᴛᴜs : {status}\n ᴜsᴇʀ : {user_mention}\n ᴜsᴇʀ ɪᴅ : `{user_id}`\n ᴜsᴇʀɴᴀᴍᴇ : {username_str}"
-        await lul_message(JOINLOGS, start_log)
+        start_log = (
+            f"BOT STARTED\n"
+            f"#BOTSTART\n"
+            f"Status: {status}\n"
+            f"User: {user_mention}\n"
+            f"User ID: `{user_id}`\n"
+            f"Username: {username_str}"
+        )
+        
+        await send_log_message(JOINLOGS, start_log)
     except Exception as e:
         print(f"Failed to track bot start: {e}")
 
 
 @app.on_message(filters.new_chat_members)
 async def on_new_chat_members(client: Client, message: Message):
-    if (await client.get_me()).id in [user.id for user in message.new_chat_members]:
-        added_by = message.from_user.mention if message.from_user else "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
-        matlabi_jhanto = message.chat.title
-        chat_id = message.chat.id
-        if message.chat.username:
-            chatusername = f"@{message.chat.username}"
-        else:
-            chatusername = "ᴩʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
-        lemda_text = f"˹𝐆ʀᴀʙʙɪɴɢ 𝐘ᴏᴜʀ 𝐖ᴀɪғᴜ˼ 🥀\n#NEWCHAT \n ᴄʜᴀᴛ ᴛɪᴛʟᴇ : {matlabi_jhanto}\n ᴄʜᴀᴛ ɪᴅ : {chat_id}\n ᴄʜᴀᴛ ᴜɴᴀᴍᴇ : {chatusername}\n ᴀᴅᴅᴇᴅ ʙʏ : {added_by}"
-        await lul_message(JOINLOGS, lemda_text)
+    try:
+        bot_id = (await client.get_me()).id
+        if bot_id in [user.id for user in message.new_chat_members]:
+            added_by = message.from_user.mention if message.from_user else "Unknown User"
+            chat_title = message.chat.title
+            chat_id = message.chat.id
+            chat_username = f"@{message.chat.username}" if message.chat.username else "Private Chat"
+            
+            join_log = (
+                f"isagi randi dekh \n"
+                f"#NEWCHAT\n"
+                f"Chat Title: {chat_title}\n"
+                f"Chat ID: {chat_id}\n"
+                f"Chat Username: {chat_username}\n"
+                f"mera lelo mume: {added_by}"
+            )
+            
+            await send_log_message(JOINLOGS, join_log)
+    except Exception as e:
+        print(f"Error in new chat handler: {e}")
 
 
 @app.on_message(filters.left_chat_member)
-async def on_left_chat_member(_, message: Message):
-    if (await app.get_me()).id == message.left_chat_member.id:
-        remove_by = message.from_user.mention if message.from_user else "ᴜɴᴋɴᴏᴡɴ ᴜꜱᴇʀ"
-        title = message.chat.title
-        username = f"@{message.chat.username}" if message.chat.username else "ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
-        chat_id = message.chat.id
-        left = f"#ʟᴇꜰᴛ ɢʀᴏᴜᴘ ✫\n ᴄʜᴀᴛ ᴛɪᴛʟᴇ : {title}\n✫ ᴄʜᴀᴛ ɪᴅ : {chat_id}\n ʀᴇᴍᴏᴠᴇᴅ ʙʏ : {remove_by}\n id : {chat_id}"
-        await app.send_message(LEAVELOGS, left)
+async def on_left_chat_member(client: Client, message: Message):
+    try:
+        bot_id = (await client.get_me()).id
+        if message.left_chat_member.id == bot_id:
+            removed_by = message.from_user.mention if message.from_user else "Unknown User"
+            chat_title = message.chat.title
+            chat_username = f"@{message.chat.username}" if message.chat.username else "Private Chat"
+            chat_id = message.chat.id
+            
+            leave_log = (
+                f"LEFT GROUP\n"
+                f"#LEFTGROUP\n"
+                f"Chat Title: {chat_title}\n"
+                f"Chat ID: {chat_id}\n"
+                f"Chat Username: {chat_username}\n"
+                f"MKC iss bandeki: {removed_by}"
+            )
+            
+            await send_log_message(LEAVELOGS, leave_log)
+    except Exception as e:
+        print(f"Error in left chat handler: {e}")
