@@ -353,7 +353,7 @@ async def inlinequery(update: Update, context) -> None:
     q = update.inline_query.query
     off = int(update.inline_query.offset) if update.inline_query.offset else 0
     uid = update.inline_query.from_user.id
-    
+
     try:
         all_ch = []
         usr = None
@@ -361,26 +361,26 @@ async def inlinequery(update: Update, context) -> None:
         stats = None
         rank = (0, 0, 0)
         fmode = None
-        
+
         if q.startswith('collection.'):
             is_col = True
             pts = q.split(' ', 1)
             tid = pts[0].split('.')[1]
             srch = pts[1].strip() if len(pts) > 1 else ''
-            
+
             for fm in ['rare', 'video', 'new', 'popular']:
                 if srch.startswith(f'-{fm}'):
                     fmode = fm
                     srch = srch.replace(f'-{fm}', '').strip()
                     break
-            
+
             if not tid.isdigit():
                 await update.inline_query.answer([], cache_time=5)
                 return
-            
+
             ti = int(tid)
             usr = await get_user(ti)
-            
+
             if not usr:
                 await update.inline_query.answer([
                     InlineQueryResultArticle(
@@ -394,25 +394,40 @@ async def inlinequery(update: Update, context) -> None:
                     )
                 ], cache_time=5)
                 return
-            
+
             stats = await get_stats(ti)
             rank = await get_rank(ti)
-            
+
             cd = {}
             for c in usr.get('characters', []):
                 if isinstance(c, dict) and c.get('id'):
                     ci = c.get('id')
                     if ci not in cd:
                         cd[ci] = c
-            
+
             all_ch = list(cd.values())
+
+            # ✨ APPLY SMODE RARITY FILTER FROM USER SETTINGS
+            user_smode = usr.get('smode', 'default')
             
+            if user_smode and user_smode != 'default':
+                # Get rarity value from HAREM_MODE_MAPPING
+                from shivu.modules.harem import HAREM_MODE_MAPPING
+                rarity_value = HAREM_MODE_MAPPING.get(user_smode, None)
+                
+                if rarity_value:
+                    # Filter characters by rarity
+                    all_ch = [
+                        c for c in all_ch 
+                        if c.get('rarity') == rarity_value
+                    ]
+
             if fmode:
                 all_ch = await filter_chars(all_ch, fmode)
-            
+
             fv = usr.get('favorites')
             fvc = None
-            
+
             if fv:
                 if isinstance(fv, dict):
                     fi = fv.get('id')
@@ -426,11 +441,11 @@ async def inlinequery(update: Update, context) -> None:
                     if not fvc:
                         await user_collection.update_one({'id': ti}, {'$unset': {'favorites': ""}})
                         user_cache.pop(f"u{ti}", None)
-            
+
             if srch:
                 rx = re.compile(re.escape(srch), re.IGNORECASE)
                 all_ch = [c for c in all_ch if rx.search(c.get('name', '')) or rx.search(c.get('anime', '')) or rx.search(c.get('id', ''))]
-            
+
             if not srch and fvc and not fmode:
                 all_ch = [c for c in all_ch if c.get('id') != fvc.get('id')]
                 all_ch.insert(0, fvc)
@@ -438,40 +453,40 @@ async def inlinequery(update: Update, context) -> None:
                 all_ch.sort(key=lambda x: parse_rar(x.get('rarity', ''))[2])
         else:
             srch = q
-            
+
             for fm in ['rare', 'video', 'new', 'popular']:
                 if srch.startswith(f'-{fm}'):
                     fmode = fm
                     srch = srch.replace(f'-{fm}', '').strip()
                     break
-            
+
             all_ch = await search_chars(srch)
-            
+
             if fmode:
                 all_ch = await filter_chars(all_ch, fmode)
-            
+
             all_ch.sort(key=lambda x: parse_rar(x.get('rarity', ''))[2])
-        
+
         all_ch = dedupe(all_ch)
-        
+
         total_chars = len(all_ch)
         chs = all_ch[off:off+50]
-        
+
         more = len(all_ch) > off + 50
         nxt = str(off + 50) if more else ""
-        
+
         res = []
         for ch in chs:
             ci = ch.get('id')
             if not ci:
                 continue
-            
+
             nm = ch.get('name', '?')
             an = ch.get('anime', '?')
             img = ch.get('img_url', '')
             vid = ch.get('is_video', False)
             e, rt, rv = parse_rar(ch.get('rarity', ''))
-            
+
             fav = False
             if is_col and usr and usr.get('favorites'):
                 fv = usr.get('favorites')
@@ -479,23 +494,23 @@ async def inlinequery(update: Update, context) -> None:
                     fav = True
                 elif isinstance(fv, str) and fv == ci:
                     fav = True
-            
+
             if is_col and usr and stats:
                 cap = await col_cap(ch, usr, fav, stats, rank)
             else:
                 cap = await glob_cap(ch, total_chars)
-            
+
             kbd = InlineKeyboardMarkup([
                 [InlineKeyboardButton(sc("owners"), callback_data=f"o.{ci}"),
                  InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
                 [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}"),
                  InlineKeyboardButton(sc("compare"), callback_data=f"c.{ci}.{uid}")]
             ])
-            
+
             rid = f"{ci}{off}{int(time.time()*1000)}"
             ttl = f"{'💖' if fav else ''}{e} {trunc(nm, 24)}"
             dsc = f"{trunc(an, 18)} {'video' if vid else 'image'} {trunc(rt, 8)}"
-            
+
             if vid:
                 res.append(InlineQueryResultVideo(
                     id=rid, video_url=img, mime_type="video/mp4", thumbnail_url=img,
@@ -506,9 +521,9 @@ async def inlinequery(update: Update, context) -> None:
                     id=rid, photo_url=img, thumbnail_url=img,
                     title=ttl, description=dsc, caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd
                 ))
-        
+
         await update.inline_query.answer(res, next_offset=nxt, cache_time=5, is_personal=is_col)
-    
+
     except:
         import traceback
         traceback.print_exc()
