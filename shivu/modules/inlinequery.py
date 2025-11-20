@@ -59,11 +59,11 @@ def sc(t: str) -> str:
 def parse_rar(r: str) -> Tuple[str, str, int]:
     if not r or not isinstance(r, str):
         return "🟢", "Common", 20
-    
+
     for key, (emoji, val) in RARITY_MAP.items():
         if key in r.lower():
             return emoji, r.split(' ', 1)[-1] if ' ' in r else key.title(), val
-    
+
     parts = r.split(' ', 1)
     return parts[0] if parts else "🟢", parts[1] if len(parts) > 1 else "Common", 20
 
@@ -83,14 +83,14 @@ async def bulk_count(ids: List[str]) -> Dict[str, int]:
     k = cache_key('bulk', tuple(sorted(ids)))
     if k in result_cache:
         return result_cache[k]
-    
+
     pipe = [
         {'$match': {'characters.id': {'$in': ids}}},
         {'$unwind': '$characters'},
         {'$match': {'characters.id': {'$in': ids}}},
         {'$group': {'_id': '$characters.id', 'count': {'$sum': 1}}}
     ]
-    
+
     results = await user_collection.aggregate(pipe).to_list(None)
     counts = {r['_id']: r['count'] for r in results}
     result_cache[k] = counts
@@ -100,7 +100,7 @@ async def get_user(uid: int) -> Optional[Dict]:
     k = f"u{uid}"
     if k in user_cache:
         return user_cache[k]
-    
+
     u = await user_collection.find_one({'id': uid}, {'_id': 0})
     if u:
         user_cache[k] = u
@@ -110,7 +110,7 @@ async def get_stats(uid: int) -> Dict:
     k = f"s{uid}"
     if k in stat_cache:
         return stat_cache[k]
-    
+
     pipe = [
         {'$match': {'id': uid}},
         {'$project': {
@@ -119,7 +119,7 @@ async def get_stats(uid: int) -> Dict:
             'animes': {'$size': {'$setUnion': [{'$map': {'input': '$characters', 'as': 'c', 'in': '$$c.anime'}}]}}
         }}
     ]
-    
+
     result = await user_collection.aggregate(pipe).to_list(1)
     stats = result[0] if result else {'total': 0, 'unique': 0, 'animes': 0}
     stat_cache[k] = stats
@@ -129,29 +129,29 @@ async def get_rank(uid: int) -> Tuple[int, int, float]:
     k = f"r{uid}"
     if k in rank_cache:
         return rank_cache[k]
-    
+
     pipe = [
         {'$project': {'id': 1, 'count': {'$size': {'$ifNull': ['$characters', []]}}}},
         {'$sort': {'count': -1}}
     ]
-    
+
     rankings = await user_collection.aggregate(pipe).to_list(None)
     total = len(rankings)
-    
+
     for idx, r in enumerate(rankings, 1):
         if r.get('id') == uid:
             pct = round((1 - idx/total) * 100, 1) if total > 0 else 0
             rank = (idx, total, pct)
             rank_cache[k] = rank
             return rank
-    
+
     return (0, total, 0)
 
 async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
     k = f"o{cid}{lim}"
     if k in result_cache:
         return result_cache[k]
-    
+
     pipe = [
         {'$match': {'characters.id': cid}},
         {'$project': {
@@ -162,7 +162,7 @@ async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
         {'$sort': {'count': -1, 'total': -1}},
         {'$limit': lim}
     ]
-    
+
     owners = await user_collection.aggregate(pipe).to_list(lim)
     result_cache[k] = owners
     return owners
@@ -171,7 +171,7 @@ async def search_chars(q: str, lim: int = 500) -> List[Dict]:
     k = cache_key('search', q, lim)
     if k in query_cache:
         return query_cache[k]
-    
+
     if q:
         rx = re.compile(re.escape(q), re.IGNORECASE)
         chars = await collection.find(
@@ -180,7 +180,7 @@ async def search_chars(q: str, lim: int = 500) -> List[Dict]:
         ).limit(lim).to_list(lim)
     else:
         chars = await collection.find({}, {'_id': 0}).limit(lim).to_list(lim)
-    
+
     query_cache[k] = chars
     return chars
 
@@ -190,20 +190,20 @@ async def col_cap(ch: Dict, u: Dict, fav: bool, stats: Dict, rank: Tuple) -> str
     an = ch.get('anime', '?')
     rar = ch.get('rarity', '🟢 Common')
     vid = ch.get('is_video', False)
-    
+
     e, rt, rv = parse_rar(rar)
     uc = sum(1 for c in u.get('characters', []) if c.get('id') == cid)
     ua = sum(1 for c in u.get('characters', []) if c.get('anime') == an)
-    
+
     fn = u.get('first_name', 'User')
     uid = u.get('id')
     unique = stats.get('unique', 0)
     total = stats.get('total', 0)
     animes = stats.get('animes', 0)
     rank_pos, rank_tot, pct = rank
-    
+
     anime_info = await collection.count_documents({'anime': an})
-    
+
     cap = (
         f"{'💖 ' if fav else ''}<b><u>{escape(nm)}</u></b>\n"
         f"╰┈➤ ✨ <b>Character Info</b>\n\n"
@@ -216,7 +216,7 @@ async def col_cap(ch: Dict, u: Dict, fav: bool, stats: Dict, rank: Tuple) -> str
         f"📦 Collection: <b>{ua}</b>/<code>{anime_info}</code>\n"
         f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'} • Owned <b>×{uc}</b>"
     )
-    
+
     return cap
 
 async def glob_cap(ch: Dict, total: int) -> str:
@@ -225,15 +225,15 @@ async def glob_cap(ch: Dict, total: int) -> str:
     an = ch.get('anime', '?')
     rar = ch.get('rarity', '🟢 Common')
     vid = ch.get('is_video', False)
-    
+
     e, rt, rv = parse_rar(rar)
-    
+
     owners = await get_owners(cid, 1)
     top = owners[0] if owners else None
     gc = sum(o.get('count', 0) for o in owners[:50])
-    
+
     anime_info = await collection.count_documents({'anime': an})
-    
+
     cap = (
         f"<b><u>{escape(nm)}</u></b>\n"
         f"╰┈➤ 🌐 <b>Global Database</b>\n\n"
@@ -245,10 +245,10 @@ async def glob_cap(ch: Dict, total: int) -> str:
         f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'}\n"
         f"🎯 Grabbed <b>{gc}×</b> times"
     )
-    
+
     if top:
         cap += f"\n\n👑 <b>Top Owner:</b> {trunc(escape(top.get('first_name', 'User')), 10)} <b>×{top.get('count', 0)}</b>"
-    
+
     return cap
 
 async def own_cap(ch: Dict, owners: List[Dict]) -> str:
@@ -256,9 +256,9 @@ async def own_cap(ch: Dict, owners: List[Dict]) -> str:
     nm = ch.get('name', '?')
     an = ch.get('anime', '?')
     e, rt, rv = parse_rar(ch.get('rarity', '🟢 Common'))
-    
+
     gc = sum(o.get('count', 0) for o in owners)
-    
+
     cap = (
         f"<b><u>{escape(nm)}</u></b>\n"
         f"╰┈➤ 👥 <b>TOP OWNERS</b> ({len(owners)} users)\n\n"
@@ -266,13 +266,13 @@ async def own_cap(ch: Dict, owners: List[Dict]) -> str:
         f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
         f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n\n"
     )
-    
+
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, o in enumerate(owners[:40], 1):
         medal = medals.get(i, f"<b>{i}.</b>")
         fn = trunc(escape(o.get('first_name', 'User')), 11)
         cap += f"{medal} {fn} <b>×{o.get('count', 0)}</b> of <code>{o.get('total', 0)}</code>\n"
-    
+
     cap += f"\n✦ Total grabbed <b>{gc}×</b>"
     return cap
 
@@ -281,12 +281,12 @@ async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
     nm = ch.get('name', '?')
     an = ch.get('anime', '?')
     e, rt, rv = parse_rar(ch.get('rarity', '🟢 Common'))
-    
+
     gc = sum(o.get('count', 0) for o in owners)
     uo = len(owners)
     avg = round(gc / uo, 1) if uo > 0 else 0
     anime_total = await collection.count_documents({'anime': an})
-    
+
     cap = (
         f"<b><u>{escape(nm)}</u></b>\n"
         f"╰┈➤ 📊 <b>STATISTICS</b>\n\n"
@@ -298,28 +298,28 @@ async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
         f"📈 Average: <b>{avg}×</b> per user\n"
         f"📚 Anime Total: <code>{anime_total}</code> chars"
     )
-    
+
     if owners:
         cap += f"\n\n╰┈➤ 🏆 <b>Top Collectors</b>\n\n"
         for i, o in enumerate(owners[:15], 1):
             fn = trunc(escape(o.get('first_name', 'User')), 10)
             cap += f"<b>{i}.</b> {fn} <b>×{o.get('count', 0)}</b>\n"
-    
+
     return cap
 
 async def comp_cap(ch: Dict, u1: Dict, u2: Dict) -> str:
     cid = ch.get('id', '?')
     nm = ch.get('name', '?')
-    
+
     u1c = sum(1 for c in u1.get('characters', []) if c.get('id') == cid)
     u2c = sum(1 for c in u2.get('characters', []) if c.get('id') == cid)
-    
+
     s1 = await get_stats(u1.get('id'))
     s2 = await get_stats(u2.get('id'))
-    
+
     r1 = await get_rank(u1.get('id'))
     r2 = await get_rank(u2.get('id'))
-    
+
     cap = (
         f"<b><u>{escape(nm)}</u></b>\n"
         f"╰┈➤ ⚔️ <b>COMPARISON</b>\n\n"
@@ -333,7 +333,7 @@ async def comp_cap(ch: Dict, u1: Dict, u2: Dict) -> str:
         f"   • Collection: <code>{s2['unique']}</code>/<code>{s2['total']}</code>\n"
         f"   • Rank: <b>#{r2[0]}</b></blockquote>"
     )
-    
+
     return cap
 
 async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
@@ -406,21 +406,6 @@ async def inlinequery(update: Update, context) -> None:
                         cd[ci] = c
 
             all_ch = list(cd.values())
-
-            # ✨ APPLY SMODE RARITY FILTER FROM USER SETTINGS
-            user_smode = usr.get('smode', 'default')
-            
-            if user_smode and user_smode != 'default':
-                # Get rarity value from HAREM_MODE_MAPPING
-                from shivu.modules.harem import HAREM_MODE_MAPPING
-                rarity_value = HAREM_MODE_MAPPING.get(user_smode, None)
-                
-                if rarity_value:
-                    # Filter characters by rarity
-                    all_ch = [
-                        c for c in all_ch 
-                        if c.get('rarity') == rarity_value
-                    ]
 
             if fmode:
                 all_ch = await filter_chars(all_ch, fmode)
@@ -532,28 +517,28 @@ async def inlinequery(update: Update, context) -> None:
 async def show_owners(update: Update, context) -> None:
     q = update.callback_query
     await q.answer()
-    
+
     try:
         ci = q.data.split('.')[1]
         ch = await collection.find_one({'id': ci}, {'_id': 0})
-        
+
         if not ch:
             await q.answer("character not found", show_alert=True)
             return
-        
+
         owners = await get_owners(ci, 150)
-        
+
         if not owners:
             await q.answer("no owners yet", show_alert=True)
             return
-        
+
         cap = await own_cap(ch, owners)
         kbd = InlineKeyboardMarkup([
             [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
              InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
             [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
         ])
-        
+
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
     except:
         import traceback
@@ -563,15 +548,15 @@ async def show_owners(update: Update, context) -> None:
 async def back_card(update: Update, context) -> None:
     q = update.callback_query
     await q.answer()
-    
+
     try:
         ci = q.data.split('.')[1]
         ch = await collection.find_one({'id': ci}, {'_id': 0})
-        
+
         if not ch:
             await q.answer("character not found", show_alert=True)
             return
-        
+
         total = len(await search_chars(''))
         cap = await glob_cap(ch, total)
         kbd = InlineKeyboardMarkup([
@@ -580,7 +565,7 @@ async def back_card(update: Update, context) -> None:
             [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}"),
              InlineKeyboardButton(sc("compare"), callback_data=f"c.{ci}.{q.from_user.id}")]
         ])
-        
+
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
     except:
         import traceback
@@ -590,24 +575,24 @@ async def back_card(update: Update, context) -> None:
 async def show_stats(update: Update, context) -> None:
     q = update.callback_query
     await q.answer()
-    
+
     try:
         ci = q.data.split('.')[1]
         ch = await collection.find_one({'id': ci}, {'_id': 0})
-        
+
         if not ch:
             await q.answer("character not found", show_alert=True)
             return
-        
+
         owners = await get_owners(ci, 150)
         cap = await stat_cap(ch, owners)
-        
+
         kbd = InlineKeyboardMarkup([
             [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
              InlineKeyboardButton(sc("owners"), callback_data=f"o.{ci}")],
             [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
         ])
-        
+
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
     except:
         import traceback
@@ -617,33 +602,33 @@ async def show_stats(update: Update, context) -> None:
 async def compare_users(update: Update, context) -> None:
     q = update.callback_query
     await q.answer()
-    
+
     try:
         parts = q.data.split('.')
         ci = parts[1]
         uid1 = int(parts[2])
         uid2 = q.from_user.id
-        
+
         ch = await collection.find_one({'id': ci}, {'_id': 0})
-        
+
         if not ch:
             await q.answer("character not found", show_alert=True)
             return
-        
+
         u1 = await get_user(uid1)
         u2 = await get_user(uid2)
-        
+
         if not u1 or not u2:
             await q.answer("user not found", show_alert=True)
             return
-        
+
         cap = await comp_cap(ch, u1, u2)
         kbd = InlineKeyboardMarkup([
             [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
              InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
             [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
         ])
-        
+
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
     except:
         import traceback
