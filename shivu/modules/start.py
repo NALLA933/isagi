@@ -304,7 +304,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode='HTML',
                 link_preview_options=LinkPreviewOptions(
-                    url=video_url,
+                    is_disabled=False,
                     show_above_text=True,
                     prefer_large_media=True
                 )
