@@ -1,7 +1,7 @@
 import random
 from shivu.modules.database.sudo import fetch_sudo_users
 from html import escape
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, user_totals_collection
 from shivu.modules.chatlog import track_bot_start
@@ -53,7 +53,9 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             }
         )
 
-        msg = f"""[​](​{random.choice(VIDEOS)})<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
+        msg = f"""{random.choice(VIDEOS)}
+
+<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
 
 <b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ
 
@@ -64,7 +66,12 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             await context.bot.send_message(
                 chat_id=referring_user_id,
                 text=msg,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=random.choice(VIDEOS),
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
             )
         except Exception as e:
             LOGGER.error(f"Could not notify referrer {referring_user_id}: {e}")
@@ -162,8 +169,9 @@ async def start(update: Update, context: CallbackContext):
         welcome = "ᴡᴇʟᴄᴏᴍᴇ" if is_new_user else "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ"
         bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
-        video_url = random.choice(VIDEOS)
-        caption = f"""[​](​{video_url})<b>{welcome}</b>
+        caption = f"""{random.choice(VIDEOS)}
+
+<b>{welcome}</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ
@@ -190,7 +198,12 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
         await update.message.reply_text(
             text=caption,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            link_preview_options=LinkPreviewOptions(
+                url=random.choice(VIDEOS),
+                show_above_text=True,
+                prefer_large_media=True
+            )
         )
 
     except Exception as e:
@@ -218,8 +231,12 @@ async def button_callback(update: Update, context: CallbackContext):
             await query.answer("⚠️ sᴛᴀʀᴛ ʙᴏᴛ ғɪʀsᴛ", show_alert=True)
             return
 
+        video_url = random.choice(VIDEOS)
+
         if query.data == 'credits':
-            text = f"""[​](​{random.choice(VIDEOS)})<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
+            text = f"""{video_url}
+
+<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
 sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
 
@@ -290,11 +307,18 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             await query.edit_message_text(
                 text=text,
                 reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
             )
 
         elif query.data == 'help':
-            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
+            text = f"""{video_url}
+
+<b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
 
 /grab - ɢᴜᴇss ᴄʜᴀʀᴀᴄᴛᴇʀ
 /fav - sᴇᴛ ғᴀᴠᴏʀɪᴛᴇ
@@ -311,7 +335,12 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             await query.edit_message_text(
                 text=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
             )
 
         elif query.data == 'referral':
@@ -319,7 +348,9 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             count = user_data.get('referred_users', 0)
             earned = count * REFERRER_REWARD
 
-            text = f"""[​](​{random.choice(VIDEOS)})<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
+            text = f"""{video_url}
+
+<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
 
 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
 ᴇᴀʀɴᴇᴅ: <b>{earned:,}</b> ɢᴏʟᴅ
@@ -339,7 +370,12 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
             await query.edit_message_text(
                 text=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
             )
 
         elif query.data == 'back':
@@ -353,7 +389,9 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
 
             refs = user_data.get('referred_users', 0)
 
-            caption = f"""[​](​{random.choice(VIDEOS)})<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+            caption = f"""{video_url}
+
+<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
@@ -379,7 +417,12 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
             await query.edit_message_text(
                 text=caption,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
             )
 
     except Exception as e:
