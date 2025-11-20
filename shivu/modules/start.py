@@ -6,11 +6,10 @@ from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, user_totals_collection
 from shivu.modules.chatlog import track_bot_start
 
-PHOTOS = [
+VIDEOS = [
     "https://files.catbox.moe/k3dhbe.mp4", 
     "https://files.catbox.moe/iitev2.mp4", 
     "https://files.catbox.moe/hs0e56.mp4"
-
 ]
 
 REFERRER_REWARD = 1000
@@ -18,10 +17,6 @@ NEW_USER_BONUS = 500
 
 OWNERS = [{"name": "Thorfinn", "username": "ll_Thorfinn_ll"}]
 SUDO_USERS = [{"name": "Shadwoo", "username": "I_shadwoo"}]
-
-
-def get_media_html(url):
-    return f'<a href="{url}"><b>‌</b></a>'
 
 
 async def process_referral(user_id, first_name, referring_user_id, context):
@@ -58,7 +53,7 @@ async def process_referral(user_id, first_name, referring_user_id, context):
             }
         )
 
-        msg = f"""{get_media_html(random.choice(PHOTOS))}<b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
+        msg = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
 
 <b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ
 
@@ -167,7 +162,7 @@ async def start(update: Update, context: CallbackContext):
         welcome = "ᴡᴇʟᴄᴏᴍᴇ" if is_new_user else "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ"
         bonus = f"\n\n<b>+{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
-        caption = f"""{get_media_html(random.choice(PHOTOS))}<b>{welcome}</b>
+        caption = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>{welcome}</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ
@@ -223,7 +218,7 @@ async def button_callback(update: Update, context: CallbackContext):
             return
 
         if query.data == 'credits':
-            text = f"""{get_media_html(random.choice(PHOTOS))}<b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
+            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>🩵 ʙᴏᴛ ᴄʀᴇᴅɪᴛs</b>
 
 sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅᴇ ᴛʜɪs ᴘᴏssɪʙʟᴇ
 
@@ -298,7 +293,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             )
 
         elif query.data == 'help':
-            text = f"""{get_media_html(random.choice(PHOTOS))}<b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
+            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>📖 ᴄᴏᴍᴍᴀɴᴅs</b>
 
 /grab - ɢᴜᴇss ᴄʜᴀʀᴀᴄᴛᴇʀ
 /fav - sᴇᴛ ғᴀᴠᴏʀɪᴛᴇ
@@ -323,7 +318,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             count = user_data.get('referred_users', 0)
             earned = count * REFERRER_REWARD
 
-            text = f"""{get_media_html(random.choice(PHOTOS))}<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
+            text = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
 
 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
 ᴇᴀʀɴᴇᴅ: <b>{earned:,}</b> ɢᴏʟᴅ
@@ -357,7 +352,7 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
 
             refs = user_data.get('referred_users', 0)
 
-            caption = f"""{get_media_html(random.choice(PHOTOS))}<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+            caption = f"""<a href="{random.choice(VIDEOS)}">‌‌‌</a><b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
