@@ -420,6 +420,337 @@ async def pass_callback(update: Update, context: CallbackContext):
         except:
             pass
 
+async def passhelp_command(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    try:
+        # Main help page
+        help_text = f"""<b>{to_small_caps('pass system guide')}</b>
+
+{to_small_caps('welcome to the ultimate reward system designed for active players unlock exclusive benefits gold and rare characters')}
+
+<b>{to_small_caps('available tiers')}</b>
+
+<b>{to_small_caps('free pass')}</b>
+{to_small_caps('weekly')}: 1,000
+{to_small_caps('streak')}: 5,000
+{to_small_caps('multiplier')}: 1.0x
+
+<b>{to_small_caps('premium pass')}</b>
+{to_small_caps('weekly')}: 5,000
+{to_small_caps('streak')}: 25,000
+{to_small_caps('multiplier')}: 1.5x
+{to_small_caps('mythics')}: 3 {to_small_caps('per claim')}
+{to_small_caps('cost')}: 50,000 {to_small_caps('gold')}
+
+<b>{to_small_caps('elite pass')}</b>
+{to_small_caps('weekly')}: 15,000
+{to_small_caps('streak')}: 100,000
+{to_small_caps('multiplier')}: 2.0x
+{to_small_caps('activation')}: 100,000,000
+{to_small_caps('mythics')}: 5 {to_small_caps('instant')}
+{to_small_caps('cost')}: 50 INR
+
+{to_small_caps('tap the buttons below to learn more')}"""
+
+        keyboard = [
+            [
+                InlineKeyboardButton(f"⚡ {to_small_caps('how to claim')}", callback_data="ph_claim"),
+                InlineKeyboardButton(f"🔥 {to_small_caps('streak info')}", callback_data="ph_streak")
+            ],
+            [
+                InlineKeyboardButton(f"🎯 {to_small_caps('tasks guide')}", callback_data="ph_tasks"),
+                InlineKeyboardButton(f"🎁 {to_small_caps('invite rewards')}", callback_data="ph_invite")
+            ],
+            [
+                InlineKeyboardButton(f"💰 {to_small_caps('upgrade guide')}", callback_data="ph_upgrade"),
+                InlineKeyboardButton(f"📊 {to_small_caps('commands list')}", callback_data="ph_commands")
+            ],
+            [
+                InlineKeyboardButton(f"❓ {to_small_caps('faq')}", callback_data="ph_faq")
+            ]
+        ]
+
+        await update.message.reply_photo(
+            photo="https://files.catbox.moe/z8fhwx.jpg",
+            caption=help_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        LOGGER.error(f"Passhelp error: {e}")
+        await update.message.reply_text(to_small_caps('error'))
+
+async def passhelp_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        data = query.data
+        if not data.startswith('ph_'):
+            return
+        
+        action = data.split('_')[1]
+        
+        if action == 'claim':
+            text = f"""<b>{to_small_caps('how to claim rewards')}</b>
+
+<b>{to_small_caps('weekly claims')}</b>
+{to_small_caps('use')} /pclaim {to_small_caps('to claim your weekly reward')}
+{to_small_caps('available once every 7 days')}
+{to_small_caps('each claim counts toward your streak')}
+
+<b>{to_small_caps('what you get')}</b>
+{to_small_caps('free')}: 1,000 {to_small_caps('gold')}
+{to_small_caps('premium')}: 5,000 {to_small_caps('gold + 3 mythics')}
+{to_small_caps('elite')}: 15,000 {to_small_caps('gold + 5 mythics')}
+
+<b>{to_small_caps('claim counter')}</b>
+{to_small_caps('you can make up to 6 claims')}
+{to_small_caps('after 6 claims use')} /sweekly {to_small_caps('for streak bonus')}
+{to_small_caps('counter resets after streak claim')}
+
+<b>{to_small_caps('timer system')}</b>
+{to_small_caps('7 day cooldown between claims')}
+{to_small_caps('check')} /pass {to_small_caps('to see time remaining')}
+{to_small_caps('plan your claims carefully for maximum rewards')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'streak':
+            text = f"""<b>{to_small_caps('streak bonus system')}</b>
+
+<b>{to_small_caps('how streaks work')}</b>
+{to_small_caps('make 6 weekly claims consecutively')}
+{to_small_caps('claim within 6-8 days to maintain streak')}
+{to_small_caps('missing 8+ days breaks your streak')}
+
+<b>{to_small_caps('streak rewards')}</b>
+{to_small_caps('free')}: 5,000 {to_small_caps('gold + 1 mythic')}
+{to_small_caps('premium')}: 25,000 {to_small_caps('gold + 1 mythic')}
+{to_small_caps('elite')}: 100,000 {to_small_caps('gold + 1 mythic')}
+
+<b>{to_small_caps('claiming streak bonus')}</b>
+{to_small_caps('use')} /sweekly {to_small_caps('after 6 claims')}
+{to_small_caps('resets your claim counter to 0')}
+{to_small_caps('streak counter continues')}
+
+<b>{to_small_caps('pro tips')}</b>
+{to_small_caps('set reminders for claim days')}
+{to_small_caps('elite pass gives 20x more gold than free')}
+{to_small_caps('dont miss the 8 day window')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'tasks':
+            text = f"""<b>{to_small_caps('tasks and mythic unlock')}</b>
+
+<b>{to_small_caps('available tasks')}</b>
+
+<b>{to_small_caps('invites')}</b>
+{to_small_caps('requirement')}: 5 {to_small_caps('referrals')}
+{to_small_caps('reward')}: {to_small_caps('mythic character')}
+{to_small_caps('share your invite link and get rewarded')}
+
+<b>{to_small_caps('weekly claims')}</b>
+{to_small_caps('requirement')}: 4 {to_small_caps('claims')}
+{to_small_caps('reward')}: {to_small_caps('bonus reward')}
+{to_small_caps('automatically tracked with')} /pclaim
+
+<b>{to_small_caps('grabs')}</b>
+{to_small_caps('requirement')}: 50 {to_small_caps('character grabs')}
+{to_small_caps('reward')}: {to_small_caps('collector badge')}
+{to_small_caps('grab characters in the game')}
+
+<b>{to_small_caps('completing all tasks')}</b>
+{to_small_caps('finish all 3 tasks to unlock mythic tier')}
+{to_small_caps('receive exclusive mythic character')}
+{to_small_caps('check progress with')} /tasks
+
+<b>{to_small_caps('tracking progress')}</b>
+{to_small_caps('use')} /tasks {to_small_caps('to see current progress')}
+{to_small_caps('progress bars show completion percentage')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'invite':
+            text = f"""<b>{to_small_caps('invite reward program')}</b>
+
+<b>{to_small_caps('how it works')}</b>
+{to_small_caps('get your unique invite link with')} /invite
+{to_small_caps('share with friends and groups')}
+{to_small_caps('earn rewards when they join')}
+
+<b>{to_small_caps('rewards per invite')}</b>
+{to_small_caps('gold earned')}: 1,000 {to_small_caps('per referral')}
+{to_small_caps('task progress')}: +1 {to_small_caps('invite count')}
+{to_small_caps('unlimited invites allowed')}
+
+<b>{to_small_caps('invite benefits')}</b>
+{to_small_caps('passive gold income')}
+{to_small_caps('progress toward mythic unlock')}
+{to_small_caps('help grow the community')}
+
+<b>{to_small_caps('tracking invites')}</b>
+{to_small_caps('use')} /invite {to_small_caps('to see total referrals')}
+{to_small_caps('view total earnings from invites')}
+{to_small_caps('get your personal invite link')}
+
+<b>{to_small_caps('pro strategy')}</b>
+{to_small_caps('share in gaming communities')}
+{to_small_caps('5 invites = mythic character unlock')}
+{to_small_caps('each invite = free 1k gold')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'upgrade':
+            text = f"""<b>{to_small_caps('upgrading your pass')}</b>
+
+<b>{to_small_caps('premium pass upgrade')}</b>
+{to_small_caps('cost')}: 50,000 {to_small_caps('gold')}
+{to_small_caps('duration')}: 30 {to_small_caps('days')}
+{to_small_caps('how to buy')}: /upgrade {to_small_caps('then select premium')}
+
+<b>{to_small_caps('premium benefits')}</b>
+5x {to_small_caps('weekly rewards')}
+5x {to_small_caps('streak bonus')}
+1.5x {to_small_caps('grab multiplier')}
+3 {to_small_caps('mythics per claim')}
+
+<b>{to_small_caps('elite pass upgrade')}</b>
+{to_small_caps('cost')}: 50 INR
+{to_small_caps('duration')}: 30 {to_small_caps('days')}
+{to_small_caps('how to buy')}: /upgrade {to_small_caps('then select elite')}
+
+<b>{to_small_caps('elite benefits')}</b>
+15x {to_small_caps('weekly rewards')}
+20x {to_small_caps('streak bonus')}
+2.0x {to_small_caps('grab multiplier')}
+100,000,000 {to_small_caps('activation bonus')}
+5 {to_small_caps('mythics instantly')}
+
+<b>{to_small_caps('payment process')}</b>
+{to_small_caps('premium')}: {to_small_caps('instant activation with gold')}
+{to_small_caps('elite')}: {to_small_caps('upi payment then approval')}
+{to_small_caps('elite verified within 24 hours')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'commands':
+            text = f"""<b>{to_small_caps('available commands')}</b>
+
+<b>{to_small_caps('main commands')}</b>
+/pass {to_small_caps('view your pass dashboard')}
+/pclaim {to_small_caps('claim weekly rewards')}
+/sweekly {to_small_caps('claim streak bonus')}
+/tasks {to_small_caps('view task progress')}
+/invite {to_small_caps('get your invite link')}
+/upgrade {to_small_caps('upgrade your pass tier')}
+/passhelp {to_small_caps('view this help guide')}
+
+<b>{to_small_caps('admin commands')}</b>
+/addinvite {to_small_caps('add invite credits')}
+/addgrab {to_small_caps('add grab credits')}
+/approveelite {to_small_caps('approve elite payment')}
+
+<b>{to_small_caps('quick tips')}</b>
+{to_small_caps('use')} /pass {to_small_caps('to check everything')}
+{to_small_caps('claim rewards regularly')}
+{to_small_caps('complete tasks for mythic unlock')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'faq':
+            text = f"""<b>{to_small_caps('frequently asked questions')}</b>
+
+<b>Q: {to_small_caps('when can i claim rewards')}</b>
+A: {to_small_caps('every 7 days use')} /pclaim
+
+<b>Q: {to_small_caps('do i lose my streak if i upgrade')}</b>
+A: {to_small_caps('no all progress is saved')}
+
+<b>Q: {to_small_caps('what happens if pass expires')}</b>
+A: {to_small_caps('you return to free tier keep all rewards')}
+
+<b>Q: {to_small_caps('can i upgrade from premium to elite')}</b>
+A: {to_small_caps('yes anytime during active period')}
+
+<b>Q: {to_small_caps('how long for elite approval')}</b>
+A: {to_small_caps('within 24 hours after payment verification')}
+
+<b>Q: {to_small_caps('do tasks reset')}</b>
+A: {to_small_caps('no they accumulate permanently')}
+
+<b>Q: {to_small_caps('whats the best pass tier')}</b>
+A: {to_small_caps('elite gives best value with 100m gold bonus')}
+
+<b>Q: {to_small_caps('can i get refund')}</b>
+A: {to_small_caps('premium yes elite contact owner')}"""
+            
+            keyboard = [[InlineKeyboardButton(f"◀ {to_small_caps('back')}", callback_data="ph_main")]]
+            
+        elif action == 'main':
+            text = f"""<b>{to_small_caps('pass system guide')}</b>
+
+{to_small_caps('welcome to the ultimate reward system designed for active players unlock exclusive benefits gold and rare characters')}
+
+<b>{to_small_caps('available tiers')}</b>
+
+<b>{to_small_caps('free pass')}</b>
+{to_small_caps('weekly')}: 1,000
+{to_small_caps('streak')}: 5,000
+{to_small_caps('multiplier')}: 1.0x
+
+<b>{to_small_caps('premium pass')}</b>
+{to_small_caps('weekly')}: 5,000
+{to_small_caps('streak')}: 25,000
+{to_small_caps('multiplier')}: 1.5x
+{to_small_caps('mythics')}: 3 {to_small_caps('per claim')}
+{to_small_caps('cost')}: 50,000 {to_small_caps('gold')}
+
+<b>{to_small_caps('elite pass')}</b>
+{to_small_caps('weekly')}: 15,000
+{to_small_caps('streak')}: 100,000
+{to_small_caps('multiplier')}: 2.0x
+{to_small_caps('activation')}: 100,000,000
+{to_small_caps('mythics')}: 5 {to_small_caps('instant')}
+{to_small_caps('cost')}: 50 INR
+
+{to_small_caps('tap the buttons below to learn more')}"""
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(f"⚡ {to_small_caps('how to claim')}", callback_data="ph_claim"),
+                    InlineKeyboardButton(f"🔥 {to_small_caps('streak info')}", callback_data="ph_streak")
+                ],
+                [
+                    InlineKeyboardButton(f"🎯 {to_small_caps('tasks guide')}", callback_data="ph_tasks"),
+                    InlineKeyboardButton(f"🎁 {to_small_caps('invite rewards')}", callback_data="ph_invite")
+                ],
+                [
+                    InlineKeyboardButton(f"💰 {to_small_caps('upgrade guide')}", callback_data="ph_upgrade"),
+                    InlineKeyboardButton(f"📊 {to_small_caps('commands list')}", callback_data="ph_commands")
+                ],
+                [
+                    InlineKeyboardButton(f"❓ {to_small_caps('faq')}", callback_data="ph_faq")
+                ]
+            ]
+        
+        await query.edit_message_caption(
+            caption=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+        
+    except Exception as e:
+        LOGGER.error(f"Passhelp callback error: {e}")
+        try:
+            await query.answer(to_small_caps('error'), show_alert=True)
+        except:
+            pass
+
+# Add these handlers at the end of your file
+application.add_handler(CommandHandler("passhelp", passhelp_command, block=False))
+application.add_handler(CallbackQueryHandler(passhelp_callback, pattern=r"^ph_", block=False))
 application.add_handler(CommandHandler("pass", pass_command, block=False))
 application.add_handler(CommandHandler("pclaim", pclaim_command, block=False))
 application.add_handler(CommandHandler("sweekly", sweekly_command, block=False))
