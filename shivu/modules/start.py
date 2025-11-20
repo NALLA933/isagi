@@ -412,9 +412,7 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML',
                 link_preview_options=LinkPreviewOptions(
-                    url=video_url,
-                    show_above_text=True,
-                    prefer_large_media=True
+                    is_disabled=True
                 )
             )
 
