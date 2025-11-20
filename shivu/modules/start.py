@@ -304,7 +304,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode='HTML',
                 link_preview_options=LinkPreviewOptions(
-                    is_disabled=False,
+                    url=video_url,
                     show_above_text=True,
                     prefer_large_media=True
                 )
@@ -341,9 +341,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
             count = user_data.get('referred_users', 0)
             earned = count * REFERRER_REWARD
 
-            text = f"""{video_url}
-
-<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
+            text = f"""<b>🎁 ɪɴᴠɪᴛᴇ ᴀɴᴅ ᴇᴀʀɴ</b>
 
 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
 ᴇᴀʀɴᴇᴅ: <b>{earned:,}</b> ɢᴏʟᴅ
@@ -382,9 +380,7 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
 
             refs = user_data.get('referred_users', 0)
 
-            caption = f"""{video_url}
-
-<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+            caption = f"""<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
 
 ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
 ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
@@ -412,7 +408,9 @@ sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML',
                 link_preview_options=LinkPreviewOptions(
-                    is_disabled=True
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
                 )
             )
 
