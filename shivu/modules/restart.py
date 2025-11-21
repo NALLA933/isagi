@@ -1,27 +1,28 @@
 import asyncio
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 from dataclasses import dataclass, field
 from enum import Enum
 
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update, InputMediaAnimation, InputMediaVideo
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.error import BadRequest, TimedOut, NetworkError
 from shivu import application, user_collection
 
 class AttackType(Enum):
     FIRE = ("fire", 30, 35, "https://files.catbox.moe/y3zz0k.mp4", "🔥")
     ICE = ("ice", 25, 28, "https://files.catbox.moe/tm5iwt.mp4", "❄️")
-    LIGHTNING = ("lightning", 35, 40, "https://i.imgur.com/XoK5gHD.gif", "⚡")
-    WATER = ("water", 20, 25, "https://i.imgur.com/wKk7LnD.gif", "💧")
-    EARTH = ("earth", 22, 30, "https://i.imgur.com/R9t8KJm.gif", "🌍")
-    WIND = ("wind", 28, 32, "https://i.imgur.com/yD9Xm3K.gif", "💨")
-    DARK = ("dark", 40, 45, "https://i.imgur.com/7J8FKpL.gif", "🌑")
-    LIGHT = ("light", 38, 42, "https://i.imgur.com/mN9pQwX.gif", "✨")
-    NORMAL = ("normal", 15, 20, "https://i.imgur.com/KqZ8Rv2.gif", "👊")
+    LIGHTNING = ("lightning", 35, 40, "https://files.catbox.moe/8qdw3g.mp4", "⚡")
+    WATER = ("water", 20, 25, "https://files.catbox.moe/6y2mxf.mp4", "💧")
+    EARTH = ("earth", 22, 30, "https://files.catbox.moe/htgbeh.mp4", "🌍")
+    WIND = ("wind", 28, 32, "https://files.catbox.moe/1yxz13.mp4", "💨")
+    DARK = ("dark", 40, 45, "https://files.catbox.moe/gjhnew.mp4", "🌑")
+    LIGHT = ("light", 38, 42, "https://files.catbox.moe/u9bfjl.mp4", "✨")
+    NORMAL = ("normal", 15, 20, None, "👊")
     
-    def __init__(self, name: str, mana_cost: int, base_damage: int, animation_url: str, emoji: str):
+    def __init__(self, name: str, mana_cost: int, base_damage: int, animation_url: Optional[str], emoji: str):
         self.attack_name = name
         self.mana_cost = mana_cost
         self.base_damage = base_damage
@@ -29,13 +30,9 @@ class AttackType(Enum):
         self.emoji = emoji
 
 BATTLE_ANIMATIONS = {
-    "defend": "https://i.imgur.com/xJ9KmPz.gif",
-    "heal": "https://i.imgur.com/vR7TnQw.gif",
-    "mana": "https://i.imgur.com/bS5HkLp.gif",
-    "critical": "https://i.imgur.com/pT4JmNx.gif",
-    "victory": "https://i.imgur.com/wQ9XmKp.gif",
-    "defeat": "https://i.imgur.com/dL8RnYs.gif",
-    "levelup": "https://i.imgur.com/hK3PmVw.gif"
+    "defend": "https://files.catbox.moe/5drz0h.mp4",
+    "heal": "https://files.catbox.moe/ptc7sp.mp4",
+    "critical": "https://files.catbox.moe/e19bx6.mp4",
 }
 
 SMALLCAPS_MAP = {
@@ -48,6 +45,9 @@ SMALLCAPS_MAP = {
     'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x',
     'Y': 'ʏ', 'Z': 'ᴢ'
 }
+
+BATTLE_TIMEOUT = 60
+MAX_BATTLE_DURATION = 600
 
 def to_smallcaps(text: str) -> str:
     return ''.join(SMALLCAPS_MAP.get(c, c) for c in text)
@@ -95,26 +95,36 @@ class Battle:
         self.current_turn = 1
         self.turn_count = 0
         self.started_at = datetime.utcnow()
+        self.last_action_time = datetime.utcnow()
         self.battle_log: List[str] = []
         self.p1_defending = False
         self.p2_defending = False
         self.p1_stats = BattleStats()
         self.p2_stats = BattleStats()
         self.last_action = None
-        self.last_animation = None
         self.combo_count = 0
+        self.is_expired = False
         
     def add_log(self, message: str):
         self.battle_log.append(message)
-        if len(self.battle_log) > 6:
+        if len(self.battle_log) > 5:
             self.battle_log.pop(0)
     
+    def update_action_time(self):
+        self.last_action_time = datetime.utcnow()
+    
+    def is_inactive(self) -> bool:
+        elapsed = (datetime.utcnow() - self.last_action_time).total_seconds()
+        return elapsed > BATTLE_TIMEOUT
+    
     def is_over(self) -> Tuple[bool, Optional[int]]:
+        if self.is_expired:
+            return True, None
         if self.player1.hp <= 0:
             return True, 2
         if self.player2.hp <= 0:
             return True, 1
-        if (datetime.utcnow() - self.started_at).seconds > 600:
+        if (datetime.utcnow() - self.started_at).seconds > MAX_BATTLE_DURATION:
             return True, 1 if self.player1.hp > self.player2.hp else 2
         return False, None
     
@@ -128,6 +138,7 @@ class BattleManager:
     def __init__(self):
         self.active_battles: Dict[str, Battle] = {}
         self.pending_challenges: Dict[int, Dict] = {}
+        self.cleanup_task = None
         
     def create_battle_id(self, user1_id: int, user2_id: int) -> str:
         return f"{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
@@ -136,6 +147,10 @@ class BattleManager:
         battle_id = self.create_battle_id(player1.user_id, player2.user_id)
         battle = Battle(player1, player2, is_pvp)
         self.active_battles[battle_id] = battle
+        
+        if not self.cleanup_task or self.cleanup_task.done():
+            self.cleanup_task = asyncio.create_task(self.cleanup_inactive_battles())
+        
         return battle
     
     def get_battle(self, user1_id: int, user2_id: int = None) -> Optional[Battle]:
@@ -168,11 +183,31 @@ class BattleManager:
     
     def remove_challenge(self, target_id: int):
         self.pending_challenges.pop(target_id, None)
+    
+    async def cleanup_inactive_battles(self):
+        while True:
+            try:
+                await asyncio.sleep(30)
+                
+                expired_battles = []
+                for battle_id, battle in self.active_battles.items():
+                    if battle.is_inactive():
+                        battle.is_expired = True
+                        expired_battles.append(battle_id)
+                
+                for battle_id in expired_battles:
+                    self.active_battles.pop(battle_id, None)
+                
+            except Exception:
+                pass
 
 battle_manager = BattleManager()
 
 async def get_user(user_id: int):
-    return await user_collection.find_one({'id': user_id})
+    try:
+        return await user_collection.find_one({'id': user_id})
+    except Exception:
+        return None
 
 def create_bar(current: int, maximum: int, length: int = 10) -> str:
     percentage = max(0, min(1, current / maximum))
@@ -193,7 +228,10 @@ async def load_player_stats(user_id: int, username: str) -> PlayerStats:
             'rpg_unlocked': ["normal", "fire", "ice"],
             'achievements': []
         }
-        await user_collection.insert_one(user_doc)
+        try:
+            await user_collection.insert_one(user_doc)
+        except Exception:
+            pass
     
     xp = user_doc.get('user_xp', 0)
     level = calculate_level_from_xp(xp)
@@ -219,16 +257,19 @@ async def load_player_stats(user_id: int, username: str) -> PlayerStats:
     )
 
 async def save_player_progress(user_id: int, xp_gained: int, coins_gained: int):
-    await user_collection.update_one(
-        {'id': user_id},
-        {
-            '$inc': {
-                'user_xp': xp_gained,
-                'balance': coins_gained
-            }
-        },
-        upsert=True
-    )
+    try:
+        await user_collection.update_one(
+            {'id': user_id},
+            {
+                '$inc': {
+                    'user_xp': xp_gained,
+                    'balance': coins_gained
+                }
+            },
+            upsert=True
+        )
+    except Exception:
+        pass
 
 def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboardMarkup:
     over, winner = battle.is_over()
@@ -236,7 +277,7 @@ def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboa
     if over:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton(
-                to_smallcaps("new battle"), 
+                to_smallcaps("🆕 new battle"), 
                 callback_data=f"rpg:menu:{current_user_id}"
             )]
         ])
@@ -277,7 +318,7 @@ def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboa
     
     for i, (attack, name) in enumerate(available):
         emoji = attack.emoji
-        btn_text = f"{emoji} {name} ({attack.mana_cost}m)"
+        btn_text = f"{emoji} {name.upper()}"
         callback = f"rpg:atk:{name}:{current_user_id}"
         
         if current_player.mana < attack.mana_cost:
@@ -305,7 +346,7 @@ def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboa
             callback_data=f"rpg:defend:{current_user_id}"
         ),
         InlineKeyboardButton(
-            "💚 " + to_smallcaps(f"heal (20m)"), 
+            "💚 " + to_smallcaps("heal"), 
             callback_data=f"rpg:heal:{current_user_id}"
         )
     ]
@@ -313,7 +354,7 @@ def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboa
     
     utility_row = [
         InlineKeyboardButton(
-            "💙 " + to_smallcaps("mana potion"), 
+            "💙 " + to_smallcaps("mana"), 
             callback_data=f"rpg:mana:{current_user_id}"
         ),
         InlineKeyboardButton(
@@ -334,20 +375,18 @@ def format_battle_panel(battle: Battle) -> str:
     p2_hp_bar = create_bar(p2.hp, p2.max_hp, 12)
     p2_mana_bar = create_bar(p2.mana, p2.max_mana, 12)
     
-    turn_indicator_1 = "▶" if battle.current_turn == 1 else "  "
-    turn_indicator_2 = "▶" if battle.current_turn == 2 else "  "
+    turn_indicator_1 = "▶" if battle.current_turn == 1 else " "
+    turn_indicator_2 = "▶" if battle.current_turn == 2 else " "
     
     defend_status_1 = " 🛡" if battle.p1_defending else ""
     defend_status_2 = " 🛡" if battle.p2_defending else ""
     
     combo_text = ""
     if battle.combo_count > 1:
-        combo_text = f"\n{to_smallcaps(f'combo: x{battle.combo_count}!')}"
+        combo_text = f"\n\n{to_smallcaps(f'🔥 combo: x{battle.combo_count}!')}"
     
     panel = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('⚔️ battle arena ⚔️')}</b>
-<b>{'═' * 30}</b>
+<b>⚔️ {to_smallcaps('battle arena')} ⚔️</b>
 
 {turn_indicator_1} <b>{to_smallcaps('player 1')}</b> | {to_smallcaps(f'lvl {p1.level}')} | <b>{to_smallcaps(f'rank {p1.rank}')}</b>{defend_status_1}
 <b>{to_smallcaps(p1.username[:15])}</b>
@@ -355,7 +394,7 @@ def format_battle_panel(battle: Battle) -> str:
 {to_smallcaps('mp')}: {p1_mana_bar} <code>{p1.mana}/{p1.max_mana}</code>
 {to_smallcaps(f'⚔️ {p1.attack} | 🛡 {p1.defense} | ⚡ {p1.speed}')}
 
-<b>{'━' * 30}</b>
+<b>━━━━━━━━━━━━━━━━</b>
 
 {turn_indicator_2} <b>{to_smallcaps('player 2')}</b> | {to_smallcaps(f'lvl {p2.level}')} | <b>{to_smallcaps(f'rank {p2.rank}')}</b>{defend_status_2}
 <b>{to_smallcaps((p2.username if battle.is_pvp else 'ai warrior')[:15])}</b>
@@ -363,16 +402,14 @@ def format_battle_panel(battle: Battle) -> str:
 {to_smallcaps('mp')}: {p2_mana_bar} <code>{p2.mana}/{p2.max_mana}</code>
 {to_smallcaps(f'⚔️ {p2.attack} | 🛡 {p2.defense} | ⚡ {p2.speed}')}
 
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('📜 battle log')}</b>
-<b>{'═' * 30}</b>
+<b>📜 {to_smallcaps('battle log')}</b>
 """
     
     if battle.battle_log:
         for log in battle.battle_log[-4:]:
             panel += f"\n{to_smallcaps('›')} {log}"
     else:
-        panel += f"\n{to_smallcaps('› battle started! choose your action')}"
+        panel += f"\n{to_smallcaps('› battle started!')}"
     
     panel += combo_text
     panel += f"\n\n{to_smallcaps(f'turn: {battle.turn_count}')}"
@@ -380,20 +417,20 @@ def format_battle_panel(battle: Battle) -> str:
     return panel
 
 async def send_animation(message, animation_url: str, caption: str):
+    if not animation_url:
+        return
+    
     try:
-        if animation_url.endswith('.mp4'):
-            await message.reply_video(
-                video=animation_url,
-                caption=caption,
-                parse_mode="HTML"
-            )
-        else:
-            await message.reply_animation(
-                animation=animation_url,
-                caption=caption,
-                parse_mode="HTML"
-            )
-        await asyncio.sleep(1.5)
+        await message.reply_video(
+            video=animation_url,
+            caption=caption,
+            parse_mode="HTML",
+            read_timeout=30,
+            write_timeout=30
+        )
+        await asyncio.sleep(2)
+    except (BadRequest, TimedOut, NetworkError):
+        pass
     except Exception:
         pass
 
@@ -443,16 +480,17 @@ async def perform_attack(
     attacker_stats.total_damage_dealt += final_damage
     defender_stats.total_damage_taken += final_damage
     
-    attack_caption = f"<b>{attack_type.emoji} {to_smallcaps(attacker.username)} {to_smallcaps('used')} {to_smallcaps(attack_type.attack_name)} {to_smallcaps('attack!')}</b>"
+    attack_caption = f"<b>{attack_type.emoji} {to_smallcaps(attacker.username)} {to_smallcaps('used')} {to_smallcaps(attack_type.attack_name)}!</b>"
     
     await send_animation(message, attack_type.animation_url, attack_caption)
     
-    crit_text = to_smallcaps(" [critical hit!]") if is_crit else ""
-    damage_text = to_smallcaps(f"dealt {final_damage} damage{crit_text}")
+    crit_text = to_smallcaps(" [critical!]") if is_crit else ""
+    damage_text = to_smallcaps(f"dealt {final_damage} dmg{crit_text}")
     
-    message_text = f"{attack_type.emoji} {to_smallcaps(attacker.username)} → {to_smallcaps(attack_type.attack_name)} | {damage_text}"
+    message_text = f"{attack_type.emoji} {to_smallcaps(attacker.username)} | {damage_text}"
     
     battle.add_log(message_text)
+    battle.update_action_time()
     
     return message_text, final_damage
 
@@ -470,23 +508,18 @@ async def bot_ai_turn(battle: Battle, message):
         await send_animation(
             message,
             BATTLE_ANIMATIONS["heal"],
-            f"<b>💚 {to_smallcaps('ai used healing potion!')}</b>"
+            f"<b>💚 {to_smallcaps('ai healed!')}</b>"
         )
         
         battle.add_log(to_smallcaps(f"ai restored {heal_amount} hp"))
+        battle.update_action_time()
         return
     
     if bot.mana < 30:
         restore = min(50, bot.max_mana - bot.mana)
         bot.mana += restore
-        
-        await send_animation(
-            message,
-            BATTLE_ANIMATIONS["mana"],
-            f"<b>💙 {to_smallcaps('ai used mana potion!')}</b>"
-        )
-        
-        battle.add_log(to_smallcaps(f"ai restored {restore} mana"))
+        battle.add_log(to_smallcaps(f"ai restored {restore} mp"))
+        battle.update_action_time()
         return
     
     if random.random() < 0.18:
@@ -496,10 +529,11 @@ async def bot_ai_turn(battle: Battle, message):
         await send_animation(
             message,
             BATTLE_ANIMATIONS["defend"],
-            f"<b>🛡 {to_smallcaps('ai is defending!')}</b>"
+            f"<b>🛡 {to_smallcaps('ai defending!')}</b>"
         )
         
         battle.add_log(to_smallcaps("ai is defending!"))
+        battle.update_action_time()
         return
     
     available_attacks = [
@@ -524,9 +558,9 @@ async def rpg_start(update: Update, context: CallbackContext):
     message = update.message
     
     existing_battle = battle_manager.get_battle(user.id)
-    if existing_battle:
+    if existing_battle and not existing_battle.is_expired:
         await message.reply_text(
-            to_smallcaps("⚠️ you're already in a battle! finish it first or use /rpgforfeit"),
+            to_smallcaps("⚠️ you're in a battle! use /rpgforfeit to quit"),
             parse_mode="HTML"
         )
         return
@@ -536,7 +570,7 @@ async def rpg_start(update: Update, context: CallbackContext):
         
         if target_user.is_bot:
             await message.reply_text(
-                to_smallcaps("❌ you can't challenge a bot to pvp!"),
+                to_smallcaps("❌ can't challenge bots!"),
                 parse_mode="HTML"
             )
             return
@@ -544,7 +578,7 @@ async def rpg_start(update: Update, context: CallbackContext):
         existing_challenge = battle_manager.get_challenge(target_user.id)
         if existing_challenge:
             await message.reply_text(
-                to_smallcaps("⚠️ this player already has a pending challenge!"),
+                to_smallcaps("⚠️ player has pending challenge!"),
                 parse_mode="HTML"
             )
             return
@@ -565,7 +599,7 @@ async def rpg_start(update: Update, context: CallbackContext):
         ])
         
         await message.reply_text(
-            f"<b>⚔️ {to_smallcaps('battle challenge')} ⚔️</b>\n\n<b>{target_user.first_name}</b>, {user.first_name} {to_smallcaps('challenges you to a battle!')}\n\n{to_smallcaps('accept or decline within 60 seconds.')}",
+            f"<b>⚔️ {to_smallcaps('battle challenge')} ⚔️</b>\n\n<b>{target_user.first_name}</b>, {user.first_name} {to_smallcaps('challenges you!')}\n\n{to_smallcaps('60 seconds to respond')}",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -599,11 +633,18 @@ async def rpg_start(update: Update, context: CallbackContext):
     panel = format_battle_panel(battle)
     keyboard = create_battle_keyboard(battle, user.id)
     
-    await message.reply_text(
-        panel,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await message.reply_text(
+            panel,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        battle_manager.end_battle(player1.user_id, player2.user_id)
+        await message.reply_text(
+            to_smallcaps("❌ failed to start battle!"),
+            parse_mode="HTML"
+        )
 
 async def rpg_callback(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -632,11 +673,14 @@ async def rpg_callback(update: Update, context: CallbackContext):
             )]
         ])
         
-        await query.message.edit_text(
-            f"<b>⚔️ {to_smallcaps('rpg battle system')} ⚔️</b>\n\n{to_smallcaps('choose an option:')}",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                f"<b>⚔️ {to_smallcaps('rpg battle system')} ⚔️</b>\n\n{to_smallcaps('choose an option:')}",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
         return
     
     if action == "start_pve":
@@ -655,15 +699,18 @@ async def rpg_callback(update: Update, context: CallbackContext):
         target_id = int(data[3])
         
         if update.effective_user.id != target_id:
-            await query.answer(to_smallcaps("❌ this challenge isn't for you!"), show_alert=True)
+            await query.answer(to_smallcaps("❌ not for you!"), show_alert=True)
             return
         
         challenge = battle_manager.get_challenge(target_id)
         if not challenge:
-            await query.message.edit_text(
-                to_smallcaps("⚠️ challenge expired!"),
-                parse_mode="HTML"
-            )
+            try:
+                await query.message.edit_text(
+                    to_smallcaps("⚠️ challenge expired!"),
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
             return
         
         battle_manager.remove_challenge(target_id)
@@ -676,11 +723,14 @@ async def rpg_callback(update: Update, context: CallbackContext):
         panel = format_battle_panel(battle)
         keyboard = create_battle_keyboard(battle, challenger_id)
         
-        await query.message.edit_text(
-            panel,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                panel,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            battle_manager.end_battle(player1.user_id, player2.user_id)
         return
     
     if action == "decline":
@@ -688,15 +738,18 @@ async def rpg_callback(update: Update, context: CallbackContext):
         target_id = int(data[3])
         
         if update.effective_user.id != target_id:
-            await query.answer(to_smallcaps("❌ this challenge isn't for you!"), show_alert=True)
+            await query.answer(to_smallcaps("❌ not for you!"), show_alert=True)
             return
         
         battle_manager.remove_challenge(target_id)
         
-        await query.message.edit_text(
-            to_smallcaps("❌ challenge declined!"),
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                to_smallcaps("❌ challenge declined!"),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
         return
     
     if action == "stats":
@@ -708,18 +761,16 @@ async def rpg_callback(update: Update, context: CallbackContext):
         player = await load_player_stats(user_id, update.effective_user.first_name)
         user_doc = await user_collection.find_one({'id': user_id})
         
-        balance = user_doc.get('balance', 0)
-        tokens = user_doc.get('tokens', 0)
-        achievements = user_doc.get('achievements', [])
+        balance = user_doc.get('balance', 0) if user_doc else 0
+        tokens = user_doc.get('tokens', 0) if user_doc else 0
+        achievements = user_doc.get('achievements', []) if user_doc else []
         
         current_xp = player.xp
         xp_needed = calculate_xp_needed(player.level)
         xp_progress = xp_needed - current_xp
         
         stats_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('📊 player stats 📊')}</b>
-<b>{'═' * 30}</b>
+<b>📊 {to_smallcaps('player stats')} 📊</b>
 
 <b>{to_smallcaps(player.username)}</b>
 {to_smallcaps(f'level: {player.level}')}
@@ -727,19 +778,19 @@ async def rpg_callback(update: Update, context: CallbackContext):
 {to_smallcaps(f'xp: {current_xp}')}
 {to_smallcaps(f'needed: {xp_progress}')}
 
-<b>{to_smallcaps('combat stats:')}</b>
+<b>{to_smallcaps('combat stats')}</b>
 {to_smallcaps(f'❤️ hp: {player.max_hp}')}
 {to_smallcaps(f'💙 mana: {player.max_mana}')}
 {to_smallcaps(f'⚔️ attack: {player.attack}')}
 {to_smallcaps(f'🛡️ defense: {player.defense}')}
 {to_smallcaps(f'⚡ speed: {player.speed}')}
 
-<b>{to_smallcaps('inventory:')}</b>
-{to_smallcaps(f'💰 balance: {balance} coins')}
+<b>{to_smallcaps('inventory')}</b>
+{to_smallcaps(f'💰 coins: {balance}')}
 {to_smallcaps(f'🎫 tokens: {tokens}')}
 {to_smallcaps(f'🏆 achievements: {len(achievements)}')}
 
-<b>{to_smallcaps('unlocked attacks:')}</b>
+<b>{to_smallcaps('unlocked attacks')}</b>
 {to_smallcaps(', '.join(player.unlocked_attacks))}
 """
         
@@ -750,22 +801,26 @@ async def rpg_callback(update: Update, context: CallbackContext):
             )]
         ])
         
-        await query.message.edit_text(
-            stats_text,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                stats_text,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
         return
     
     if action == "leaderboard":
         user_id = int(data[2])
         
-        top_users = await user_collection.find().sort('user_xp', -1).limit(10).to_list(length=10)
+        try:
+            top_users = await user_collection.find().sort('user_xp', -1).limit(10).to_list(length=10)
+        except Exception:
+            top_users = []
         
         leaderboard_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('🏆 leaderboard 🏆')}</b>
-<b>{'═' * 30}</b>
+<b>🏆 {to_smallcaps('leaderboard')} 🏆</b>
 
 """
         
@@ -785,7 +840,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             else:
                 medal = f"{idx}."
             
-            leaderboard_text += f"{medal} <b>{username[:15]}</b> | {to_smallcaps(f'lvl {level}')} | {to_smallcaps(f'rank {rank}')} | {to_smallcaps(f'xp: {xp}')}\n"
+            leaderboard_text += f"{medal} <b>{username[:15]}</b> | {to_smallcaps(f'lvl {level} | rank {rank} | xp {xp}')}\n"
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(
@@ -794,11 +849,14 @@ async def rpg_callback(update: Update, context: CallbackContext):
             )]
         ])
         
-        await query.message.edit_text(
-            leaderboard_text,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                leaderboard_text,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
         return
     
     user_id = int(data[-1])
@@ -810,10 +868,24 @@ async def rpg_callback(update: Update, context: CallbackContext):
     battle = battle_manager.get_battle(user_id)
     
     if not battle:
-        await query.message.edit_text(
-            to_smallcaps("❌ battle not found! start a new one with /rpg"),
-            parse_mode="HTML"
-        )
+        try:
+            await query.message.edit_text(
+                to_smallcaps("❌ battle not found! use /rpg to start"),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+    
+    if battle.is_inactive():
+        battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
+        try:
+            await query.message.edit_text(
+                to_smallcaps("⏰ battle cancelled due to inactivity!"),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
         return
     
     is_player1 = user_id == battle.player1.user_id
@@ -829,15 +901,15 @@ async def rpg_callback(update: Update, context: CallbackContext):
     
     over, winner = battle.is_over()
     if over:
-        await query.answer(to_smallcaps("⚠️ battle is already over!"), show_alert=True)
+        await query.answer(to_smallcaps("⚠️ battle over!"), show_alert=True)
         return
     
     action_message = ""
     
-    if action == "atk":
-        attack_name = data[2]
-        
-        try:
+    try:
+        if action == "atk":
+            attack_name = data[2]
+            
             attack_type = None
             for atk in AttackType:
                 if atk.attack_name == attack_name:
@@ -849,7 +921,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
                 return
             
             if attack_name not in current_player.unlocked_attacks:
-                await query.answer(to_smallcaps("🔒 attack not unlocked!"), show_alert=True)
+                await query.answer(to_smallcaps("🔒 not unlocked!"), show_alert=True)
                 return
             
             action_message, damage = await perform_attack(
@@ -859,106 +931,119 @@ async def rpg_callback(update: Update, context: CallbackContext):
             if damage == 0:
                 await query.answer(action_message, show_alert=True)
                 return
+        
+        elif action == "defend":
+            if is_player1:
+                battle.p1_defending = True
+                battle.p1_stats.defends_used += 1
+            else:
+                battle.p2_defending = True
+                battle.p2_stats.defends_used += 1
             
-        except Exception as e:
-            await query.answer(to_smallcaps(f"❌ error: {str(e)}"), show_alert=True)
+            await send_animation(
+                query.message,
+                BATTLE_ANIMATIONS["defend"],
+                f"<b>🛡 {to_smallcaps(f'{current_player.username} defending!')}</b>"
+            )
+            
+            action_message = to_smallcaps(f"{current_player.username} defending!")
+            battle.add_log(action_message)
+            battle.update_action_time()
+        
+        elif action == "heal":
+            if current_player.mana < 20:
+                await query.answer(to_smallcaps("❌ not enough mana!"), show_alert=True)
+                return
+            
+            heal_amount = min(40, current_player.max_hp - current_player.hp)
+            current_player.hp += heal_amount
+            current_player.mana -= 20
+            
+            stats = battle.p1_stats if is_player1 else battle.p2_stats
+            stats.potions_used += 1
+            
+            await send_animation(
+                query.message,
+                BATTLE_ANIMATIONS["heal"],
+                f"<b>💚 {to_smallcaps(f'{current_player.username} healed!')}</b>"
+            )
+            
+            action_message = to_smallcaps(f"{current_player.username} +{heal_amount} hp")
+            battle.add_log(action_message)
+            battle.update_action_time()
+        
+        elif action == "mana":
+            restore_amount = min(50, current_player.max_mana - current_player.mana)
+            current_player.mana += restore_amount
+            
+            stats = battle.p1_stats if is_player1 else battle.p2_stats
+            stats.potions_used += 1
+            
+            action_message = to_smallcaps(f"{current_player.username} +{restore_amount} mp")
+            battle.add_log(action_message)
+            battle.update_action_time()
+        
+        elif action == "forfeit":
+            battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
+            
+            try:
+                await query.message.edit_text(
+                    f"<b>🏳 {to_smallcaps('forfeited')} 🏳</b>\n\n{to_smallcaps(f'{current_player.username} gave up!')}",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
             return
-    
-    elif action == "defend":
-        if is_player1:
-            battle.p1_defending = True
-            battle.p1_stats.defends_used += 1
-        else:
-            battle.p2_defending = True
-            battle.p2_stats.defends_used += 1
         
-        await send_animation(
-            query.message,
-            BATTLE_ANIMATIONS["defend"],
-            f"<b>🛡 {to_smallcaps(f'{current_player.username} is defending!')}</b>"
-        )
-        
-        action_message = to_smallcaps(f"{current_player.username} is defending!")
-        battle.add_log(action_message)
-    
-    elif action == "heal":
-        if current_player.mana < 20:
-            await query.answer(to_smallcaps("❌ not enough mana!"), show_alert=True)
-            return
-        
-        heal_amount = min(40, current_player.max_hp - current_player.hp)
-        current_player.hp += heal_amount
-        current_player.mana -= 20
-        
-        stats = battle.p1_stats if is_player1 else battle.p2_stats
-        stats.potions_used += 1
-        
-        await send_animation(
-            query.message,
-            BATTLE_ANIMATIONS["heal"],
-            f"<b>💚 {to_smallcaps(f'{current_player.username} used healing potion!')}</b>"
-        )
-        
-        action_message = to_smallcaps(f"{current_player.username} restored {heal_amount} hp")
-        battle.add_log(action_message)
-    
-    elif action == "mana":
-        restore_amount = min(50, current_player.max_mana - current_player.mana)
-        current_player.mana += restore_amount
-        
-        stats = battle.p1_stats if is_player1 else battle.p2_stats
-        stats.potions_used += 1
-        
-        await send_animation(
-            query.message,
-            BATTLE_ANIMATIONS["mana"],
-            f"<b>💙 {to_smallcaps(f'{current_player.username} used mana potion!')}</b>"
-        )
-        
-        action_message = to_smallcaps(f"{current_player.username} restored {restore_amount} mana")
-        battle.add_log(action_message)
-    
-    elif action == "forfeit":
-        battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
-        
-        await query.message.edit_text(
-            f"<b>🏳 {to_smallcaps('battle forfeited!')} 🏳</b>\n\n{to_smallcaps(f'{current_player.username} gave up!')}",
-            parse_mode="HTML"
-        )
-        return
-    
-    battle.switch_turn()
-    
-    over, winner = battle.is_over()
-    
-    if over:
-        await handle_battle_end(query.message, battle, winner)
-        return
-    
-    if not battle.is_pvp and battle.current_turn == 2:
-        await bot_ai_turn(battle, query.message)
         battle.switch_turn()
         
         over, winner = battle.is_over()
+        
         if over:
             await handle_battle_end(query.message, battle, winner)
             return
+        
+        if not battle.is_pvp and battle.current_turn == 2:
+            await bot_ai_turn(battle, query.message)
+            battle.switch_turn()
+            
+            over, winner = battle.is_over()
+            if over:
+                await handle_battle_end(query.message, battle, winner)
+                return
+        
+        panel = format_battle_panel(battle)
+        
+        next_player_id = battle.player1.user_id if battle.current_turn == 1 else battle.player2.user_id
+        keyboard = create_battle_keyboard(battle, next_player_id)
+        
+        try:
+            await query.message.edit_text(
+                panel,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except BadRequest:
+            pass
+        except Exception:
+            battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
     
-    panel = format_battle_panel(battle)
-    
-    next_player_id = battle.player1.user_id if battle.current_turn == 1 else battle.player2.user_id
-    keyboard = create_battle_keyboard(battle, next_player_id)
-    
-    try:
-        await query.message.edit_text(
-            panel,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
     except Exception:
-        pass
+        await query.answer(to_smallcaps("❌ error occurred!"), show_alert=True)
+        battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
 
-async def handle_battle_end(message, battle: Battle, winner: int):
+async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
+    if not winner:
+        battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
+        try:
+            await message.edit_text(
+                to_smallcaps("⏰ battle cancelled!"),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+    
     battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
     
     winner_player = battle.player1 if winner == 1 else battle.player2
@@ -979,7 +1064,6 @@ async def handle_battle_end(message, battle: Battle, winner: int):
     loser_coins = base_coins // 2 if battle.is_pvp else 0
     
     winner_old_level = winner_player.level
-    winner_old_xp = winner_player.xp
     
     await save_player_progress(winner_player.user_id, winner_xp, winner_coins)
     
@@ -987,15 +1071,13 @@ async def handle_battle_end(message, battle: Battle, winner: int):
         await save_player_progress(loser_player.user_id, loser_xp, loser_coins)
     
     winner_new_data = await user_collection.find_one({'id': winner_player.user_id})
-    winner_new_xp = winner_new_data.get('user_xp', 0)
+    winner_new_xp = winner_new_data.get('user_xp', 0) if winner_new_data else 0
     winner_new_level = calculate_level_from_xp(winner_new_xp)
     winner_new_rank = calculate_rank(winner_new_level)
     
     level_up_msg = ""
-    level_up_animation = False
     
     if winner_new_level > winner_old_level:
-        level_up_animation = True
         level_up_msg = f"\n\n<b>🎉 {to_smallcaps('level up!')} 🎉</b>\n{to_smallcaps(f'{winner_old_level} → {winner_new_level}')}"
         
         if winner_new_rank != winner_player.rank:
@@ -1016,60 +1098,44 @@ async def handle_battle_end(message, battle: Battle, winner: int):
             new_attacks.append("light")
         
         if new_attacks:
-            await user_collection.update_one(
-                {'id': winner_player.user_id},
-                {'$addToSet': {'rpg_unlocked': {'$each': new_attacks}}}
-            )
-            level_up_msg += f"\n<b>🔓 {to_smallcaps('unlocked:')} {to_smallcaps(', '.join(new_attacks))}</b>"
-    
-    await send_animation(
-        message,
-        BATTLE_ANIMATIONS["victory"] if level_up_animation else BATTLE_ANIMATIONS["victory"],
-        f"<b>👑 {to_smallcaps(f'{winner_player.username} wins!')} 👑</b>"
-    )
-    
-    if level_up_animation:
-        await send_animation(
-            message,
-            BATTLE_ANIMATIONS["levelup"],
-            level_up_msg
-        )
+            try:
+                await user_collection.update_one(
+                    {'id': winner_player.user_id},
+                    {'$addToSet': {'rpg_unlocked': {'$each': new_attacks}}}
+                )
+                level_up_msg += f"\n<b>🔓 {to_smallcaps('unlocked:')} {to_smallcaps(', '.join(new_attacks))}</b>"
+            except Exception:
+                pass
     
     result_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('⚔️ battle ended ⚔️')}</b>
-<b>{'═' * 30}</b>
+<b>⚔️ {to_smallcaps('battle ended')} ⚔️</b>
 
 <b>👑 {to_smallcaps('winner:')}</b> {winner_player.username}
 <b>💀 {to_smallcaps('loser:')}</b> {loser_player.username}
 
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('📊 battle statistics 📊')}</b>
-<b>{'═' * 30}</b>
+<b>📊 {to_smallcaps('battle stats')} 📊</b>
 
 <b>{to_smallcaps(winner_player.username)}</b>
-{to_smallcaps(f'⚔️ damage dealt: {winner_stats.total_damage_dealt}')}
-{to_smallcaps(f'🩸 damage taken: {winner_stats.total_damage_taken}')}
-{to_smallcaps(f'🎯 attacks used: {winner_stats.attacks_used}')}
-{to_smallcaps(f'💥 critical hits: {winner_stats.critical_hits}')}
-{to_smallcaps(f'💊 potions used: {winner_stats.potions_used}')}
-{to_smallcaps(f'🛡️ defends used: {winner_stats.defends_used}')}
+{to_smallcaps(f'⚔️ dmg dealt: {winner_stats.total_damage_dealt}')}
+{to_smallcaps(f'🩸 dmg taken: {winner_stats.total_damage_taken}')}
+{to_smallcaps(f'🎯 attacks: {winner_stats.attacks_used}')}
+{to_smallcaps(f'💥 crits: {winner_stats.critical_hits}')}
+{to_smallcaps(f'💊 potions: {winner_stats.potions_used}')}
+{to_smallcaps(f'🛡️ defends: {winner_stats.defends_used}')}
 
 <b>{to_smallcaps(loser_player.username)}</b>
-{to_smallcaps(f'⚔️ damage dealt: {loser_stats.total_damage_dealt}')}
-{to_smallcaps(f'🩸 damage taken: {loser_stats.total_damage_taken}')}
-{to_smallcaps(f'🎯 attacks used: {loser_stats.attacks_used}')}
-{to_smallcaps(f'💥 critical hits: {loser_stats.critical_hits}')}
-{to_smallcaps(f'💊 potions used: {loser_stats.potions_used}')}
-{to_smallcaps(f'🛡️ defends used: {loser_stats.defends_used}')}
+{to_smallcaps(f'⚔️ dmg dealt: {loser_stats.total_damage_dealt}')}
+{to_smallcaps(f'🩸 dmg taken: {loser_stats.total_damage_taken}')}
+{to_smallcaps(f'🎯 attacks: {loser_stats.attacks_used}')}
+{to_smallcaps(f'💥 crits: {loser_stats.critical_hits}')}
+{to_smallcaps(f'💊 potions: {loser_stats.potions_used}')}
+{to_smallcaps(f'🛡️ defends: {loser_stats.defends_used}')}
 
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('🎁 rewards 🎁')}</b>
-<b>{'═' * 30}</b>
+<b>🎁 {to_smallcaps('rewards')} 🎁</b>
 
 <b>{to_smallcaps(winner_player.username)}</b>
-{to_smallcaps(f'✨ xp gained: +{winner_xp}')}
-{to_smallcaps(f'💰 coins gained: +{winner_coins}')}
+{to_smallcaps(f'✨ xp: +{winner_xp}')}
+{to_smallcaps(f'💰 coins: +{winner_coins}')}
 {level_up_msg}
 """
     
@@ -1077,8 +1143,8 @@ async def handle_battle_end(message, battle: Battle, winner: int):
         result_text += f"""
 
 <b>{to_smallcaps(loser_player.username)}</b>
-{to_smallcaps(f'✨ xp gained: +{loser_xp}')}
-{to_smallcaps(f'💰 coins gained: +{loser_coins}')}
+{to_smallcaps(f'✨ xp: +{loser_xp}')}
+{to_smallcaps(f'💰 coins: +{loser_coins}')}
 """
     
     keyboard = InlineKeyboardMarkup([
@@ -1088,22 +1154,25 @@ async def handle_battle_end(message, battle: Battle, winner: int):
         )]
     ])
     
-    await message.edit_text(
-        result_text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await message.edit_text(
+            result_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
 
 async def rpg_menu(update: Update, context: CallbackContext):
     user = update.effective_user
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            "⚔️ " + to_smallcaps("start pve battle"), 
+            "⚔️ " + to_smallcaps("start pve"), 
             callback_data=f"rpg:start_pve:{user.id}"
         )],
         [InlineKeyboardButton(
-            "📊 " + to_smallcaps("view stats"), 
+            "📊 " + to_smallcaps("stats"), 
             callback_data=f"rpg:stats:{user.id}"
         )],
         [InlineKeyboardButton(
@@ -1113,29 +1182,27 @@ async def rpg_menu(update: Update, context: CallbackContext):
     ])
     
     await update.message.reply_text(
-        f"<b>⚔️ {to_smallcaps('rpg battle system')} ⚔️</b>\n\n{to_smallcaps('choose an option:')}",
+        f"<b>⚔️ {to_smallcaps('rpg battle')} ⚔️</b>\n\n{to_smallcaps('choose option:')}",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 async def rpg_help(update: Update, context: CallbackContext):
     help_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('⚔️ rpg battle guide ⚔️')}</b>
-<b>{'═' * 30}</b>
+<b>⚔️ {to_smallcaps('rpg guide')} ⚔️</b>
 
-<b>{to_smallcaps('commands:')}</b>
-{to_smallcaps('/rpg - start pve battle')}
-{to_smallcaps('/rpg (reply) - challenge player')}
-{to_smallcaps('/rpgmenu - open menu')}
-{to_smallcaps('/rpgstats - view stats')}
-{to_smallcaps('/rpglevel - check level')}
-{to_smallcaps('/rpgforfeit - forfeit battle')}
+<b>{to_smallcaps('commands')}</b>
+{to_smallcaps('/rpg - start pve')}
+{to_smallcaps('/rpg (reply) - pvp challenge')}
+{to_smallcaps('/rpgmenu - menu')}
+{to_smallcaps('/rpgstats - stats')}
+{to_smallcaps('/rpglevel - level')}
+{to_smallcaps('/rpgforfeit - quit')}
 
-<b>{to_smallcaps('attack types:')}</b>
-👊 {to_smallcaps('normal (15m) - start')}
-🔥 {to_smallcaps('fire (30m) - start')}
-❄️ {to_smallcaps('ice (25m) - start')}
+<b>{to_smallcaps('attacks')}</b>
+👊 {to_smallcaps('normal (15m)')}
+🔥 {to_smallcaps('fire (30m)')}
+❄️ {to_smallcaps('ice (25m)')}
 ⚡ {to_smallcaps('lightning (35m) - lvl 3')}
 💧 {to_smallcaps('water (20m) - lvl 5')}
 🌍 {to_smallcaps('earth (22m) - lvl 7')}
@@ -1143,17 +1210,11 @@ async def rpg_help(update: Update, context: CallbackContext):
 🌑 {to_smallcaps('dark (40m) - lvl 15')}
 ✨ {to_smallcaps('light (38m) - lvl 20')}
 
-<b>{to_smallcaps('actions:')}</b>
-🛡 {to_smallcaps('defend - 2.5x defense')}
-💚 {to_smallcaps('heal (20m) - +40 hp')}
-💙 {to_smallcaps('mana potion - +50 mp')}
-
-<b>{to_smallcaps('tips:')}</b>
-{to_smallcaps('• high speed = more crits')}
-{to_smallcaps('• defending blocks damage')}
-{to_smallcaps('• combos increase damage')}
-{to_smallcaps('• xp levels you up')}
-{to_smallcaps('• pvp gives bonus rewards')}
+<b>{to_smallcaps('tips')}</b>
+{to_smallcaps('• 60s turn timeout')}
+{to_smallcaps('• high speed = crits')}
+{to_smallcaps('• defend = 2.5x defense')}
+{to_smallcaps('• combos boost damage')}
 """
     
     await update.message.reply_text(help_text, parse_mode="HTML")
@@ -1172,9 +1233,7 @@ async def rpg_stats_cmd(update: Update, context: CallbackContext):
     xp_progress = xp_needed - current_xp
     
     stats_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('📊 player stats 📊')}</b>
-<b>{'═' * 30}</b>
+<b>📊 {to_smallcaps('player stats')} 📊</b>
 
 <b>{to_smallcaps(player.username)}</b>
 {to_smallcaps(f'level: {player.level}')}
@@ -1182,19 +1241,19 @@ async def rpg_stats_cmd(update: Update, context: CallbackContext):
 {to_smallcaps(f'xp: {current_xp}')}
 {to_smallcaps(f'needed: {xp_progress}')}
 
-<b>{to_smallcaps('combat stats:')}</b>
+<b>{to_smallcaps('combat')}</b>
 {to_smallcaps(f'❤️ hp: {player.max_hp}')}
-{to_smallcaps(f'💙 mana: {player.max_mana}')}
-{to_smallcaps(f'⚔️ attack: {player.attack}')}
-{to_smallcaps(f'🛡️ defense: {player.defense}')}
-{to_smallcaps(f'⚡ speed: {player.speed}')}
+{to_smallcaps(f'💙 mp: {player.max_mana}')}
+{to_smallcaps(f'⚔️ atk: {player.attack}')}
+{to_smallcaps(f'🛡️ def: {player.defense}')}
+{to_smallcaps(f'⚡ spd: {player.speed}')}
 
-<b>{to_smallcaps('inventory:')}</b>
-{to_smallcaps(f'💰 balance: {balance} coins')}
-{to_smallcaps(f'🎫 tokens: {tokens}')}
-{to_smallcaps(f'🏆 achievements: {len(achievements)}')}
+<b>{to_smallcaps('inventory')}</b>
+{to_smallcaps(f'💰 {balance} coins')}
+{to_smallcaps(f'🎫 {tokens} tokens')}
+{to_smallcaps(f'🏆 {len(achievements)} achievements')}
 
-<b>{to_smallcaps('unlocked attacks:')}</b>
+<b>{to_smallcaps('attacks')}</b>
 {to_smallcaps(', '.join(player.unlocked_attacks))}
 """
     
@@ -1205,7 +1264,7 @@ async def rpg_level_cmd(update: Update, context: CallbackContext):
     user = await get_user(uid)
     
     if not user:
-        await update.message.reply_text(to_smallcaps("⚠️ no data found"), parse_mode="HTML")
+        await update.message.reply_text(to_smallcaps("⚠️ no data"), parse_mode="HTML")
         return
 
     xp = user.get('user_xp', 0)
@@ -1215,9 +1274,7 @@ async def rpg_level_cmd(update: Update, context: CallbackContext):
     achievements = user.get('achievements', [])
 
     level_text = f"""
-<b>{'═' * 30}</b>
-<b>{to_smallcaps('level and rank')}</b>
-<b>{'═' * 30}</b>
+<b>{to_smallcaps('level & rank')}</b>
 
 {to_smallcaps(f'level: {lvl}')}
 {to_smallcaps(f'rank: {rank}')}
@@ -1234,7 +1291,7 @@ async def rpg_forfeit_cmd(update: Update, context: CallbackContext):
     
     if not battle:
         await update.message.reply_text(
-            to_smallcaps("❌ you're not in a battle!"),
+            to_smallcaps("❌ not in battle!"),
             parse_mode="HTML"
         )
         return
@@ -1242,7 +1299,7 @@ async def rpg_forfeit_cmd(update: Update, context: CallbackContext):
     battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
     
     await update.message.reply_text(
-        f"<b>🏳 {to_smallcaps('battle forfeited!')} 🏳</b>\n\n{to_smallcaps('you gave up the battle!')}",
+        f"<b>🏳 {to_smallcaps('forfeited')} 🏳</b>",
         parse_mode="HTML"
     )
 
