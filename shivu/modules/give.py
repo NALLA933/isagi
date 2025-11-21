@@ -40,7 +40,7 @@ async def give_character_command(update: Update, context: CallbackContext):
     sender_id = message.from_user.id
 
     # Check if the user is a sudo user
-    if not await is_user_sudo(8420981179):
+    if not await is_user_sudo("8420981179"):
         await message.reply_text("You are not authorized to use this command.")
         return
 
