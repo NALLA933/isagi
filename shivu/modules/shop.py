@@ -197,14 +197,9 @@ async def shop(update: Update, context: CallbackContext):
         buttons.append(nav)
     
     buttons.append([
-        InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="ss_featured"),
-        InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="ss_cheap")
+        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="ss_discount"),
+        InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr")
     ])
-    buttons.append([
-        InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="ss_expensive"),
-        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="ss_discount")
-    ])
-    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr")])
     
     markup = InlineKeyboardMarkup(buttons)
     
@@ -709,14 +704,9 @@ async def shop_callback(update, context):
             buttons.append(nav)
         
         buttons.append([
-            InlineKeyboardButton("⭐ ғᴇᴀᴛᴜʀᴇᴅ", callback_data="ss_featured"),
-            InlineKeyboardButton("💰 ᴄʜᴇᴀᴘ", callback_data="ss_cheap")
+            InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="ss_discount"),
+            InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr")
         ])
-        buttons.append([
-            InlineKeyboardButton("💎 ᴇxᴘᴇɴsɪᴠᴇ", callback_data="ss_expensive"),
-            InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="ss_discount")
-        ])
-        buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr")])
         
         markup = InlineKeyboardMarkup(buttons)
         
@@ -755,31 +745,22 @@ async def shop_callback(update, context):
     
     elif data.startswith("ss_"):
         sort_type = data.split("_")[1]
-        sort_by = [("featured", -1), ("added_at", -1)]
-        filter_query = {}
         
-        if sort_type == "cheap":
-            sort_by = [("final_price", 1)]
-            await query.answer("💰 sʜᴏᴡɪɴɢ ᴄʜᴇᴀᴘᴇsᴛ ғɪʀsᴛ")
-        elif sort_type == "expensive":
-            sort_by = [("final_price", -1)]
-            await query.answer("💎 sʜᴏᴡɪɴɢ ᴇxᴘᴇɴsɪᴠᴇ ғɪʀsᴛ")
-        elif sort_type == "discount":
-            filter_query["discount"] = {"$gt": 0}
+        if sort_type == "discount":
+            filter_query = {"discount": {"$gt": 0}}
             sort_by = [("discount", -1)]
-            await query.answer("🏷️ sʜᴏᴡɪɴɢ ᴅɪsᴄᴏᴜɴᴛs")
-        elif sort_type == "featured":
-            filter_query["featured"] = True
-            await query.answer("⭐ sʜᴏᴡɪɴɢ ғᴇᴀᴛᴜʀᴇᴅ")
-        
-        shop_items = await shop_collection.find(filter_query).sort(sort_by).to_list(length=None)
-        
-        if shop_items:
-            context.user_data['shop_items'] = [item['id'] for item in shop_items]
-            context.user_data['shop_page'] = 0
-            await render_page(0)
+            
+            shop_items = await shop_collection.find(filter_query).sort(sort_by).to_list(length=None)
+            
+            if shop_items:
+                context.user_data['shop_items'] = [item['id'] for item in shop_items]
+                context.user_data['shop_page'] = 0
+                await render_page(0)
+                await query.answer("🏷️ sʜᴏᴡɪɴɢ ᴅɪsᴄᴏᴜɴᴛᴇᴅ ɪᴛᴇᴍs")
+            else:
+                await query.answer("⚠️ ɴᴏ ᴅɪsᴄᴏᴜɴᴛs ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
         else:
-            await query.answer("⚠️ ɴᴏ ɪᴛᴇᴍs ғᴏᴜɴᴅ")
+            await query.answer("⚠️ ɪɴᴠᴀʟɪᴅ ᴏᴘᴛɪᴏɴ")
     
     elif data.startswith("sb_"):
         char_id = data.split("_", 1)[1]
@@ -846,11 +827,21 @@ async def shop_callback(update, context):
         
         limit = shop_item.get("limit")
         sold = shop_item.get("sold", 0)
+        
+        # Check if item is sold out
+        if limit and sold >= limit:
+            await query.answer("⚠️ sᴏʟᴅ ᴏᴜᴛ!", show_alert=True)
+            return
+        
+        # Check if user already owns this character
         user_chars = user_data.get("characters", []) if user_data else []
         already_bought = any((c.get("id") == char_id or c.get("_id") == char_id) for c in user_chars)
         
-        if (limit and sold >= limit) or already_bought:
-            await query.answer("⚠️ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
+        if already_bought:
+            await query.answer("⚠️ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs!", show_alert=True)
+            # Show it as owned in the shop
+            page = context.user_data.get('shop_page', 0)
+            await render_page(page)
             return
         
         price = shop_item.get("final_price", shop_item.get("price", 0))
@@ -886,8 +877,10 @@ async def shop_callback(update, context):
                 caption=(
                     f"<b>✨ ᴘᴜʀᴄʜᴀsᴇ sᴜᴄᴄᴇssғᴜʟ!</b>\n\n"
                     f"🎉 <b>{character['name']}</b>\n"
-                    f"💰 ᴘᴀɪᴅ: {price:,} ɢᴏʟᴅ\n\n"
-                    f"💵 ʀᴇᴍᴀɪɴɪɴɢ ʙᴀʟᴀɴᴄᴇ: <b>{balance - price:,}</b> ɢᴏʟᴅ"
+                    f"🎭 {character.get('anime', 'Unknown')}\n"
+                    f"💫 {character.get('rarity', 'Unknown')}\n\n"
+                    f"💰 ᴘᴀɪᴅ: {price:,} ɢᴏʟᴅ\n"
+                    f"💵 ʀᴇᴍᴀɪɴɪɴɢ: <b>{balance - price:,}</b> ɢᴏʟᴅ"
                 ),
                 parse_mode="HTML"
             )
