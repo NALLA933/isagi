@@ -37,7 +37,99 @@ async def sadd(update: Update, context: CallbackContext):
     try:
         char_id = context.args[0]
         price = int(context.args[1])
-        limit = None
+        limit = async def auction_callback(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data == "aview":
+        await query.answer()
+        auction = await auction_collection.find_one({"status": "active"})
+        if not auction:
+            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ", show_alert=True)
+            return
+        
+        character = await characters_collection.find_one({"id": auction["character_id"]})
+        end_time = auction.get("end_time")
+        time_left = end_time - datetime.utcnow()
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
+        
+        highest_bidder = auction.get("highest_bidder")
+        bidder_text = "ɴᴏɴᴇ ʏᴇᴛ"
+        
+        if highest_bidder:
+            try:
+                bidder_user = await context.bot.get_chat(highest_bidder)
+                bidder_text = bidder_user.first_name
+            except:
+                bidder_text = f"User {highest_bidder}"
+        
+        increment_small = auction['current_bid'] // 10
+        increment_medium = auction['current_bid'] // 5
+        increment_large = auction['current_bid'] // 2
+        
+        caption = (
+            f"<b>🔨 ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n\n"
+            f"💎 <b>{character['name']}</b>\n"
+            f"🎭 {character.get('anime', 'Unknown')}\n"
+            f"💫 {character.get('rarity', 'Unknown')}\n\n"
+            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction['current_bid']:,}</b> ɢᴏʟᴅ\n"
+            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: {bidder_text}\n"
+            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
+            f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: {auction['bid_count']}\n\n"
+            f"ᴜsᴇ /bid [ᴀᴍᴏᴜɴᴛ] ᴛᴏ ʙɪᴅ!"
+        )
+        
+        buttons = [
+            [
+                InlineKeyboardButton(f"+{increment_small:,} 💰", callback_data=f"aquick_{increment_small}"),
+                InlineKeyboardButton(f"+{increment_medium:,} 💰", callback_data=f"aquick_{increment_medium}"),
+                InlineKeyboardButton(f"+{increment_large:,} 💰", callback_data=f"aquick_{increment_large}")
+            ],
+            [
+                InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="aview"),
+                InlineKeyboardButton("📊 ʙɪᴅ ʜɪsᴛᴏʀʏ", callback_data="ahist")
+            ]
+        ]
+        markup = InlineKeyboardMarkup(buttons)
+        
+        try:
+            await query.edit_message_caption(
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        except BadRequest:
+            pass
+    
+    elif data.startswith("aquick_"):
+        await query.answer()
+        increment = int(data.split("_")[1])
+        auction = await auction_collection.find_one({"status": "active"})
+        
+        if not auction:
+            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ", show_alert=True)
+            return
+        
+        bid_amount = auction.get("current_bid") + increment
+        user_data = await user_collection.find_one({"id": user_id})
+        balance = user_data.get("balance", 0) if user_data else 0
+        
+        if balance < bid_amount:
+            needed = bid_amount - balance
+            await query.answer(
+                f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\n"
+                f"💵 ʏᴏᴜ ʜᴀᴠᴇ: {balance:,} ɢᴏʟᴅ\n"
+                f"💰 ɴᴇᴇᴅ: {bid_amount:,} ɢᴏʟᴅ\n"
+                f"❌ sʜᴏʀᴛ ʙʏ: {needed:,} ɢᴏʟᴅ",
+                show_alert=True
+            )
+            return
+        
+        # Check if bid is high enough (5% more than current)
+        min_bid = int(auction.get("current_bid") * 1.05)
+        
         discount = 0
         featured = False
         
@@ -357,7 +449,10 @@ async def gstart(update: Update, context: CallbackContext):
         
         buttons = [
             [InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="gj")],
-            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp")]
+            [
+                InlineKeyboardButton("👥 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gview"),
+                InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="grefresh")
+            ]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -474,10 +569,10 @@ async def astart(update: Update, context: CallbackContext):
         )
         
         buttons = [
-            [InlineKeyboardButton("🔨 ᴠɪᴇᴡ ᴀᴜᴄᴛɪᴏɴ", callback_data="av")],
+            [InlineKeyboardButton("🔨 ᴠɪᴇᴡ ᴀᴜᴄᴛɪᴏɴ", callback_data="aview")],
             [
-                InlineKeyboardButton(f"+{starting_bid//10:,}", callback_data=f"ab_{starting_bid//10}"),
-                InlineKeyboardButton(f"+{starting_bid//5:,}", callback_data=f"ab_{starting_bid//5}")
+                InlineKeyboardButton(f"+{starting_bid//10:,}", callback_data=f"aquick_{starting_bid//10}"),
+                InlineKeyboardButton(f"+{starting_bid//5:,}", callback_data=f"aquick_{starting_bid//5}")
             ]
         ]
         markup = InlineKeyboardMarkup(buttons)
@@ -1009,7 +1104,7 @@ async def giveaway_callback(update, context):
         
         buttons = [
             [InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="gj")],
-            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp")]
+            [InlineKeyboardButton("👥 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gview")]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -1024,70 +1119,72 @@ async def giveaway_callback(update, context):
         
         await query.answer("✅ ᴊᴏɪɴᴇᴅ ɢɪᴠᴇᴀᴡᴀʏ!", show_alert=False)
     
-    elif data == "gp":
+    elif data == "gview":
         giveaway = await giveaway_collection.find_one({"status": "active"})
         if not giveaway:
             await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ", show_alert=True)
             return
         
         participants = giveaway.get("participants", [])
-        await query.answer(
-            f"👥 {len(participants)} ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs ᴊᴏɪɴᴇᴅ!",
-            show_alert=True
-        )
-
-async def auction_callback(update, context):
-    query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data == "av":
-        await query.answer()
-        auction = await auction_collection.find_one({"status": "active"})
-        if not auction:
-            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ", show_alert=True)
-            return
-        
-        character = await characters_collection.find_one({"id": auction["character_id"]})
-        end_time = auction.get("end_time")
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+        end_time = giveaway.get("end_time")
         time_left = end_time - datetime.utcnow()
         hours_left = int(time_left.total_seconds() / 3600)
         minutes_left = int((time_left.total_seconds() % 3600) / 60)
         
-        highest_bidder = auction.get("highest_bidder")
-        bidder_text = "ɴᴏɴᴇ ʏᴇᴛ"
+        if participants:
+            participant_names = []
+            for i, pid in enumerate(participants[:10], 1):
+                try:
+                    user = await context.bot.get_chat(pid)
+                    participant_names.append(f"{i}. {user.first_name}")
+                except:
+                    participant_names.append(f"{i}. User {pid}")
+            
+            participants_text = "\n".join(participant_names)
+            if len(participants) > 10:
+                participants_text += f"\n... ᴀɴᴅ {len(participants) - 10} ᴍᴏʀᴇ"
+        else:
+            participants_text = "ɴᴏ ᴏɴᴇ ʏᴇᴛ"
         
-        if highest_bidder:
-            try:
-                bidder_user = await context.bot.get_chat(highest_bidder)
-                bidder_text = bidder_user.first_name
-            except:
-                bidder_text = f"User {highest_bidder}"
+        await query.answer(
+            f"👥 {len(participants)} ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs\n"
+            f"⏰ {hours_left}ʜ {minutes_left}ᴍ ʟᴇғᴛ\n\n"
+            f"{participants_text}",
+            show_alert=True
+        )
+    
+    elif data == "grefresh":
+        giveaway = await giveaway_collection.find_one({"status": "active"})
+        if not giveaway:
+            await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ", show_alert=True)
+            return
         
-        increment_small = auction['current_bid'] // 10
-        increment_medium = auction['current_bid'] // 5
-        increment_large = auction['current_bid'] // 2
+        participants_count = len(giveaway.get("participants", []))
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+        end_time = giveaway.get("end_time")
+        time_left = end_time - datetime.utcnow()
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
         
         caption = (
-            f"<b>🔨 ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n\n"
-            f"💎 <b>{character['name']}</b>\n"
+            f"<b>🎉 ɴᴇᴡ ɢɪᴠᴇᴀᴡᴀʏ!</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
             f"🎭 {character.get('anime', 'Unknown')}\n"
             f"💫 {character.get('rarity', 'Unknown')}\n\n"
-            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction['current_bid']:,}</b> ɢᴏʟᴅ\n"
-            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: {bidder_text}\n"
-            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
-            f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: {auction['bid_count']}\n\n"
-            f"ᴜsᴇ /bid [ᴀᴍᴏᴜɴᴛ] ᴛᴏ ʙɪᴅ!"
+            f"⏰ ᴇɴᴅs: {end_time.strftime('%d %b, %H:%M UTC')}\n"
+            f"⏳ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
+            f"📊 ʀᴇǫᴜɪʀᴇᴍᴇɴᴛ: {giveaway['min_activity']} ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
+            f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {participants_count}\n\n"
+            f"ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴊᴏɪɴ!"
         )
         
         buttons = [
+            [InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="gj")],
             [
-                InlineKeyboardButton(f"+{increment_small:,} 💰", callback_data=f"ab_{increment_small}"),
-                InlineKeyboardButton(f"+{increment_medium:,} 💰", callback_data=f"ab_{increment_medium}"),
-                InlineKeyboardButton(f"+{increment_large:,} 💰", callback_data=f"ab_{increment_large}")
-            ],
-            [InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="av")],
-            [InlineKeyboardButton("📊 ʙɪᴅ ʜɪsᴛᴏʀʏ", callback_data="ah")]
+                InlineKeyboardButton("👥 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gview"),
+                InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="grefresh")
+            ]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -1097,24 +1194,17 @@ async def auction_callback(update, context):
                 parse_mode="HTML",
                 reply_markup=markup
             )
+            await query.answer("🔄 ʀᴇғʀᴇsʜᴇᴅ!")
         except BadRequest:
-            pass
-    
-    elif data.startswith("ab_"):
-        increment = int(data.split("_")[1])
-        auction = await auction_collection.find_one({"status": "active"})
-        
-        if not auction:
-            await query.answer("⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ", show_alert=True)
-            return
-        
-        bid_amount = auction.get("current_bid") + increment
-        user_data = await user_collection.find_one({"id": user_id})
-        balance = user_data.get("balance", 0) if user_data else 0
-        
-        if balance < bid_amount:
+            await query.answer("⚠️ ᴄᴏᴜʟᴅɴ'ᴛ ᴜᴘᴅᴀᴛᴇ")
+
+        # Check if bid is high enough (5% more than current)
+        min_bid = int(auction.get("current_bid") * 1.05)
+        if bid_amount < min_bid:
             await query.answer(
-                f"⚠️ ɴᴇᴇᴅ {bid_amount:,} ɢᴏʟᴅ!\nʏᴏᴜ ʜᴀᴠᴇ {balance:,}",
+                f"⚠️ ʙɪᴅ ᴛᴏᴏ ʟᴏᴡ!\n\n"
+                f"ᴍɪɴɪᴍᴜᴍ: {min_bid:,} ɢᴏʟᴅ\n"
+                f"(5% ᴍᴏʀᴇ ᴛʜᴀɴ ᴄᴜʀʀᴇɴᴛ)",
                 show_alert=True
             )
             return
@@ -1168,12 +1258,14 @@ async def auction_callback(update, context):
         
         buttons = [
             [
-                InlineKeyboardButton(f"+{increment_small:,} 💰", callback_data=f"ab_{increment_small}"),
-                InlineKeyboardButton(f"+{increment_medium:,} 💰", callback_data=f"ab_{increment_medium}"),
-                InlineKeyboardButton(f"+{increment_large:,} 💰", callback_data=f"ab_{increment_large}")
+                InlineKeyboardButton(f"+{increment_small:,} 💰", callback_data=f"aquick_{increment_small}"),
+                InlineKeyboardButton(f"+{increment_medium:,} 💰", callback_data=f"aquick_{increment_medium}"),
+                InlineKeyboardButton(f"+{increment_large:,} 💰", callback_data=f"aquick_{increment_large}")
             ],
-            [InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="av")],
-            [InlineKeyboardButton("📊 ʙɪᴅ ʜɪsᴛᴏʀʏ", callback_data="ah")]
+            [
+                InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="aview"),
+                InlineKeyboardButton("📊 ʙɪᴅ ʜɪsᴛᴏʀʏ", callback_data="ahist")
+            ]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -1188,7 +1280,7 @@ async def auction_callback(update, context):
         
         await query.answer(f"✅ ʙɪᴅ ᴘʟᴀᴄᴇᴅ: {bid_amount:,} ɢᴏʟᴅ!")
     
-    elif data == "ah":
+    elif data == "ahist":
         auction = await auction_collection.find_one({"status": "active"})
         
         if not auction:
@@ -1197,7 +1289,7 @@ async def auction_callback(update, context):
         
         bids = await bid_collection.find(
             {"auction_id": auction["_id"]}
-        ).sort("timestamp", -1).limit(5).to_list(length=5)
+        ).sort("timestamp", -1).limit(10).to_list(length=10)
         
         if not bids:
             await query.answer("📊 ɴᴏ ʙɪᴅs ʏᴇᴛ", show_alert=True)
@@ -1213,7 +1305,21 @@ async def auction_callback(update, context):
                 name = f"User {bid_item['user_id']}"
             
             amount = bid_item["amount"]
-            history_text += f"{i}. {name}: {amount:,} 💰\n"
+            time_ago = datetime.utcnow() - bid_item["timestamp"]
+            mins_ago = int(time_ago.total_seconds() / 60)
+            
+            if mins_ago < 1:
+                time_str = "ᴊᴜsᴛ ɴᴏᴡ"
+            elif mins_ago < 60:
+                time_str = f"{mins_ago}ᴍ ᴀɢᴏ"
+            else:
+                hours_ago = mins_ago // 60
+                time_str = f"{hours_ago}ʜ ᴀɢᴏ"
+            
+            history_text += f"{i}. {name}: {amount:,} 💰 ({time_str})\n"
+        
+        if len(bids) == 10:
+            history_text += "\n... ᴀɴᴅ ᴍᴏʀᴇ"
         
         await query.answer(history_text, show_alert=True)
 
