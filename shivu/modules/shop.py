@@ -150,33 +150,40 @@ async def shop(update: Update, context: CallbackContext):
     
     if context.args:
         arg = context.args[0].lower()
-        if arg == "cheap":
-            sort_by = [("final_price", 1)]
-        elif arg == "expensive":
-            sort_by = [("final_price", -1)]
-        elif arg == "discount":
+        if arg == "discount":
             filter_query["discount"] = {"$gt": 0}
             sort_by = [("discount", -1)]
-        elif arg == "featured":
-            filter_query["featured"] = True
     
     shop_items = await shop_collection.find(filter_query).sort(sort_by).to_list(length=None)
     
     if not shop_items:
+        buttons = [[InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ sʜᴏᴘ", callback_data="sr_reload")]]
+        markup = InlineKeyboardMarkup(buttons)
+        
         await update.message.reply_text(
             "🏪 <b>sʜᴏᴘ ɪs ᴇᴍᴘᴛʏ</b>\n\n"
-            "ᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ ғᴏʀ ɴᴇᴡ ɪᴛᴇᴍs!",
-            parse_mode="HTML"
+            "😔 ɴᴏ ɪᴛᴇᴍs ᴀᴠᴀɪʟᴀʙʟᴇ ʀɪɢʜᴛ ɴᴏᴡ\n\n"
+            "💡 <b>ᴛɪᴘs:</b>\n"
+            "• ᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ ғᴏʀ ɴᴇᴡ ɪᴛᴇᴍs\n"
+            "• ᴜsᴇ /shop discount ғᴏʀ ᴅɪsᴄᴏᴜɴᴛᴇᴅ ɪᴛᴇᴍs\n"
+            "• ᴄʜᴇᴄᴋ ᴀᴜᴄᴛɪᴏɴs ғᴏʀ ʀᴀʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs",
+            parse_mode="HTML",
+            reply_markup=markup
         )
         return
     
     page = 0
     context.user_data['shop_items'] = [item['id'] for item in shop_items]
     context.user_data['shop_page'] = page
+    context.user_data['shop_filter'] = filter_query
     
     char_id = shop_items[page]['id']
     character = await characters_collection.find_one({"id": char_id})
     user_data = await user_collection.find_one({"id": user_id})
+    
+    if not character:
+        await update.message.reply_text("⚠️ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ sʜᴏᴘ ɪᴛᴇᴍ")
+        return
     
     await shop_collection.update_one({"id": char_id}, {"$inc": {"views": 1}})
     
@@ -186,6 +193,8 @@ async def shop(update: Update, context: CallbackContext):
     
     if not sold_out:
         buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"sb_{char_id}")])
+    else:
+        buttons.append([InlineKeyboardButton("🚫 ᴜɴᴀᴠᴀɪʟᴀʙʟᴇ", callback_data="sna")])
     
     if len(shop_items) > 1:
         nav = []
@@ -197,7 +206,7 @@ async def shop(update: Update, context: CallbackContext):
         buttons.append(nav)
     
     buttons.append([
-        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛ", callback_data="ss_discount"),
+        InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛs", callback_data="ss_discount"),
         InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr")
     ])
     
@@ -209,7 +218,11 @@ async def shop(update: Update, context: CallbackContext):
         else:
             await update.message.reply_photo(photo=media_url, caption=caption, parse_mode="HTML", reply_markup=markup)
     except BadRequest as e:
-        await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ sʜᴏᴘ: {str(e)}")
+        await update.message.reply_text(
+            f"{caption}\n\n⚠️ ᴄᴏᴜʟᴅɴ'ᴛ ʟᴏᴀᴅ ᴍᴇᴅɪᴀ",
+            parse_mode="HTML",
+            reply_markup=markup
+        )
 
 def build_caption(waifu, shop_item, page, total, user_data=None):
     wid = waifu.get("id", waifu.get("_id"))
@@ -755,12 +768,30 @@ async def shop_callback(update, context):
             if shop_items:
                 context.user_data['shop_items'] = [item['id'] for item in shop_items]
                 context.user_data['shop_page'] = 0
+                context.user_data['shop_filter'] = filter_query
                 await render_page(0)
-                await query.answer("🏷️ sʜᴏᴡɪɴɢ ᴅɪsᴄᴏᴜɴᴛᴇᴅ ɪᴛᴇᴍs")
+                await query.answer(f"🏷️ {len(shop_items)} ᴅɪsᴄᴏᴜɴᴛᴇᴅ ɪᴛᴇᴍs ғᴏᴜɴᴅ!")
             else:
-                await query.answer("⚠️ ɴᴏ ᴅɪsᴄᴏᴜɴᴛs ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
+                await query.answer(
+                    "😔 ɴᴏ ᴅɪsᴄᴏᴜɴᴛs ᴀᴠᴀɪʟᴀʙʟᴇ\n\n"
+                    "ᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ ғᴏʀ ᴅᴇᴀʟs!",
+                    show_alert=True
+                )
         else:
             await query.answer("⚠️ ɪɴᴠᴀʟɪᴅ ᴏᴘᴛɪᴏɴ")
+    
+    elif data == "sr_reload":
+        # Reload shop from empty state
+        sort_by = [("featured", -1), ("added_at", -1)]
+        shop_items = await shop_collection.find({}).sort(sort_by).to_list(length=None)
+        
+        if shop_items:
+            context.user_data['shop_items'] = [item['id'] for item in shop_items]
+            context.user_data['shop_page'] = 0
+            await render_page(0)
+            await query.answer(f"✅ {len(shop_items)} ɪᴛᴇᴍs ʟᴏᴀᴅᴇᴅ!")
+        else:
+            await query.answer("😔 sᴛɪʟʟ ᴇᴍᴘᴛʏ", show_alert=True)
     
     elif data.startswith("sb_"):
         char_id = data.split("_", 1)[1]
@@ -774,46 +805,76 @@ async def shop_callback(update, context):
         
         limit = shop_item.get("limit")
         sold = shop_item.get("sold", 0)
+        
+        # Check if sold out
+        if limit and sold >= limit:
+            await query.answer("⚠️ sᴏʟᴅ ᴏᴜᴛ!", show_alert=True)
+            page = context.user_data.get('shop_page', 0)
+            await render_page(page)
+            return
+        
+        # Check if already owned
         user_chars = user_data.get("characters", []) if user_data else []
         already_bought = any((c.get("id") == char_id or c.get("_id") == char_id) for c in user_chars)
         
-        if (limit and sold >= limit):
-            await query.answer("⚠️ sᴏʟᴅ ᴏᴜᴛ!", show_alert=True)
-            return
-        
         if already_bought:
             await query.answer("⚠️ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs!", show_alert=True)
+            page = context.user_data.get('shop_page', 0)
+            await render_page(page)
             return
         
+        # Show confirmation with balance check
         price = shop_item.get("final_price", shop_item.get("price", 0))
+        original_price = shop_item.get("original_price", price)
         discount = shop_item.get("discount", 0)
+        balance = user_data.get("balance", 0) if user_data else 0
         
-        discount_text = f"🏷️ <b>{discount}% ᴏғғ!</b>\n" if discount > 0 else ""
+        discount_text = ""
+        if discount > 0:
+            savings = original_price - price
+            discount_text = f"💎 ᴏʀɪɢɪɴᴀʟ: <s>{original_price:,}</s> ɢᴏʟᴅ\n🏷️ <b>{discount}% ᴏғғ</b> (sᴀᴠᴇ {savings:,} ɢᴏʟᴅ)\n\n"
         
-        buttons = [
-            [
+        balance_status = ""
+        can_afford = balance >= price
+        
+        if can_afford:
+            balance_status = f"💵 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: <b>{balance:,}</b> ɢᴏʟᴅ\n📉 ᴀғᴛᴇʀ ᴘᴜʀᴄʜᴀsᴇ: <b>{balance - price:,}</b> ɢᴏʟᴅ"
+        else:
+            needed = price - balance
+            balance_status = f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!\n\n💵 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: <b>{balance:,}</b> ɢᴏʟᴅ\n❌ ɴᴇᴇᴅ: <b>{needed:,}</b> ᴍᴏʀᴇ ɢᴏʟᴅ"
+        
+        buttons = []
+        if can_afford:
+            buttons.append([
                 InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ", callback_data=f"sc_{char_id}"),
                 InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="sx")
-            ]
-        ]
+            ])
+        else:
+            buttons.append([
+                InlineKeyboardButton("❌ ᴄᴀɴɴᴏᴛ ᴀғғᴏʀᴅ", callback_data="sna"),
+                InlineKeyboardButton("🔙 ʙᴀᴄᴋ", callback_data="sx")
+            ])
+        
         markup = InlineKeyboardMarkup(buttons)
         
         try:
             await query.edit_message_caption(
                 caption=(
-                    f"<b>💳 ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ</b>\n\n"
+                    f"<b>💳 {'ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ' if can_afford else 'ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ'}</b>\n\n"
                     f"✨ <b>{character['name']}</b>\n"
                     f"🎭 {character.get('anime', 'Unknown')}\n"
                     f"💫 {character.get('rarity', 'Unknown')}\n\n"
                     f"{discount_text}"
-                    f"💰 <b>{price:,}</b> ɢᴏʟᴅ\n\n"
-                    f"ᴄᴏɴғɪʀᴍ ᴛᴏ ʙᴜʏ?"
+                    f"💰 ᴘʀɪᴄᴇ: <b>{price:,}</b> ɢᴏʟᴅ\n\n"
+                    f"{balance_status}"
                 ),
                 parse_mode="HTML",
                 reply_markup=markup
             )
+            if not can_afford:
+                await query.answer("⚠️ ɴᴏᴛ ᴇɴᴏᴜɢʜ ɢᴏʟᴅ!", show_alert=True)
         except BadRequest:
-            await query.answer("⚠️ ᴄᴏᴜʟᴅɴ'ᴛ ᴜᴘᴅᴀᴛᴇ")
+            await query.answer("⚠️ ᴄᴏᴜʟᴅɴ'ᴛ ᴜᴘᴅᴀᴛᴇ", show_alert=True)
     
     elif data.startswith("sc_"):
         char_id = data.split("_", 1)[1]
@@ -892,7 +953,10 @@ async def shop_callback(update, context):
     elif data == "sx":
         page = context.user_data.get('shop_page', 0)
         await render_page(page)
-        await query.answer("❌ ᴄᴀɴᴄᴇʟʟᴇᴅ")
+        await query.answer("❌ ᴘᴜʀᴄʜᴀsᴇ ᴄᴀɴᴄᴇʟʟᴇᴅ")
+    
+    elif data == "sna":
+        await query.answer("💰 ᴇᴀʀɴ ᴍᴏʀᴇ ɢᴏʟᴅ ᴛᴏ ʙᴜʏ ᴛʜɪs!", show_alert=True)
 
 async def giveaway_callback(update, context):
     query = update.callback_query
