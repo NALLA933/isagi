@@ -34,6 +34,7 @@ BATTLE_ANIMATIONS = {
     "heal": "https://files.catbox.moe/ptc7sp.mp4",
     "critical": "https://files.catbox.moe/e19bx6.mp4",
     "victory": "https://files.catbox.moe/iitev2.mp4",
+    "idle": None
 }
 
 SMALLCAPS_MAP = {
@@ -106,6 +107,8 @@ class Battle:
         self.combo_count = 0
         self.is_expired = False
         self.last_animation_url = None
+        self.show_animation = False
+        self.animation_timer = None
         
     def add_log(self, message: str):
         self.battle_log.append(message)
@@ -135,6 +138,8 @@ class Battle:
         self.turn_count += 1
         self.p1_defending = False
         self.p2_defending = False
+        self.show_animation = False
+        self.last_animation_url = None
 
 class BattleManager:
     def __init__(self):
@@ -160,7 +165,7 @@ class BattleManager:
             battle_id = self.create_battle_id(user1_id, user2_id)
             return self.active_battles.get(battle_id)
         for battle in self.active_battles.values():
-            if battle.player1.user_id == user1_id or battle.player2.user_id == user1_id:
+            if battle.player1.user_id == user1_id or battle.player2.user_id == user2_id:
                 return battle
         return None
     
@@ -298,7 +303,7 @@ def create_battle_keyboard(battle: Battle, current_user_id: int) -> InlineKeyboa
     if not is_turn:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton(
-                to_smallcaps("⏳ opponent's turn..."), 
+                to_smallcaps("⏳ opponent's turn"), 
                 callback_data="rpg:wait"
             )]
         ])
@@ -378,25 +383,25 @@ def format_battle_panel(battle: Battle) -> str:
     
     combo_text = ""
     if battle.combo_count > 1:
-        combo_text = f"\n\n🔥 <b>{to_smallcaps(f'combo x{battle.combo_count}!')}</b> 🔥"
+        combo_text = f"\n\n🔥 <b>{to_smallcaps(f'combo x{battle.combo_count}!')}</b>"
     
     player2_name = p2.username if battle.is_pvp else to_smallcaps("ai warrior")
     
     panel = f"""<b>⚔️ {to_smallcaps('battle arena')} ⚔️</b>
 
 {turn_indicator_1} <b>{to_smallcaps(p1.username)}</b> {defend_status_1}
-<b>Lvl {p1.level} • Rank {p1.rank}</b>
+<b>Lvl {p1.level} Rank {p1.rank}</b>
 HP {p1_hp_bar} <code>{p1.hp}/{p1.max_hp}</code>
 MP {p1_mana_bar} <code>{p1.mana}/{p1.max_mana}</code>
-⚔️ {p1.attack} • 🛡 {p1.defense} • ⚡ {p1.speed}
+⚔️ {p1.attack} 🛡 {p1.defense} ⚡ {p1.speed}
 
 VS
 
 {turn_indicator_2} <b>{to_smallcaps(player2_name)}</b> {defend_status_2}
-<b>Lvl {p2.level} • Rank {p2.rank}</b>
+<b>Lvl {p2.level} Rank {p2.rank}</b>
 HP {p2_hp_bar} <code>{p2.hp}/{p2.max_hp}</code>
 MP {p2_mana_bar} <code>{p2.mana}/{p2.max_mana}</code>
-⚔️ {p2.attack} • 🛡 {p2.defense} • ⚡ {p2.speed}
+⚔️ {p2.attack} 🛡 {p2.defense} ⚡ {p2.speed}
 
 <b>📜 {to_smallcaps('battle log:')}</b>"""
     
@@ -404,7 +409,7 @@ MP {p2_mana_bar} <code>{p2.mana}/{p2.max_mana}</code>
         for log in battle.battle_log[-4:]:
             panel += f"\n{log}"
     else:
-        panel += f"\n› {to_smallcaps('battle started!')}"
+        panel += f"\n{to_smallcaps('battle started!')}"
     
     panel += combo_text
     panel += f"\n\n<b>Turn: {battle.turn_count + 1}</b>"
@@ -454,11 +459,12 @@ async def perform_attack(
     defender_stats.total_damage_taken += final_damage
     
     crit_text = " 💥" if is_crit else ""
-    message_text = f"› {attack_type.emoji} {attacker.username}: {final_damage} DMG{crit_text}"
+    message_text = f"{attack_type.emoji} {attacker.username}: {final_damage} DMG{crit_text}"
     
     battle.add_log(message_text)
     battle.update_action_time()
     battle.last_animation_url = animation_url
+    battle.show_animation = True
     
     return message_text, final_damage, animation_url
 
@@ -473,16 +479,17 @@ async def bot_ai_turn(battle: Battle):
         bot.hp += heal_amount
         bot.mana -= 20
         
-        battle.add_log(f"› 🤖 AI: +{heal_amount} HP")
+        battle.add_log(f"🤖 AI: +{heal_amount} HP")
         battle.p2_stats.potions_used += 1
         battle.update_action_time()
         battle.last_animation_url = BATTLE_ANIMATIONS["heal"]
+        battle.show_animation = True
         return
     
     if bot.mana < 30:
         restore = min(50, bot.max_mana - bot.mana)
         bot.mana += restore
-        battle.add_log(f"› 🤖 AI: +{restore} MP")
+        battle.add_log(f"🤖 AI: +{restore} MP")
         battle.p2_stats.potions_used += 1
         battle.update_action_time()
         return
@@ -490,9 +497,10 @@ async def bot_ai_turn(battle: Battle):
     if random.random() < 0.18:
         battle.p2_defending = True
         battle.p2_stats.defends_used += 1
-        battle.add_log("› 🤖 AI: Defending!")
+        battle.add_log("🤖 AI: Defending!")
         battle.update_action_time()
         battle.last_animation_url = BATTLE_ANIMATIONS["defend"]
+        battle.show_animation = True
         return
     
     available_attacks = [
@@ -511,6 +519,24 @@ async def bot_ai_turn(battle: Battle):
         chosen_attack = random.choice(available_attacks)
     
     await perform_attack(battle, bot, player, chosen_attack, 2)
+
+async def clear_animation_after_delay(battle: Battle, message, delay: int = 3):
+    await asyncio.sleep(delay)
+    battle.show_animation = False
+    battle.last_animation_url = None
+    
+    try:
+        panel = format_battle_panel(battle)
+        next_player_id = battle.player1.user_id if battle.current_turn == 1 else battle.player2.user_id
+        keyboard = create_battle_keyboard(battle, next_player_id)
+        
+        await message.edit_text(
+            panel,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except (BadRequest, Exception):
+        pass
 
 async def rpg_start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -596,12 +622,7 @@ async def rpg_start(update: Update, context: CallbackContext):
         await message.reply_text(
             panel,
             reply_markup=keyboard,
-            parse_mode="HTML",
-            link_preview_options=LinkPreviewOptions(
-                url="https://files.catbox.moe/k3dhbe.mp4",
-                show_above_text=True,
-                prefer_large_media=True
-            )
+            parse_mode="HTML"
         )
     except Exception:
         battle_manager.end_battle(player1.user_id, player2.user_id)
@@ -617,7 +638,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
     action = data[1]
     
     if action == "wait":
-        await query.answer(to_smallcaps("⏳ wait for your turn baby! 😘"), show_alert=True)
+        await query.answer(to_smallcaps("⏳ wait for your turn"), show_alert=True)
         return
     
     await query.answer()
@@ -634,7 +655,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             )],
             [InlineKeyboardButton(
                 "🏆 " + to_smallcaps("leaderboard"),
-                callback_data=f"rpg:leaderboard:{update.effective_user.id}"
+                callback_data=f"rpg:lb:{update.effective_user.id}"
             )]
         ])
         
@@ -642,12 +663,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             await query.message.edit_text(
                 f"<b>⚔️ {to_smallcaps('rpg battle system')} ⚔️</b>\n\n{to_smallcaps('choose an option:')}",
                 reply_markup=keyboard,
-                parse_mode="HTML",
-                link_preview_options=LinkPreviewOptions(
-                    url="https://files.catbox.moe/k3dhbe.mp4",
-                    show_above_text=True,
-                    prefer_large_media=True
-                )
+                parse_mode="HTML"
             )
         except Exception:
             pass
@@ -697,12 +713,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             await query.message.edit_text(
                 panel,
                 reply_markup=keyboard,
-                parse_mode="HTML",
-                link_preview_options=LinkPreviewOptions(
-                    url="https://files.catbox.moe/k3dhbe.mp4",
-                    show_above_text=True,
-                    prefer_large_media=True
-                )
+                parse_mode="HTML"
             )
         except Exception:
             battle_manager.end_battle(player1.user_id, player2.user_id)
@@ -753,16 +764,16 @@ async def rpg_callback(update: Update, context: CallbackContext):
 <b>{to_smallcaps('needed:')}</b> {xp_progress}
 
 <b>{to_smallcaps('combat stats:')}</b>
-❤️ HP: {player.max_hp}
-💙 Mana: {player.max_mana}
-⚔️ Attack: {player.attack}
-🛡️ Defense: {player.defense}
-⚡ Speed: {player.speed}
+HP: {player.max_hp}
+Mana: {player.max_mana}
+Attack: {player.attack}
+Defense: {player.defense}
+Speed: {player.speed}
 
 <b>{to_smallcaps('inventory:')}</b>
-💰 Coins: {balance}
-🎫 Tokens: {tokens}
-🏆 Achievements: {len(achievements)}
+Coins: {balance}
+Tokens: {tokens}
+Achievements: {len(achievements)}
 
 <b>{to_smallcaps('unlocked attacks:')}</b>
 {', '.join([a.upper() for a in player.unlocked_attacks])}"""
@@ -784,7 +795,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "leaderboard":
+    if action == "lb":
         user_id = int(data[2])
         
         try:
@@ -810,7 +821,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             else:
                 medal = f"{idx}."
             
-            leaderboard_text += f"{medal} <b>{username}</b> • Lvl {level} • {rank} • {xp} XP\n"
+            leaderboard_text += f"{medal} <b>{username}</b> Lvl {level} {rank} {xp} XP\n"
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(
@@ -832,7 +843,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
     user_id = int(data[-1])
     
     if update.effective_user.id != user_id:
-        await query.answer(to_smallcaps("❌ not your turn baby! 😘"), show_alert=True)
+        await query.answer(to_smallcaps("❌ not your turn"), show_alert=True)
         return
     
     battle = battle_manager.get_battle(user_id)
@@ -866,7 +877,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
     is_turn = (battle.current_turn == 1 and is_player1) or (battle.current_turn == 2 and not is_player1)
     
     if not is_turn:
-        await query.answer(to_smallcaps("⏳ wait for your turn baby! 😘"), show_alert=True)
+        await query.answer(to_smallcaps("⏳ wait for your turn"), show_alert=True)
         return
     
     over, winner = battle.is_over()
@@ -912,10 +923,11 @@ async def rpg_callback(update: Update, context: CallbackContext):
                 battle.p2_stats.defends_used += 1
             
             animation_url = BATTLE_ANIMATIONS["defend"]
-            action_message = f"› 🛡 {current_player.username}: Defending!"
+            action_message = f"🛡 {current_player.username}: Defending!"
             battle.add_log(action_message)
             battle.update_action_time()
             battle.last_animation_url = animation_url
+            battle.show_animation = True
         
         elif action == "heal":
             if current_player.mana < 20:
@@ -930,10 +942,11 @@ async def rpg_callback(update: Update, context: CallbackContext):
             stats.potions_used += 1
             
             animation_url = BATTLE_ANIMATIONS["heal"]
-            action_message = f"› 💚 {current_player.username}: +{heal_amount} HP"
+            action_message = f"💚 {current_player.username}: +{heal_amount} HP"
             battle.add_log(action_message)
             battle.update_action_time()
             battle.last_animation_url = animation_url
+            battle.show_animation = True
         
         elif action == "mana":
             restore_amount = min(50, current_player.max_mana - current_player.mana)
@@ -943,10 +956,11 @@ async def rpg_callback(update: Update, context: CallbackContext):
             stats.potions_used += 1
             
             animation_url = BATTLE_ANIMATIONS["heal"]
-            action_message = f"› 💙 {current_player.username}: +{restore_amount} MP"
+            action_message = f"💙 {current_player.username}: +{restore_amount} MP"
             battle.add_log(action_message)
             battle.update_action_time()
             battle.last_animation_url = animation_url
+            battle.show_animation = True
         
         elif action == "forfeit":
             battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
@@ -982,23 +996,37 @@ async def rpg_callback(update: Update, context: CallbackContext):
         next_player_id = battle.player1.user_id if battle.current_turn == 1 else battle.player2.user_id
         keyboard = create_battle_keyboard(battle, next_player_id)
         
-        display_animation = battle.last_animation_url or "https://files.catbox.moe/k3dhbe.mp4"
-        
-        try:
-            await query.message.edit_text(
-                panel,
-                reply_markup=keyboard,
-                parse_mode="HTML",
-                link_preview_options=LinkPreviewOptions(
-                    url=display_animation,
-                    show_above_text=True,
-                    prefer_large_media=True
+        if battle.show_animation and battle.last_animation_url:
+            display_animation = battle.last_animation_url
+            
+            try:
+                await query.message.edit_text(
+                    panel,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                    link_preview_options=LinkPreviewOptions(
+                        url=display_animation,
+                        show_above_text=True,
+                        prefer_large_media=True
+                    )
                 )
-            )
-        except BadRequest:
-            pass
-        except Exception:
-            battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
+            except BadRequest:
+                pass
+            except Exception:
+                battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
+            
+            asyncio.create_task(clear_animation_after_delay(battle, query.message, 3))
+        else:
+            try:
+                await query.message.edit_text(
+                    panel,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+            except BadRequest:
+                pass
+            except Exception:
+                battle_manager.end_battle(battle.player1.user_id, battle.player2.user_id)
     
     except Exception:
         await query.answer(to_smallcaps("❌ error occurred!"), show_alert=True)
@@ -1050,10 +1078,10 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     level_up_msg = ""
     
     if winner_new_level > winner_old_level:
-        level_up_msg = f"\n\n🎉 <b>{to_smallcaps('level up!')}</b> 🎉\n<b>{winner_old_level} → {winner_new_level}</b>"
+        level_up_msg = f"\n\n<b>{to_smallcaps('level up!')}</b>\n<b>{winner_old_level} → {winner_new_level}</b>"
         
         if winner_new_rank != winner_player.rank:
-            level_up_msg += f"\n🎖️ <b>{to_smallcaps('new rank:')} {winner_new_rank}</b>"
+            level_up_msg += f"\n<b>{to_smallcaps('new rank:')} {winner_new_rank}</b>"
         
         new_attacks = []
         if winner_new_level >= 3 and "lightning" not in winner_player.unlocked_attacks:
@@ -1075,46 +1103,46 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
                     {'id': winner_player.user_id},
                     {'$addToSet': {'rpg_unlocked': {'$each': [a.lower() for a in new_attacks]}}}
                 )
-                level_up_msg += f"\n🔓 <b>{to_smallcaps('unlocked:')}</b> {', '.join(new_attacks)}"
+                level_up_msg += f"\n<b>{to_smallcaps('unlocked:')}</b> {', '.join(new_attacks)}"
             except Exception:
                 pass
     
     result_text = f"""<b>⚔️ {to_smallcaps('battle ended')} ⚔️</b>
 
-👑 <b>{to_smallcaps('winner:')}</b> {winner_player.username}
-💀 <b>{to_smallcaps('loser:')}</b> {loser_player.username}
+<b>{to_smallcaps('winner:')}</b> {winner_player.username}
+<b>{to_smallcaps('loser:')}</b> {loser_player.username}
 
 <b>📊 {to_smallcaps('battle statistics')} 📊</b>
 
 <b>{winner_player.username} ({to_smallcaps('winner')})</b>
-⚔️ {to_smallcaps('damage dealt:')} {winner_stats.total_damage_dealt}
-🩸 {to_smallcaps('damage taken:')} {winner_stats.total_damage_taken}
-🎯 {to_smallcaps('attacks:')} {winner_stats.attacks_used}
-💥 {to_smallcaps('criticals:')} {winner_stats.critical_hits}
-💊 {to_smallcaps('potions:')} {winner_stats.potions_used}
-🛡️ {to_smallcaps('defends:')} {winner_stats.defends_used}
+{to_smallcaps('damage dealt:')} {winner_stats.total_damage_dealt}
+{to_smallcaps('damage taken:')} {winner_stats.total_damage_taken}
+{to_smallcaps('attacks:')} {winner_stats.attacks_used}
+{to_smallcaps('criticals:')} {winner_stats.critical_hits}
+{to_smallcaps('potions:')} {winner_stats.potions_used}
+{to_smallcaps('defends:')} {winner_stats.defends_used}
 
 <b>{loser_player.username} ({to_smallcaps('loser')})</b>
-⚔️ {to_smallcaps('damage dealt:')} {loser_stats.total_damage_dealt}
-🩸 {to_smallcaps('damage taken:')} {loser_stats.total_damage_taken}
-🎯 {to_smallcaps('attacks:')} {loser_stats.attacks_used}
-💥 {to_smallcaps('criticals:')} {loser_stats.critical_hits}
-💊 {to_smallcaps('potions:')} {loser_stats.potions_used}
-🛡️ {to_smallcaps('defends:')} {loser_stats.defends_used}
+{to_smallcaps('damage dealt:')} {loser_stats.total_damage_dealt}
+{to_smallcaps('damage taken:')} {loser_stats.total_damage_taken}
+{to_smallcaps('attacks:')} {loser_stats.attacks_used}
+{to_smallcaps('criticals:')} {loser_stats.critical_hits}
+{to_smallcaps('potions:')} {loser_stats.potions_used}
+{to_smallcaps('defends:')} {loser_stats.defends_used}
 
-<b>🎁 {to_smallcaps('rewards')} 🎁</b>
+<b>{to_smallcaps('rewards')} </b>
 
 <b>{winner_player.username}</b>
-✨ XP: +{winner_xp}
-💰 Coins: +{winner_coins}
+XP: +{winner_xp}
+Coins: +{winner_coins}
 {level_up_msg}"""
     
     if battle.is_pvp and loser_xp > 0:
         result_text += f"""
 
 <b>{loser_player.username}</b>
-✨ XP: +{loser_xp}
-💰 Coins: +{loser_coins}"""
+XP: +{loser_xp}
+Coins: +{loser_coins}"""
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
@@ -1151,7 +1179,7 @@ async def rpg_menu(update: Update, context: CallbackContext):
         )],
         [InlineKeyboardButton(
             "🏆 " + to_smallcaps("leaderboard"),
-            callback_data=f"rpg:leaderboard:{user.id}"
+            callback_data=f"rpg:lb:{user.id}"
         )]
     ])
     
@@ -1174,24 +1202,24 @@ async def rpg_help(update: Update, context: CallbackContext):
 /rpghelp - {to_smallcaps('this help')}
 
 <b>{to_smallcaps('attacks & unlock levels:')}</b>
-👊 NORMAL (15 MP)
-🔥 FIRE (30 MP) - Level 1
-❄️ ICE (25 MP) - Level 1
-⚡ LIGHTNING (35 MP) - Level 3+
-💧 WATER (20 MP) - Level 5+
-🌍 EARTH (22 MP) - Level 7+
-💨 WIND (28 MP) - Level 10+
-🌑 DARK (40 MP) - Level 15+
-✨ LIGHT (38 MP) - Level 20+
+NORMAL (15 MP)
+FIRE (30 MP) - Level 1
+ICE (25 MP) - Level 1
+LIGHTNING (35 MP) - Level 3+
+WATER (20 MP) - Level 5+
+EARTH (22 MP) - Level 7+
+WIND (28 MP) - Level 10+
+DARK (40 MP) - Level 15+
+LIGHT (38 MP) - Level 20+
 
 <b>{to_smallcaps('game tips:')}</b>
-• {to_smallcaps('60 second turn timeout')}
-• {to_smallcaps('high speed = more criticals')}
-• {to_smallcaps('defend = 2.5x defense multiplier')}
-• {to_smallcaps('consecutive crits = combo bonus')}
-• {to_smallcaps('heal restores 40 hp for 20 mp')}
-• {to_smallcaps('mana restores 50 mp')}
-• {to_smallcaps('higher level = stronger stats')}"""
+{to_smallcaps('60 second turn timeout')}
+{to_smallcaps('high speed = more criticals')}
+{to_smallcaps('defend = 2.5x defense multiplier')}
+{to_smallcaps('consecutive crits = combo bonus')}
+{to_smallcaps('heal restores 40 hp for 20 mp')}
+{to_smallcaps('mana restores 50 mp')}
+{to_smallcaps('higher level = stronger stats')}"""
     
     await update.message.reply_text(help_text, parse_mode="HTML")
 
@@ -1217,16 +1245,16 @@ async def rpg_stats_cmd(update: Update, context: CallbackContext):
 <b>{to_smallcaps('xp to next level:')}</b> {xp_progress}
 
 <b>{to_smallcaps('combat stats:')}</b>
-❤️ HP: {player.max_hp}
-💙 Mana: {player.max_mana}
-⚔️ Attack: {player.attack}
-🛡️ Defense: {player.defense}
-⚡ Speed: {player.speed}
+HP: {player.max_hp}
+Mana: {player.max_mana}
+Attack: {player.attack}
+Defense: {player.defense}
+Speed: {player.speed}
 
 <b>{to_smallcaps('inventory:')}</b>
-💰 Coins: {balance}
-🎫 Tokens: {tokens}
-🏆 Achievements: {len(achievements)}
+Coins: {balance}
+Tokens: {tokens}
+Achievements: {len(achievements)}
 
 <b>{to_smallcaps('unlocked attacks:')}</b>
 {', '.join([a.upper() for a in player.unlocked_attacks])}"""
