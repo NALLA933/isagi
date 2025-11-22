@@ -14,6 +14,10 @@ SMALLCAPS_MAP = {c: v for c, v in zip(
 def sc(text: str) -> str:
     return ''.join(SMALLCAPS_MAP.get(c, c) for c in text)
 
+def calc_level(xp: int) -> int:
+    import math
+    return min(max(1, math.floor(math.sqrt(max(xp, 0) / 100)) + 1), 100)
+
 @dataclass
 class ShopItem:
     item_id: str
@@ -44,8 +48,10 @@ SHOP_ITEMS = {
     "elixir": ShopItem("elixir", "Full Elixir", "Restores all HP and Mana", 1000, 5, "✨", "consumable", "full_restore", 0, 0, 10, 30),
     
     # Elemental Crystals
-    **{f"{elem}_crystal": ShopItem(f"{elem}_crystal", f"{elem.title()} Crystal", f"Boost {elem.title()} attacks by 25% for 3 turns", 400, 0, emoji, "buff", f"{elem}_boost", 25, 3, 5, 15)
-       for elem, emoji in [("fire", "🔥"), ("ice", "❄️"), ("lightning", "⚡"), ("water", "💧"), ("earth", "🌍"), ("wind", "💨"), ("dark", "🌑"), ("light", "✨")]},
+    "fire_crystal": ShopItem("fire_crystal", "Fire Crystal", "Boost Fire attacks +25% for 3 turns", 400, 0, "🔥", "buff", "fire_boost", 25, 3, 5, 15),
+    "ice_crystal": ShopItem("ice_crystal", "Ice Crystal", "Boost Ice attacks +25% for 3 turns", 400, 0, "❄️", "buff", "ice_boost", 25, 3, 5, 15),
+    "lightning_crystal": ShopItem("lightning_crystal", "Lightning Crystal", "Boost Lightning +25% for 3 turns", 400, 0, "⚡", "buff", "lightning_boost", 25, 3, 5, 15),
+    "water_crystal": ShopItem("water_crystal", "Water Crystal", "Boost Water attacks +25% for 3 turns", 400, 0, "💧", "buff", "water_boost", 25, 3, 5, 15),
     
     # Stat Boosters
     "strength_potion": ShopItem("strength_potion", "Strength Potion", "+30% Attack for 5 turns", 600, 0, "💪", "buff", "attack_boost", 30, 5, 5, 20),
@@ -53,20 +59,17 @@ SHOP_ITEMS = {
     "speed_potion": ShopItem("speed_potion", "Speed Potion", "+35% Speed for 5 turns", 600, 0, "⚡", "buff", "speed_boost", 35, 5, 5, 20),
     
     # Special Items
-    "phoenix_feather": ShopItem("phoenix_feather", "Phoenix Feather", "Auto-revive with 50% HP once per battle", 2000, 10, "🪶", "special", "revive", 50, 0, 3, 40),
-    "lucky_charm": ShopItem("lucky_charm", "Lucky Charm", "+15% Critical Hit chance for 5 turns", 800, 0, "🍀", "buff", "crit_boost", 15, 5, 5, 25),
-    "smoke_bomb": ShopItem("smoke_bomb", "Smoke Bomb", "+30% Dodge chance for 3 turns", 500, 0, "💨", "buff", "dodge_boost", 30, 3, 5, 15),
+    "phoenix_feather": ShopItem("phoenix_feather", "Phoenix Feather", "Auto-revive with 50% HP", 2000, 10, "🪶", "special", "revive", 50, 0, 3, 40),
+    "lucky_charm": ShopItem("lucky_charm", "Lucky Charm", "+15% Crit chance for 5 turns", 800, 0, "🍀", "buff", "crit_boost", 15, 5, 5, 25),
+    "smoke_bomb": ShopItem("smoke_bomb", "Smoke Bomb", "+30% Dodge for 3 turns", 500, 0, "💨", "buff", "dodge_boost", 30, 3, 5, 15),
     
     # Battle Tickets
-    "battle_ticket": ShopItem("battle_ticket", "Battle Ticket", "+5 AI battles for today", 1500, 0, "🎫", "special", "ai_battles", 5, 0, 3, 1),
-    "pvp_ticket": ShopItem("pvp_ticket", "PVP Ticket", "+5 PVP battles for today", 2000, 0, "🎟️", "special", "pvp_battles", 5, 0, 3, 1),
+    "battle_ticket": ShopItem("battle_ticket", "Battle Ticket", "+5 AI battles", 1500, 0, "🎫", "special", "ai_battles", 5, 0, 3, 1),
+    "pvp_ticket": ShopItem("pvp_ticket", "PVP Ticket", "+5 PVP battles", 2000, 0, "🎟️", "special", "pvp_battles", 5, 0, 3, 1),
     
     # Long-term Boosters
-    "exp_boost": ShopItem("exp_boost", "EXP Booster", "+50% EXP gain for 24 hours", 3000, 15, "⭐", "boost", "exp_boost", 50, 1440, 1, 30),
-    "coin_boost": ShopItem("coin_boost", "Coin Booster", "+50% Coin gain for 24 hours", 2500, 12, "💰", "boost", "coin_boost", 50, 1440, 1, 25),
-    
-    # Rare Items
-    "master_scroll": ShopItem("master_scroll", "Master Scroll", "Instantly learn one locked attack", 5000, 25, "📜", "special", "unlock_attack", 1, 0, 10, 50),
+    "exp_boost": ShopItem("exp_boost", "EXP Booster", "+50% EXP for 24h", 3000, 15, "⭐", "boost", "exp_boost", 50, 1440, 1, 30),
+    "coin_boost": ShopItem("coin_boost", "Coin Booster", "+50% Coins for 24h", 2500, 12, "💰", "boost", "coin_boost", 50, 1440, 1, 25),
 }
 
 SHOP_CATEGORIES = {
@@ -138,19 +141,20 @@ async def add_boost(uid: int, boost_type: str, value: int, duration_minutes: int
     except:
         return False
 
-def calc_level(xp: int) -> int:
-    import math
-    return min(max(1, math.floor(math.sqrt(max(xp, 0) / 100)) + 1), 100)
-
 # Keyboard Functions
 def create_shop_main_menu(uid: int) -> InlineKeyboardMarkup:
-    keyboard = [[InlineKeyboardButton(f"{cat['emoji']} {sc(cat['name'])}", callback_data=f"bshop_{cid}_{uid}")]
-                for cid, cat in SHOP_CATEGORIES.items()]
-    keyboard.extend([
-        [InlineKeyboardButton(f"🎒 {sc('my inventory')}", callback_data=f"bshop_inv_{uid}")],
-        [InlineKeyboardButton(f"📊 {sc('active boosts')}", callback_data=f"bshop_boosts_{uid}")],
-        [InlineKeyboardButton(f"◀️ {sc('back to rpg menu')}", callback_data=f"rpg_menu_{uid}")]
-    ])
+    keyboard = []
+    
+    for cid, cat in SHOP_CATEGORIES.items():
+        keyboard.append([InlineKeyboardButton(
+            f"{cat['emoji']} {sc(cat['name'])}", 
+            callback_data=f"bshop_{cid}_{uid}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton(f"🎒 {sc('my inventory')}", callback_data=f"bshop_inv_{uid}")])
+    keyboard.append([InlineKeyboardButton(f"📊 {sc('active boosts')}", callback_data=f"bshop_boosts_{uid}")])
+    keyboard.append([InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"rpg_menu_{uid}")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 def create_category_menu(category: str, uid: int, player_level: int) -> InlineKeyboardMarkup:
@@ -173,13 +177,27 @@ def create_item_detail_menu(item_id: str, uid: int, quantity: int = 0) -> Inline
     if not item:
         return InlineKeyboardMarkup([[]])
     
-    keyboard = [[InlineKeyboardButton(f"💰 {sc('buy with coins')}", callback_data=f"bshop_coin_{item_id}_{uid}")]]
+    keyboard = []
     
+    # Buy with coins button
+    keyboard.append([InlineKeyboardButton(
+        f"💰 {sc('buy with coins')} ({item.price_coins})", 
+        callback_data=f"bshop_coin_{item_id}_{uid}"
+    )])
+    
+    # Buy with tokens button if available
     if item.price_tokens > 0:
-        keyboard.append([InlineKeyboardButton(f"🎫 {sc('buy with tokens')}", callback_data=f"bshop_token_{item_id}_{uid}")])
+        keyboard.append([InlineKeyboardButton(
+            f"🎫 {sc('buy with tokens')} ({item.price_tokens})", 
+            callback_data=f"bshop_token_{item_id}_{uid}"
+        )])
     
+    # Use item button if user owns it
     if quantity > 0 and item.category in ["consumable", "buff"]:
-        keyboard.append([InlineKeyboardButton(f"🎒 {sc('use item')} (x{quantity})", callback_data=f"bshop_use_{item_id}_{uid}")])
+        keyboard.append([InlineKeyboardButton(
+            f"🎒 {sc('use item')} (x{quantity})", 
+            callback_data=f"bshop_use_{item_id}_{uid}"
+        )])
     
     keyboard.append([InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"bshop_{item.category}_{uid}")])
     return InlineKeyboardMarkup(keyboard)
@@ -206,9 +224,9 @@ async def bshop_main(update: Update, context: CallbackContext):
     
     for cat_id, cat_data in SHOP_CATEGORIES.items():
         items_count = len([i for i in SHOP_ITEMS.values() if i.category == cat_id])
-        text += f"\n{cat_data['emoji']} <b>{cat_data['name']}</b> ({items_count} items)\n<i>{cat_data['desc']}</i>"
+        text += f"\n\n{cat_data['emoji']} <b>{cat_data['name']}</b> ({items_count} items)\n<i>{cat_data['desc']}</i>"
     
-    text += f"\n\n<i>{sc('select a category to browse items!')}</i>"
+    text += f"\n\n<i>{sc('select a category to browse!')}</i>"
     
     kb = create_shop_main_menu(user.id)
     
@@ -222,14 +240,14 @@ async def bshop_main(update: Update, context: CallbackContext):
 
 async def bshop_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    data = query.data.split("_")
+    data_parts = query.data.split("_")
     
-    if len(data) < 3:
+    if len(data_parts) < 3:
         await query.answer(sc("invalid action!"), show_alert=True)
         return
     
-    action = data[1]
-    uid = int(data[-1])
+    action = data_parts[1]
+    uid = int(data_parts[-1])
     
     await query.answer()
     
@@ -270,7 +288,7 @@ async def bshop_callback(update: Update, context: CallbackContext):
     
     # Handle item view
     if action == "view":
-        item_id = data[2]
+        item_id = data_parts[2]
         item = SHOP_ITEMS.get(item_id)
         
         if not item:
@@ -281,7 +299,12 @@ async def bshop_callback(update: Update, context: CallbackContext):
         quantity = inventory.get(item_id, 0)
         
         locked_text = f"\n\n🔒 <b>{sc('requires level')} {item.level_required}</b>" if item.level_required > level else ""
-        duration_text = f"\n⏱️ Duration: {item.duration // 60} hour(s)" if item.duration >= 60 else f"\n⏱️ Duration: {item.duration} turn(s)" if item.duration > 0 else ""
+        duration_text = ""
+        if item.duration > 0:
+            if item.duration >= 60:
+                duration_text = f"\n⏱️ Duration: {item.duration // 60} hour(s)"
+            else:
+                duration_text = f"\n⏱️ Duration: {item.duration} turn(s)"
         
         text = f"""<b>{item.emoji} {item.name} {item.emoji}</b>
 ━━━━━━━━━━━━━━━━━━━━
@@ -306,9 +329,9 @@ async def bshop_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    # Handle purchase
-    if action in ["coin", "token"]:
-        item_id = data[2]
+    # Handle purchase with coins
+    if action == "coin":
+        item_id = data_parts[2]
         item = SHOP_ITEMS.get(item_id)
         
         if not item:
@@ -321,34 +344,25 @@ async def bshop_callback(update: Update, context: CallbackContext):
         
         inventory = await get_inventory(uid)
         if inventory.get(item_id, 0) >= item.max_stack:
-            await query.answer(f"❌ {sc('maximum stack reached!')} ({item.max_stack})", show_alert=True)
+            await query.answer(f"❌ {sc('max stack reached!')} ({item.max_stack})", show_alert=True)
             return
         
-        if action == "coin":
-            if balance < item.price_coins:
-                await query.answer(f"❌ {sc('not enough coins!')} ({balance:,}/{item.price_coins:,})", show_alert=True)
-                return
-            
-            try:
-                await user_collection.update_one({'id': uid}, {'$inc': {'balance': -item.price_coins}})
-            except:
-                await query.answer(sc("purchase failed!"), show_alert=True)
-                return
-        else:
-            if item.price_tokens == 0:
-                await query.answer(sc("cannot buy with tokens!"), show_alert=True)
-                return
-            
-            if tokens < item.price_tokens:
-                await query.answer(f"❌ {sc('not enough tokens!')} ({tokens:,}/{item.price_tokens:,})", show_alert=True)
-                return
-            
-            try:
-                await user_collection.update_one({'id': uid}, {'$inc': {'tokens': -item.price_tokens}})
-            except:
-                await query.answer(sc("purchase failed!"), show_alert=True)
-                return
+        if balance < item.price_coins:
+            await query.answer(f"❌ {sc('not enough coins!')} ({balance:,}/{item.price_coins:,})", show_alert=True)
+            return
         
+        # Deduct coins
+        try:
+            await user_collection.update_one(
+                {'id': uid},
+                {'$inc': {'balance': -item.price_coins}},
+                upsert=True
+            )
+        except:
+            await query.answer(sc("purchase failed!"), show_alert=True)
+            return
+        
+        # Add item to inventory
         if await add_item_to_inventory(uid, item_id, 1):
             await query.answer(f"✅ {sc('purchased')} {item.name}!", show_alert=True)
             
@@ -359,7 +373,12 @@ async def bshop_callback(update: Update, context: CallbackContext):
             inventory = await get_inventory(uid)
             quantity = inventory.get(item_id, 0)
             
-            duration_text = f"\n⏱️ Duration: {item.duration // 60} hour(s)" if item.duration >= 60 else f"\n⏱️ Duration: {item.duration} turn(s)" if item.duration > 0 else ""
+            duration_text = ""
+            if item.duration > 0:
+                if item.duration >= 60:
+                    duration_text = f"\n⏱️ Duration: {item.duration // 60} hour(s)"
+                else:
+                    duration_text = f"\n⏱️ Duration: {item.duration} turn(s)"
             
             text = f"""<b>{item.emoji} {item.name} {item.emoji}</b>
 ━━━━━━━━━━━━━━━━━━━━
@@ -383,12 +402,102 @@ async def bshop_callback(update: Update, context: CallbackContext):
             except:
                 pass
         else:
+            # Refund if adding to inventory failed
+            try:
+                await user_collection.update_one({'id': uid}, {'$inc': {'balance': item.price_coins}})
+            except:
+                pass
+            await query.answer(sc("purchase failed!"), show_alert=True)
+        return
+    
+    # Handle purchase with tokens
+    if action == "token":
+        item_id = data_parts[2]
+        item = SHOP_ITEMS.get(item_id)
+        
+        if not item:
+            await query.answer(sc("item not found!"), show_alert=True)
+            return
+        
+        if item.price_tokens == 0:
+            await query.answer(sc("cannot buy with tokens!"), show_alert=True)
+            return
+        
+        if item.level_required > level:
+            await query.answer(f"🔒 {sc('requires level')} {item.level_required}!", show_alert=True)
+            return
+        
+        inventory = await get_inventory(uid)
+        if inventory.get(item_id, 0) >= item.max_stack:
+            await query.answer(f"❌ {sc('max stack reached!')} ({item.max_stack})", show_alert=True)
+            return
+        
+        if tokens < item.price_tokens:
+            await query.answer(f"❌ {sc('not enough tokens!')} ({tokens:,}/{item.price_tokens:,})", show_alert=True)
+            return
+        
+        # Deduct tokens
+        try:
+            await user_collection.update_one(
+                {'id': uid},
+                {'$inc': {'tokens': -item.price_tokens}},
+                upsert=True
+            )
+        except:
+            await query.answer(sc("purchase failed!"), show_alert=True)
+            return
+        
+        # Add item to inventory
+        if await add_item_to_inventory(uid, item_id, 1):
+            await query.answer(f"✅ {sc('purchased')} {item.name}!", show_alert=True)
+            
+            # Refresh display
+            doc = await get_user(uid)
+            balance = doc.get('balance', 0) if doc else 0
+            tokens = doc.get('tokens', 0) if doc else 0
+            inventory = await get_inventory(uid)
+            quantity = inventory.get(item_id, 0)
+            
+            duration_text = ""
+            if item.duration > 0:
+                if item.duration >= 60:
+                    duration_text = f"\n⏱️ Duration: {item.duration // 60} hour(s)"
+                else:
+                    duration_text = f"\n⏱️ Duration: {item.duration} turn(s)"
+            
+            text = f"""<b>{item.emoji} {item.name} {item.emoji}</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<i>{item.description}</i>
+
+<b>{sc('details:')}</b>
+💰 Price: {item.price_coins:,} coins
+🎫 Token Price: {item.price_tokens:,} tokens
+📦 Max Stack: {item.max_stack}
+⭐ Level Required: {item.level_required}{duration_text}
+
+<b>{sc('you own:')}</b> {quantity} / {item.max_stack}
+
+<b>{sc('your wallet:')}</b>
+💰 {balance:,} | 🎫 {tokens:,}"""
+            
+            kb = create_item_detail_menu(item_id, uid, quantity)
+            try:
+                await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except:
+                pass
+        else:
+            # Refund if adding to inventory failed
+            try:
+                await user_collection.update_one({'id': uid}, {'$inc': {'tokens': item.price_tokens}})
+            except:
+                pass
             await query.answer(sc("purchase failed!"), show_alert=True)
         return
     
     # Handle item use
     if action == "use":
-        item_id = data[2]
+        item_id = data_parts[2]
         item = SHOP_ITEMS.get(item_id)
         
         if not item:
@@ -411,7 +520,7 @@ async def bshop_callback(update: Update, context: CallbackContext):
         
         # Handle battle tickets
         elif item.effect_type in ["ai_battles", "pvp_battles"]:
-            battle_data = doc.get('battle_data', {})
+            battle_data = doc.get('battle_data', {}) if doc else {}
             
             if item.effect_type == "ai_battles":
                 battle_data['ai_battles'] = max(0, battle_data.get('ai_battles', 0) - item.effect_value)
@@ -419,7 +528,11 @@ async def bshop_callback(update: Update, context: CallbackContext):
                 battle_data['pvp_battles'] = max(0, battle_data.get('pvp_battles', 0) - item.effect_value)
             
             try:
-                await user_collection.update_one({'id': uid}, {'$set': {'battle_data': battle_data}})
+                await user_collection.update_one(
+                    {'id': uid},
+                    {'$set': {'battle_data': battle_data}},
+                    upsert=True
+                )
                 await remove_item_from_inventory(uid, item_id, 1)
                 await query.answer(f"✅ +{item.effect_value} battles added!", show_alert=True)
             except:
@@ -465,7 +578,7 @@ async def bshop_callback(update: Update, context: CallbackContext):
 
 <i>{sc('no active boosts!')}</i>
 
-{sc('purchase boosters from the shop to enhance your gameplay!')}"""
+{sc('purchase boosters from the shop!')}"""
         else:
             text = f"""<b>📊 {sc('active boosts')} 📊</b>
 ━━━━━━━━━━━━━━━━━━━━\n\n"""
