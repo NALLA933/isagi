@@ -900,7 +900,7 @@ def create_attack_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
         can_use = player.mana >= atk.mana_cost
         emoji = atk.emoji if can_use else "✗"
         
-        btn = InlineKeyboardButton(emoji, callback_data=f"btl_atk_{best}_{uid}")
+        btn = InlineKeyboardButton(emoji, callback_data=f"b_at_{best}_{uid}")
         row.append(btn)
         
         if len(row) >= 5:
@@ -911,15 +911,15 @@ def create_attack_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
         keyboard.append(row)
     
     keyboard.append([
-        InlineKeyboardButton("🛡️", callback_data=f"btl_def_{uid}"),
-        InlineKeyboardButton("💚", callback_data=f"btl_heal_{uid}"),
-        InlineKeyboardButton("💙", callback_data=f"btl_mana_{uid}"),
-        InlineKeyboardButton("📖", callback_data=f"btl_skills_{uid}"),
+        InlineKeyboardButton("🛡️", callback_data=f"b_df_{uid}"),
+        InlineKeyboardButton("💚", callback_data=f"b_hl_{uid}"),
+        InlineKeyboardButton("💙", callback_data=f"b_mp_{uid}"),
+        InlineKeyboardButton("📖", callback_data=f"b_sk_{uid}"),
     ])
     
     keyboard.append([
-        InlineKeyboardButton("🎒", callback_data=f"btl_items_{uid}"),
-        InlineKeyboardButton(f"🏳️ {sc('forfeit')}", callback_data=f"btl_forfeit_{uid}")
+        InlineKeyboardButton("🎒", callback_data=f"b_it_{uid}"),
+        InlineKeyboardButton(f"🏳️ {sc('forfeit')}", callback_data=f"b_ff_{uid}")
     ])
     
     return InlineKeyboardMarkup(keyboard)
@@ -929,14 +929,14 @@ def create_skills_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
     
     keyboard = [
         [
-            InlineKeyboardButton(f"💪 {sc('might')} (35)", callback_data=f"btl_buff_might_{uid}"),
-            InlineKeyboardButton(f"🛡️ {sc('shield')} (30)", callback_data=f"btl_buff_shield_{uid}"),
+            InlineKeyboardButton(f"💪 {sc('might')} (35)", callback_data=f"b_bm_{uid}"),
+            InlineKeyboardButton(f"🛡️ {sc('shield')} (30)", callback_data=f"b_bs_{uid}"),
         ],
         [
-            InlineKeyboardButton(f"⚡ {sc('haste')} (40)", callback_data=f"btl_buff_haste_{uid}"),
-            InlineKeyboardButton(f"💚 {sc('regen')} (45)", callback_data=f"btl_buff_regen_{uid}"),
+            InlineKeyboardButton(f"⚡ {sc('haste')} (40)", callback_data=f"b_bh_{uid}"),
+            InlineKeyboardButton(f"💚 {sc('regen')} (45)", callback_data=f"b_br_{uid}"),
         ],
-        [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_back_{uid}")]
+        [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"b_bk_{uid}")]
     ]
     
     return InlineKeyboardMarkup(keyboard)
@@ -962,27 +962,27 @@ async def create_items_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarku
                 has_items = True
                 keyboard.append([InlineKeyboardButton(
                     f"{item.emoji} {item.name} (x{inventory[item_id]})",
-                    callback_data=f"btl_useitem_{item_id}_{uid}"
+                    callback_data=f"b_ui_{item_id}_{uid}"
                 )])
     
     if not has_items:
         keyboard.append([InlineKeyboardButton(
             f"📦 {sc('no usable items')}",
-            callback_data=f"btl_wait"
+            callback_data=f"b_wt"
         )])
     
-    keyboard.append([InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_back_{uid}")])
+    keyboard.append([InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"b_bk_{uid}")])
     
     return InlineKeyboardMarkup(keyboard)
 
 def create_waiting_keyboard(player_name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"⏳ {sc('waiting for')} {player_name}...", callback_data="btl_wait")
+        InlineKeyboardButton(f"⏳ {sc('waiting for')} {player_name}...", callback_data="b_wt")
     ]])
 
 def create_end_keyboard(winner_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"⚔️ {sc('new battle')}", callback_data=f"btl_menu_{winner_id}")]
+        [InlineKeyboardButton(f"⚔️ {sc('new battle')}", callback_data=f"r_m_{winner_id}")]
     ])
 
 async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
@@ -1145,8 +1145,8 @@ async def rpg_start(update: Update, context: CallbackContext):
         
         kb = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton(f"✅ {sc('accept')}", callback_data=f"btl_accept_{user.id}_{target.id}"),
-                InlineKeyboardButton(f"❌ {sc('decline')}", callback_data=f"btl_decline_{user.id}_{target.id}")
+                InlineKeyboardButton(f"✅ {sc('accept')}", callback_data=f"r_ac_{user.id}_{target.id}"),
+                InlineKeyboardButton(f"❌ {sc('decline')}", callback_data=f"r_dc_{user.id}_{target.id}")
             ]
         ])
         
@@ -1230,13 +1230,13 @@ async def rpg_callback(update: Update, context: CallbackContext):
     data = query.data.split("_")
     action = data[1] if len(data) > 1 else None
     
-    if action == "wait":
+    if action == "wt":
         await query.answer(sc("waiting for opponent..."), show_alert=False)
         return
     
     await query.answer()
     
-    if action == "menu":
+    if action == "m":
         uid = int(data[2])
         if update.effective_user.id != uid:
             await query.answer(sc("not your button!"), show_alert=True)
@@ -1248,11 +1248,11 @@ async def rpg_callback(update: Update, context: CallbackContext):
         pvp_count = battle_data.get('pvp_battles', 0)
         
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"⚔️ {sc('start pve battle')} ({ai_count}/{MAX_AI_BATTLES_PER_DAY})", callback_data=f"btl_startpve_{uid}")],
-            [InlineKeyboardButton(f"📊 {sc('view stats')}", callback_data=f"btl_stats_{uid}")],
-            [InlineKeyboardButton(f"📖 {sc('attack list')}", callback_data=f"btl_attacks_{uid}")],
-            [InlineKeyboardButton(f"🏆 {sc('leaderboard')}", callback_data=f"btl_lb_{uid}")],
-            [InlineKeyboardButton(f"🛒 {sc('battle shop')}", callback_data=f"btl_shop_{uid}")]
+            [InlineKeyboardButton(f"⚔️ {sc('start pve battle')} ({ai_count}/{MAX_AI_BATTLES_PER_DAY})", callback_data=f"r_p_{uid}")],
+            [InlineKeyboardButton(f"📊 {sc('view stats')}", callback_data=f"r_s_{uid}")],
+            [InlineKeyboardButton(f"📖 {sc('attack list')}", callback_data=f"r_a_{uid}")],
+            [InlineKeyboardButton(f"🏆 {sc('leaderboard')}", callback_data=f"r_l_{uid}")],
+            [InlineKeyboardButton(f"🛒 {sc('battle shop')}", callback_data=f"r_sh_{uid}")]
         ])
         
         try:
@@ -1270,7 +1270,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "startpve":
+    if action == "p":
         uid = int(data[2])
         if update.effective_user.id != uid:
             await query.answer(sc("not your button!"), show_alert=True)
@@ -1288,7 +1288,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
         await rpg_start(update, context)
         return
     
-    if action == "accept":
+    if action == "ac":
         cid, tid = int(data[2]), int(data[3])
         
         if update.effective_user.id != tid:
@@ -1331,7 +1331,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             battle_manager.end(p1.user_id, p2.user_id)
         return
     
-    if action == "decline":
+    if action == "dc":
         tid = int(data[3])
         
         if update.effective_user.id != tid:
@@ -1345,7 +1345,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "stats":
+    if action == "s":
         uid = int(data[2])
         if update.effective_user.id != uid:
             await query.answer(sc("not your stats!"), show_alert=True)
@@ -1396,7 +1396,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
 <b>{sc('attacks unlocked:')}</b> {len(unlocked)}/{len(ATTACKS)}"""
         
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_menu_{uid}")]
+            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"r_m_{uid}")]
         ])
         
         try:
@@ -1405,7 +1405,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "attacks":
+    if action == "a":
         uid = int(data[2])
         if update.effective_user.id != uid:
             await query.answer(sc("not yours!"), show_alert=True)
@@ -1432,7 +1432,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             text += "\n\n"
         
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_menu_{uid}")]
+            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"r_m_{uid}")]
         ])
         
         try:
@@ -1441,7 +1441,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "lb":
+    if action == "l":
         uid = int(data[2])
         
         try:
@@ -1449,7 +1449,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
         except:
             top = []
         
-        text = f"<b>🏆 {sc('leaderboard')} 🏆</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        text = f"<b>🏆 {sc('battle leaderboard')} 🏆</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
         
         medals = ["🥇", "🥈", "🥉"]
         
@@ -1463,7 +1463,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             text += f"{medal} <b>{uname}</b> {emoji} Lv.{lvl} • {xp} XP\n"
         
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_menu_{uid}")]
+            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"r_m_{uid}")]
         ])
         
         try:
@@ -1472,7 +1472,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "shop":
+    if action == "sh":
         uid = int(data[2])
         if update.effective_user.id != uid:
             await query.answer(sc("not your shop!"), show_alert=True)
@@ -1567,7 +1567,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
     
     result = None
     
-    if action == "back":
+    if action == "bk":
         panel = format_battle_ui(battle)
         kb = create_attack_keyboard(battle, uid)
         try:
@@ -1576,7 +1576,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "skills":
+    if action == "sk":
         panel = format_battle_ui(battle)
         panel += f"\n\n<b>{sc('select a skill:')}</b>"
         kb = create_skills_keyboard(battle, uid)
@@ -1586,7 +1586,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "items":
+    if action == "it":
         panel = format_battle_ui(battle)
         panel += f"\n\n<b>🎒 {sc('select an item:')}</b>"
         kb = await create_items_keyboard(battle, uid)
@@ -1596,7 +1596,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "useitem":
+    if action == "ui":
         from shivu.modules.restart import SHOP_ITEMS, get_inventory, remove_item_from_inventory
         
         item_id = data[2]
@@ -1729,7 +1729,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
         
         return
     
-    if action == "atk":
+    if action == "at":
         atk_name = data[2]
         result = perform_attack(battle, atk_name)
         
@@ -1737,26 +1737,27 @@ async def rpg_callback(update: Update, context: CallbackContext):
             await query.answer(result.text, show_alert=True)
             return
     
-    elif action == "def":
+    elif action == "df":
         result = perform_defend(battle)
     
-    elif action == "heal":
+    elif action == "hl":
         result = perform_heal(battle)
         if "Need" in result.text:
             await query.answer(result.text, show_alert=True)
             return
     
-    elif action == "mana":
+    elif action == "mp":
         result = perform_mana_restore(battle)
     
-    elif action == "buff":
-        buff_type = data[2]
+    elif action in ["bm", "bs", "bh", "br"]:
+        buff_map = {"bm": "might", "bs": "shield", "bh": "haste", "br": "regen"}
+        buff_type = buff_map[action]
         result = perform_buff(battle, buff_type)
         if "Need" in result.text or "Already" in result.text or "Invalid" in result.text:
             await query.answer(result.text, show_alert=True)
             return
     
-    elif action == "forfeit":
+    elif action == "ff":
         battle_manager.end(battle.player1.user_id, battle.player2.user_id)
         try:
             await query.message.edit_text(
@@ -1842,11 +1843,11 @@ async def rpg_menu(update: Update, context: CallbackContext):
     pvp_count = battle_data.get('pvp_battles', 0)
     
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"⚔️ {sc('start pve battle')} ({ai_count}/{MAX_AI_BATTLES_PER_DAY})", callback_data=f"btl_startpve_{user.id}")],
-        [InlineKeyboardButton(f"📊 {sc('view stats')}", callback_data=f"btl_stats_{user.id}")],
-        [InlineKeyboardButton(f"📖 {sc('attack list')}", callback_data=f"btl_attacks_{user.id}")],
-        [InlineKeyboardButton(f"🏆 {sc('leaderboard')}", callback_data=f"btl_lb_{user.id}")],
-        [InlineKeyboardButton(f"🛒 {sc('battle shop')}", callback_data=f"btl_shop_{user.id}")]
+        [InlineKeyboardButton(f"⚔️ {sc('start pve battle')} ({ai_count}/{MAX_AI_BATTLES_PER_DAY})", callback_data=f"r_p_{user.id}")],
+        [InlineKeyboardButton(f"📊 {sc('view stats')}", callback_data=f"r_s_{user.id}")],
+        [InlineKeyboardButton(f"📖 {sc('attack list')}", callback_data=f"r_a_{user.id}")],
+        [InlineKeyboardButton(f"🏆 {sc('leaderboard')}", callback_data=f"r_l_{user.id}")],
+        [InlineKeyboardButton(f"🛒 {sc('battle shop')}", callback_data=f"r_sh_{user.id}")]
     ])
     
     await update.message.reply_text(
@@ -2020,4 +2021,5 @@ application.add_handler(CommandHandler("rpgstats", rpg_stats_cmd))
 application.add_handler(CommandHandler("rpglevel", rpg_level_cmd))
 application.add_handler(CommandHandler("rpgforfeit", rpg_forfeit_cmd))
 application.add_handler(CommandHandler("rpghelp", rpg_help))
-application.add_handler(CallbackQueryHandler(rpg_callback, pattern="^btl_"))
+application.add_handler(CallbackQueryHandler(rpg_callback, pattern="^r_"))
+application.add_handler(CallbackQueryHandler(rpg_callback, pattern="^b_"))
