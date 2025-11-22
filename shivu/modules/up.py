@@ -263,22 +263,22 @@ def create_shop_main_menu(uid: int) -> InlineKeyboardMarkup:
     for cat_id, cat_data in SHOP_CATEGORIES.items():
         keyboard.append([InlineKeyboardButton(
             f"{cat_data['emoji']} {sc(cat_data['name'])}",
-            callback_data=f"shop_cat_{cat_id}_{uid}"
+            callback_data=f"s_{cat_id}_{uid}"
         )])
     
     keyboard.append([InlineKeyboardButton(
         f"🎒 {sc('my inventory')}",
-        callback_data=f"shop_inv_{uid}"
+        callback_data=f"s_i_{uid}"
     )])
     
     keyboard.append([InlineKeyboardButton(
         f"📊 {sc('active boosts')}",
-        callback_data=f"shop_boosts_{uid}"
+        callback_data=f"s_b_{uid}"
     )])
     
     keyboard.append([InlineKeyboardButton(
         f"◀️ {sc('back to menu')}",
-        callback_data=f"btl_menu_{uid}"
+        callback_data=f"r_m_{uid}"
     )])
     
     return InlineKeyboardMarkup(keyboard)
@@ -295,12 +295,12 @@ def create_category_menu(category: str, uid: int, player_level: int) -> InlineKe
         
         keyboard.append([InlineKeyboardButton(
             f"{item.emoji} {item.name} - {price_text} {locked}",
-            callback_data=f"shop_item_{item.item_id}_{uid}"
+            callback_data=f"s_v_{item.item_id}_{uid}"
         )])
     
     keyboard.append([InlineKeyboardButton(
         f"◀️ {sc('back')}",
-        callback_data=f"shop_main_{uid}"
+        callback_data=f"s_h_{uid}"
     )])
     
     return InlineKeyboardMarkup(keyboard)
@@ -313,22 +313,22 @@ def create_item_detail_menu(item_id: str, uid: int, quantity: int = 0) -> Inline
     keyboard = []
     
     keyboard.append([
-        InlineKeyboardButton(f"💰 {sc('buy with coins')}", callback_data=f"shop_buy_coin_{item_id}_{uid}"),
+        InlineKeyboardButton(f"💰 {sc('buy with coins')}", callback_data=f"s_c_{item_id}_{uid}"),
     ])
     
     if item.price_tokens > 0:
         keyboard.append([
-            InlineKeyboardButton(f"🎫 {sc('buy with tokens')}", callback_data=f"shop_buy_token_{item_id}_{uid}"),
+            InlineKeyboardButton(f"🎫 {sc('buy with tokens')}", callback_data=f"s_t_{item_id}_{uid}"),
         ])
     
     if quantity > 0 and item.category in ["consumable", "buff"]:
         keyboard.append([
-            InlineKeyboardButton(f"🎒 {sc('use item')} (x{quantity})", callback_data=f"shop_use_{item_id}_{uid}"),
+            InlineKeyboardButton(f"🎒 {sc('use item')} (x{quantity})", callback_data=f"s_u_{item_id}_{uid}"),
         ])
     
     keyboard.append([InlineKeyboardButton(
         f"◀️ {sc('back')}",
-        callback_data=f"shop_cat_{item.category}_{uid}"
+        callback_data=f"s_{item.category}_{uid}"
     )])
     
     return InlineKeyboardMarkup(keyboard)
@@ -388,13 +388,13 @@ async def shop_callback(update: Update, context: CallbackContext):
     xp = doc.get('user_xp', 0) if doc else 0
     level = calc_level(xp)
     
-    if action == "main":
+    if action == "h":
         update.callback_query = query
         await shop_main(update, context)
         return
     
-    if action == "cat":
-        category = data[2]
+    if action in ["consumable", "buff", "special", "boost"]:
+        category = action
         cat_data = SHOP_CATEGORIES.get(category)
         
         if not cat_data:
@@ -419,7 +419,7 @@ async def shop_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "item":
+    if action == "v":
         item_id = data[2]
         item = SHOP_ITEMS.get(item_id)
         
@@ -466,9 +466,9 @@ async def shop_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "buy":
-        currency = data[2]
-        item_id = data[3]
+    if action in ["c", "t"]:
+        currency = "coin" if action == "c" else "token"
+        item_id = data[2]
         item = SHOP_ITEMS.get(item_id)
         
         if not item:
@@ -564,7 +564,7 @@ async def shop_callback(update: Update, context: CallbackContext):
             await query.answer(sc("purchase failed!"), show_alert=True)
         return
     
-    if action == "use":
+    if action == "u":
         item_id = data[2]
         item = SHOP_ITEMS.get(item_id)
         
@@ -609,7 +609,7 @@ async def shop_callback(update: Update, context: CallbackContext):
         
         return
     
-    if action == "inv":
+    if action == "i":
         inventory = await get_inventory(uid)
         
         if not inventory:
@@ -632,7 +632,7 @@ async def shop_callback(update: Update, context: CallbackContext):
             text += f"\n<i>{sc('click on items in shop to use them!')}</i>"
         
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"shop_main_{uid}")
+            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"s_h_{uid}")
         ]])
         
         try:
@@ -641,7 +641,7 @@ async def shop_callback(update: Update, context: CallbackContext):
             pass
         return
     
-    if action == "boosts":
+    if action == "b":
         boosts = await get_active_boosts(uid)
         
         if not boosts:
@@ -669,7 +669,7 @@ async def shop_callback(update: Update, context: CallbackContext):
                 text += f"   +{value}% | {hours}h {minutes}m remaining\n\n"
         
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"shop_main_{uid}")
+            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"s_h_{uid}")
         ]])
         
         try:
@@ -681,4 +681,4 @@ async def shop_callback(update: Update, context: CallbackContext):
 application.add_handler(CommandHandler("hop", shop_main))
 application.add_handler(CommandHandler("battleshop", shop_main))
 application.add_handler(CommandHandler("bshop", shop_main))
-application.add_handler(CallbackQueryHandler(shop_callback, pattern="^shop_"))
+application.add_handler(CallbackQueryHandler(shop_callback, pattern="^s_"))
