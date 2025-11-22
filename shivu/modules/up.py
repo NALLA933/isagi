@@ -1,329 +1,684 @@
-import re
-import os
-import tempfile
 import asyncio
-from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
-from shivu import application
+from datetime import datetime, timedelta
+from typing import Dict, Optional, List
+from dataclasses import dataclass
 
-# Install: pip install instagrapi
-try:
-    from instagrapi import Client
-    from instagrapi.exceptions import ClientError, LoginRequired
-except ImportError:
-    print("ERROR: Please install instagrapi: pip install instagrapi")
-    Client = None
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
+from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext
+from shivu import application, user_collection
 
-async def download_instagram_media_anonymous(url: str):
-    """
-    Download Instagram media anonymously using instagrapi (no login required for public posts)
-    """
-    if not Client:
-        return None, "Instagrapi library not installed"
+SMALLCAPS_MAP = {
+    'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ',
+    'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ',
+    'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x',
+    'y': 'ʏ', 'z': 'ᴢ',
+    'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ', 'H': 'ʜ',
+    'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ',
+    'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x',
+    'Y': 'ʏ', 'Z': 'ᴢ'
+}
+
+def sc(text: str) -> str:
+    return ''.join(SMALLCAPS_MAP.get(c, c) for c in text)
+
+@dataclass
+class ShopItem:
+    item_id: str
+    name: str
+    description: str
+    price_coins: int
+    price_tokens: int
+    emoji: str
+    category: str
+    effect_type: str
+    effect_value: int
+    duration: int
+    max_stack: int
+    level_required: int
+
+SHOP_ITEMS = {
+    "hp_potion_small": ShopItem(
+        "hp_potion_small", "Small HP Potion", "Restores 50 HP instantly",
+        100, 0, "🧪", "consumable", "heal_hp", 50, 0, 99, 1
+    ),
+    "hp_potion_medium": ShopItem(
+        "hp_potion_medium", "Medium HP Potion", "Restores 150 HP instantly",
+        250, 0, "💊", "consumable", "heal_hp", 150, 0, 99, 10
+    ),
+    "hp_potion_large": ShopItem(
+        "hp_potion_large", "Large HP Potion", "Restores 300 HP instantly",
+        500, 0, "🍶", "consumable", "heal_hp", 300, 0, 99, 20
+    ),
+    
+    "mana_potion_small": ShopItem(
+        "mana_potion_small", "Small Mana Potion", "Restores 40 Mana instantly",
+        120, 0, "🔵", "consumable", "heal_mana", 40, 0, 99, 1
+    ),
+    "mana_potion_medium": ShopItem(
+        "mana_potion_medium", "Medium Mana Potion", "Restores 100 Mana instantly",
+        280, 0, "💙", "consumable", "heal_mana", 100, 0, 99, 10
+    ),
+    "mana_potion_large": ShopItem(
+        "mana_potion_large", "Large Mana Potion", "Restores 200 Mana instantly",
+        550, 0, "🌊", "consumable", "heal_mana", 200, 0, 99, 20
+    ),
+    
+    "elixir": ShopItem(
+        "elixir", "Full Elixir", "Restores all HP and Mana",
+        1000, 5, "✨", "consumable", "full_restore", 0, 0, 10, 30
+    ),
+    
+    "fire_crystal": ShopItem(
+        "fire_crystal", "Fire Crystal", "Boost Fire attacks by 25% for 3 turns",
+        400, 0, "🔥", "buff", "fire_boost", 25, 3, 5, 15
+    ),
+    "ice_crystal": ShopItem(
+        "ice_crystal", "Ice Crystal", "Boost Ice attacks by 25% for 3 turns",
+        400, 0, "❄️", "buff", "ice_boost", 25, 3, 5, 15
+    ),
+    "lightning_crystal": ShopItem(
+        "lightning_crystal", "Lightning Crystal", "Boost Lightning attacks by 25% for 3 turns",
+        400, 0, "⚡", "buff", "lightning_boost", 25, 3, 5, 15
+    ),
+    "water_crystal": ShopItem(
+        "water_crystal", "Water Crystal", "Boost Water attacks by 25% for 3 turns",
+        400, 0, "💧", "buff", "water_boost", 25, 3, 5, 15
+    ),
+    "earth_crystal": ShopItem(
+        "earth_crystal", "Earth Crystal", "Boost Earth attacks by 25% for 3 turns",
+        400, 0, "🌍", "buff", "earth_boost", 25, 3, 5, 15
+    ),
+    "wind_crystal": ShopItem(
+        "wind_crystal", "Wind Crystal", "Boost Wind attacks by 25% for 3 turns",
+        400, 0, "💨", "buff", "wind_boost", 25, 3, 5, 15
+    ),
+    "dark_crystal": ShopItem(
+        "dark_crystal", "Dark Crystal", "Boost Dark attacks by 25% for 3 turns",
+        400, 0, "🌑", "buff", "dark_boost", 25, 3, 5, 15
+    ),
+    "light_crystal": ShopItem(
+        "light_crystal", "Light Crystal", "Boost Light attacks by 25% for 3 turns",
+        400, 0, "✨", "buff", "light_boost", 25, 3, 5, 15
+    ),
+    
+    "strength_potion": ShopItem(
+        "strength_potion", "Strength Potion", "+30% Attack for 5 turns",
+        600, 0, "💪", "buff", "attack_boost", 30, 5, 5, 20
+    ),
+    "defense_potion": ShopItem(
+        "defense_potion", "Defense Potion", "+40% Defense for 5 turns",
+        600, 0, "🛡️", "buff", "defense_boost", 40, 5, 5, 20
+    ),
+    "speed_potion": ShopItem(
+        "speed_potion", "Speed Potion", "+35% Speed for 5 turns",
+        600, 0, "⚡", "buff", "speed_boost", 35, 5, 5, 20
+    ),
+    
+    "phoenix_feather": ShopItem(
+        "phoenix_feather", "Phoenix Feather", "Auto-revive with 50% HP once per battle",
+        2000, 10, "🪶", "special", "revive", 50, 0, 3, 40
+    ),
+    
+    "lucky_charm": ShopItem(
+        "lucky_charm", "Lucky Charm", "+15% Critical Hit chance for 5 turns",
+        800, 0, "🍀", "buff", "crit_boost", 15, 5, 5, 25
+    ),
+    
+    "smoke_bomb": ShopItem(
+        "smoke_bomb", "Smoke Bomb", "+30% Dodge chance for 3 turns",
+        500, 0, "💨", "buff", "dodge_boost", 30, 3, 5, 15
+    ),
+    
+    "battle_ticket": ShopItem(
+        "battle_ticket", "Battle Ticket", "+5 AI battles for today",
+        1500, 0, "🎫", "special", "ai_battles", 5, 0, 3, 1
+    ),
+    
+    "pvp_ticket": ShopItem(
+        "pvp_ticket", "PVP Ticket", "+5 PVP battles for today",
+        2000, 0, "🎟️", "special", "pvp_battles", 5, 0, 3, 1
+    ),
+    
+    "exp_boost": ShopItem(
+        "exp_boost", "EXP Booster", "+50% EXP gain for 24 hours",
+        3000, 15, "⭐", "boost", "exp_boost", 50, 1440, 1, 30
+    ),
+    
+    "coin_boost": ShopItem(
+        "coin_boost", "Coin Booster", "+50% Coin gain for 24 hours",
+        2500, 12, "💰", "boost", "coin_boost", 50, 1440, 1, 25
+    ),
+    
+    "master_scroll": ShopItem(
+        "master_scroll", "Master Scroll", "Instantly learn one locked attack",
+        5000, 25, "📜", "special", "unlock_attack", 1, 0, 10, 50
+    ),
+}
+
+SHOP_CATEGORIES = {
+    "consumable": {"name": "Consumables", "emoji": "🧪", "desc": "Potions and instant-use items"},
+    "buff": {"name": "Buffs", "emoji": "✨", "desc": "Temporary stat boosters"},
+    "special": {"name": "Special", "emoji": "🎁", "desc": "Unique powerful items"},
+    "boost": {"name": "Boosters", "emoji": "⚡", "desc": "Long-term enhancements"},
+}
+
+async def get_user(uid: int):
+    try:
+        return await user_collection.find_one({'id': uid})
+    except:
+        return None
+
+async def get_inventory(uid: int) -> Dict[str, int]:
+    doc = await get_user(uid)
+    if not doc:
+        return {}
+    return doc.get('battle_inventory', {})
+
+async def add_item_to_inventory(uid: int, item_id: str, quantity: int = 1):
+    inventory = await get_inventory(uid)
+    current = inventory.get(item_id, 0)
+    inventory[item_id] = current + quantity
     
     try:
-        # Extract shortcode from URL
-        shortcode_match = re.search(r'(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
-        if not shortcode_match:
-            return None, "Invalid Instagram URL format"
-        
-        shortcode = shortcode_match.group(1)
-        
-        # Create temporary directory
-        temp_dir = tempfile.mkdtemp()
-        
-        # Run in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        
-        def download_post():
-            try:
-                # Create client - no login needed for public posts
-                cl = Client()
-                cl.delay_range = [1, 3]
-                
-                # Get media info from shortcode (uses public web API - no login required)
-                media_pk = cl.media_pk_from_code(shortcode)
-                media_info = cl.media_info(media_pk)
-                
-                files = []
-                
-                # Handle video
-                if media_info.media_type == 2 and media_info.video_url:
-                    # Download video
-                    video_path = cl.video_download(media_pk, folder=temp_dir)
-                    files.append({'type': 'video', 'path': str(video_path)})
-                
-                # Handle carousel/album (multiple images/videos)
-                elif media_info.media_type == 8 and media_info.resources:
-                    for resource in media_info.resources[:5]:  # Limit to 5
-                        if resource.video_url:
-                            video_path = cl.video_download(resource.pk, folder=temp_dir)
-                            files.append({'type': 'video', 'path': str(video_path)})
-                        elif resource.thumbnail_url:
-                            photo_path = cl.photo_download(resource.pk, folder=temp_dir)
-                            files.append({'type': 'photo', 'path': str(photo_path)})
-                
-                # Handle single image
-                elif media_info.media_type == 1:
-                    photo_path = cl.photo_download(media_pk, folder=temp_dir)
-                    files.append({'type': 'photo', 'path': str(photo_path)})
-                
-                return files, None
-                
-            except LoginRequired:
-                # If login is required, try alternative method
-                try:
-                    cl = Client()
-                    # Use public web endpoint without login
-                    media = cl.media_info_a1(shortcode)
-                    
-                    files = []
-                    
-                    # Download based on media type
-                    if media.video_url:
-                        import aiohttp
-                        import aiofiles
-                        
-                        async def download_file(url, path):
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(url) as resp:
-                                    if resp.status == 200:
-                                        async with aiofiles.open(path, 'wb') as f:
-                                            await f.write(await resp.read())
-                        
-                        video_path = os.path.join(temp_dir, f"{shortcode}.mp4")
-                        asyncio.run(download_file(media.video_url, video_path))
-                        files.append({'type': 'video', 'path': video_path})
-                    
-                    elif media.thumbnail_url:
-                        import aiohttp
-                        import aiofiles
-                        
-                        async def download_file(url, path):
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(url) as resp:
-                                    if resp.status == 200:
-                                        async with aiofiles.open(path, 'wb') as f:
-                                            await f.write(await resp.read())
-                        
-                        photo_path = os.path.join(temp_dir, f"{shortcode}.jpg")
-                        asyncio.run(download_file(media.thumbnail_url, photo_path))
-                        files.append({'type': 'photo', 'path': photo_path})
-                    
-                    return files, None
-                    
-                except Exception as e2:
-                    return None, f"Private post or login required: {str(e2)}"
-            
-            except ClientError as e:
-                if "challenge_required" in str(e).lower():
-                    return None, "Instagram challenge required - try again later"
-                elif "not found" in str(e).lower():
-                    return None, "Post not found or deleted"
-                elif "private" in str(e).lower():
-                    return None, "Private account - cannot download"
-                else:
-                    return None, str(e)
-            
-            except Exception as e:
-                return None, str(e)
-        
-        # Execute download
-        files, error = await loop.run_in_executor(None, download_post)
-        
-        if error:
-            # Cleanup
-            try:
-                import shutil
-                shutil.rmtree(temp_dir)
-            except:
-                pass
-            return None, error
-        
-        return files, temp_dir
-        
-    except Exception as e:
-        return None, str(e)
+        await user_collection.update_one(
+            {'id': uid},
+            {'$set': {'battle_inventory': inventory}},
+            upsert=True
+        )
+        return True
+    except:
+        return False
 
-
-async def ig_download(update: Update, context: CallbackContext):
-    """
-    Handle /ig and /insta commands
-    """
-    message = update.message
+async def remove_item_from_inventory(uid: int, item_id: str, quantity: int = 1):
+    inventory = await get_inventory(uid)
+    current = inventory.get(item_id, 0)
     
-    if not Client:
-        await message.reply_text(
-            "❌ *Service Unavailable*\n\n"
-            "Instagram downloader is not configured.\n"
-            "Contact administrator.",
-            parse_mode='Markdown'
-        )
-        return
+    if current < quantity:
+        return False
     
-    if not context.args:
-        await message.reply_text(
-            "📸 *Instagram Downloader Bot*\n\n"
-            "*Usage:* `/ig <instagram_url>`\n\n"
-            "*Examples:*\n"
-            "• `/ig https://www.instagram.com/p/ABC123/`\n"
-            "• `/ig https://www.instagram.com/reel/XYZ789/`\n\n"
-            "*Supported Content:*\n"
-            "✅ Posts & Photos\n"
-            "✅ Videos & Reels\n"
-            "✅ Carousels (multiple images)\n"
-            "✅ Public accounts only\n\n"
-            "*Note:* Private posts cannot be downloaded",
-            parse_mode='Markdown'
-        )
-        return
-    
-    url = context.args[0]
-    
-    # Validate URL
-    if not re.search(r'instagram\.com/(p|reel|tv)/[A-Za-z0-9_-]+', url):
-        await message.reply_text(
-            "❌ *Invalid URL*\n\n"
-            "Please provide a valid Instagram link.\n\n"
-            "*Format:* `https://www.instagram.com/p/CODE/`",
-            parse_mode='Markdown'
-        )
-        return
-    
-    status_msg = await message.reply_text(
-        "⏳ *Downloading...*\n\nPlease wait...",
-        parse_mode='Markdown'
-    )
+    inventory[item_id] = current - quantity
+    if inventory[item_id] <= 0:
+        inventory.pop(item_id, None)
     
     try:
-        # Download media
-        files, temp_dir_or_error = await download_instagram_media_anonymous(url)
+        await user_collection.update_one(
+            {'id': uid},
+            {'$set': {'battle_inventory': inventory}},
+            upsert=True
+        )
+        return True
+    except:
+        return False
+
+async def get_active_boosts(uid: int) -> List[Dict]:
+    doc = await get_user(uid)
+    if not doc:
+        return []
+    
+    boosts = doc.get('active_boosts', [])
+    active_boosts = []
+    
+    for boost in boosts:
+        expires_at = datetime.fromisoformat(boost['expires_at'])
+        if datetime.utcnow() < expires_at:
+            active_boosts.append(boost)
+    
+    if len(active_boosts) != len(boosts):
+        try:
+            await user_collection.update_one(
+                {'id': uid},
+                {'$set': {'active_boosts': active_boosts}}
+            )
+        except:
+            pass
+    
+    return active_boosts
+
+async def add_boost(uid: int, boost_type: str, value: int, duration_minutes: int):
+    expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
+    
+    boost = {
+        'type': boost_type,
+        'value': value,
+        'expires_at': expires_at.isoformat()
+    }
+    
+    try:
+        await user_collection.update_one(
+            {'id': uid},
+            {'$push': {'active_boosts': boost}},
+            upsert=True
+        )
+        return True
+    except:
+        return False
+
+def calc_level(xp: int) -> int:
+    import math
+    return min(max(1, math.floor(math.sqrt(max(xp, 0) / 100)) + 1), 100)
+
+def create_shop_main_menu(uid: int) -> InlineKeyboardMarkup:
+    keyboard = []
+    
+    for cat_id, cat_data in SHOP_CATEGORIES.items():
+        keyboard.append([InlineKeyboardButton(
+            f"{cat_data['emoji']} {sc(cat_data['name'])}",
+            callback_data=f"shop_cat_{cat_id}_{uid}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton(
+        f"🎒 {sc('my inventory')}",
+        callback_data=f"shop_inv_{uid}"
+    )])
+    
+    keyboard.append([InlineKeyboardButton(
+        f"📊 {sc('active boosts')}",
+        callback_data=f"shop_boosts_{uid}"
+    )])
+    
+    keyboard.append([InlineKeyboardButton(
+        f"◀️ {sc('back to menu')}",
+        callback_data=f"btl_menu_{uid}"
+    )])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def create_category_menu(category: str, uid: int, player_level: int) -> InlineKeyboardMarkup:
+    keyboard = []
+    
+    items = [item for item in SHOP_ITEMS.values() if item.category == category]
+    items.sort(key=lambda x: x.price_coins)
+    
+    for item in items:
+        locked = "🔒" if item.level_required > player_level else ""
+        price_text = f"{item.price_coins}💰" if item.price_tokens == 0 else f"{item.price_tokens}🎫"
         
-        if files is None:
-            error_msg = temp_dir_or_error
-            
-            # Provide specific error messages
-            if "private" in error_msg.lower():
-                await status_msg.edit_text(
-                    "❌ *Private Account*\n\n"
-                    "This post is from a private account.\n"
-                    "Only public posts can be downloaded.",
-                    parse_mode='Markdown'
-                )
-            elif "not found" in error_msg.lower():
-                await status_msg.edit_text(
-                    "❌ *Post Not Found*\n\n"
-                    "The post may have been deleted or URL is incorrect.",
-                    parse_mode='Markdown'
-                )
-            elif "challenge" in error_msg.lower() or "rate" in error_msg.lower():
-                await status_msg.edit_text(
-                    "❌ *Temporarily Blocked*\n\n"
-                    "Instagram has temporarily restricted access.\n"
-                    "Please try again in 5-10 minutes.",
-                    parse_mode='Markdown'
-                )
-            elif "login required" in error_msg.lower():
-                await status_msg.edit_text(
-                    "❌ *Login Required*\n\n"
-                    "This content requires authentication.\n"
-                    "The post may be from a private account.",
-                    parse_mode='Markdown'
-                )
+        keyboard.append([InlineKeyboardButton(
+            f"{item.emoji} {item.name} - {price_text} {locked}",
+            callback_data=f"shop_item_{item.item_id}_{uid}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton(
+        f"◀️ {sc('back')}",
+        callback_data=f"shop_main_{uid}"
+    )])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def create_item_detail_menu(item_id: str, uid: int, quantity: int = 0) -> InlineKeyboardMarkup:
+    item = SHOP_ITEMS.get(item_id)
+    if not item:
+        return InlineKeyboardMarkup([[]])
+    
+    keyboard = []
+    
+    keyboard.append([
+        InlineKeyboardButton(f"💰 {sc('buy with coins')}", callback_data=f"shop_buy_coin_{item_id}_{uid}"),
+    ])
+    
+    if item.price_tokens > 0:
+        keyboard.append([
+            InlineKeyboardButton(f"🎫 {sc('buy with tokens')}", callback_data=f"shop_buy_token_{item_id}_{uid}"),
+        ])
+    
+    if quantity > 0 and item.category in ["consumable", "buff"]:
+        keyboard.append([
+            InlineKeyboardButton(f"🎒 {sc('use item')} (x{quantity})", callback_data=f"shop_use_{item_id}_{uid}"),
+        ])
+    
+    keyboard.append([InlineKeyboardButton(
+        f"◀️ {sc('back')}",
+        callback_data=f"shop_cat_{item.category}_{uid}"
+    )])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+async def shop_main(update: Update, context: CallbackContext):
+    user = update.effective_user
+    doc = await get_user(user.id)
+    
+    balance = doc.get('balance', 0) if doc else 0
+    tokens = doc.get('tokens', 0) if doc else 0
+    xp = doc.get('user_xp', 0) if doc else 0
+    level = calc_level(xp)
+    
+    text = f"""<b>🛒 {sc('battle shop')} 🛒</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<b>{sc('your wallet')}</b>
+💰 Coins: <code>{balance}</code>
+🎫 Tokens: <code>{tokens}</code>
+⭐ Level: <code>{level}</code>
+
+<b>{sc('shop categories:')}</b>
+"""
+    
+    for cat_id, cat_data in SHOP_CATEGORIES.items():
+        items_count = len([i for i in SHOP_ITEMS.values() if i.category == cat_id])
+        text += f"\n{cat_data['emoji']} <b>{cat_data['name']}</b> ({items_count} items)\n<i>{cat_data['desc']}</i>"
+    
+    text += f"\n\n<i>{sc('select a category to browse items!')}</i>"
+    
+    kb = create_shop_main_menu(user.id)
+    
+    if hasattr(update, 'callback_query') and update.callback_query:
+        try:
+            await update.callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+    else:
+        await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
+
+async def shop_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    data = query.data.split("_")
+    action = data[1] if len(data) > 1 else None
+    
+    await query.answer()
+    
+    uid = int(data[-1]) if len(data) > 2 else 0
+    
+    if update.effective_user.id != uid:
+        await query.answer(sc("not your shop!"), show_alert=True)
+        return
+    
+    doc = await get_user(uid)
+    balance = doc.get('balance', 0) if doc else 0
+    tokens = doc.get('tokens', 0) if doc else 0
+    xp = doc.get('user_xp', 0) if doc else 0
+    level = calc_level(xp)
+    
+    if action == "main":
+        update.callback_query = query
+        await shop_main(update, context)
+        return
+    
+    if action == "cat":
+        category = data[2]
+        cat_data = SHOP_CATEGORIES.get(category)
+        
+        if not cat_data:
+            await query.answer(sc("invalid category!"), show_alert=True)
+            return
+        
+        text = f"""<b>{cat_data['emoji']} {sc(cat_data['name'])} {cat_data['emoji']}</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<i>{cat_data['desc']}</i>
+
+<b>{sc('your wallet:')}</b>
+💰 {balance} | 🎫 {tokens}
+
+<b>{sc('available items:')}</b>"""
+        
+        kb = create_category_menu(category, uid, level)
+        
+        try:
+            await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    if action == "item":
+        item_id = data[2]
+        item = SHOP_ITEMS.get(item_id)
+        
+        if not item:
+            await query.answer(sc("item not found!"), show_alert=True)
+            return
+        
+        inventory = await get_inventory(uid)
+        quantity = inventory.get(item_id, 0)
+        
+        locked_text = ""
+        if item.level_required > level:
+            locked_text = f"\n\n🔒 <b>{sc('requires level')} {item.level_required}</b>"
+        
+        duration_text = ""
+        if item.duration > 0:
+            if item.duration >= 60:
+                hours = item.duration // 60
+                duration_text = f"\n⏱️ Duration: {hours} hour(s)"
             else:
-                await status_msg.edit_text(
-                    f"❌ *Download Failed*\n\n"
-                    f"Error: `{error_msg[:100]}`",
-                    parse_mode='Markdown'
-                )
+                duration_text = f"\n⏱️ Duration: {item.duration} turn(s)"
+        
+        text = f"""<b>{item.emoji} {item.name} {item.emoji}</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<i>{item.description}</i>
+
+<b>{sc('details:')}</b>
+💰 Price: {item.price_coins} coins
+🎫 Token Price: {item.price_tokens} tokens
+📦 Max Stack: {item.max_stack}
+⭐ Level Required: {item.level_required}{duration_text}
+
+<b>{sc('you own:')}</b> {quantity} / {item.max_stack}
+
+<b>{sc('your wallet:')}</b>
+💰 {balance} | 🎫 {tokens}{locked_text}"""
+        
+        kb = create_item_detail_menu(item_id, uid, quantity)
+        
+        try:
+            await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    if action == "buy":
+        currency = data[2]
+        item_id = data[3]
+        item = SHOP_ITEMS.get(item_id)
+        
+        if not item:
+            await query.answer(sc("item not found!"), show_alert=True)
             return
         
-        if not files:
-            await status_msg.edit_text(
-                "❌ *No Media Found*\n\n"
-                "No downloadable content in this post.",
-                parse_mode='Markdown'
-            )
-            # Cleanup
+        if item.level_required > level:
+            await query.answer(f"🔒 {sc('requires level')} {item.level_required}!", show_alert=True)
+            return
+        
+        inventory = await get_inventory(uid)
+        current_quantity = inventory.get(item_id, 0)
+        
+        if current_quantity >= item.max_stack:
+            await query.answer(f"❌ {sc('maximum stack reached!')} ({item.max_stack})", show_alert=True)
+            return
+        
+        if currency == "coin":
+            if balance < item.price_coins:
+                await query.answer(f"❌ {sc('not enough coins!')} ({balance}/{item.price_coins})", show_alert=True)
+                return
+            
             try:
-                import shutil
-                shutil.rmtree(temp_dir_or_error)
+                await user_collection.update_one(
+                    {'id': uid},
+                    {'$inc': {'balance': -item.price_coins}}
+                )
+            except:
+                await query.answer(sc("purchase failed!"), show_alert=True)
+                return
+        
+        elif currency == "token":
+            if item.price_tokens == 0:
+                await query.answer(sc("cannot buy with tokens!"), show_alert=True)
+                return
+            
+            if tokens < item.price_tokens:
+                await query.answer(f"❌ {sc('not enough tokens!')} ({tokens}/{item.price_tokens})", show_alert=True)
+                return
+            
+            try:
+                await user_collection.update_one(
+                    {'id': uid},
+                    {'$inc': {'tokens': -item.price_tokens}}
+                )
+            except:
+                await query.answer(sc("purchase failed!"), show_alert=True)
+                return
+        
+        success = await add_item_to_inventory(uid, item_id, 1)
+        
+        if success:
+            await query.answer(f"✅ {sc('purchased')} {item.name}!", show_alert=True)
+            
+            doc = await get_user(uid)
+            balance = doc.get('balance', 0) if doc else 0
+            tokens = doc.get('tokens', 0) if doc else 0
+            
+            inventory = await get_inventory(uid)
+            quantity = inventory.get(item_id, 0)
+            
+            duration_text = ""
+            if item.duration > 0:
+                if item.duration >= 60:
+                    hours = item.duration // 60
+                    duration_text = f"\n⏱️ Duration: {hours} hour(s)"
+                else:
+                    duration_text = f"\n⏱️ Duration: {item.duration} turn(s)"
+            
+            text = f"""<b>{item.emoji} {item.name} {item.emoji}</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<i>{item.description}</i>
+
+<b>{sc('details:')}</b>
+💰 Price: {item.price_coins} coins
+🎫 Token Price: {item.price_tokens} tokens
+📦 Max Stack: {item.max_stack}
+⭐ Level Required: {item.level_required}{duration_text}
+
+<b>{sc('you own:')}</b> {quantity} / {item.max_stack}
+
+<b>{sc('your wallet:')}</b>
+💰 {balance} | 🎫 {tokens}"""
+            
+            kb = create_item_detail_menu(item_id, uid, quantity)
+            
+            try:
+                await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
             except:
                 pass
+        else:
+            await query.answer(sc("purchase failed!"), show_alert=True)
+        return
+    
+    if action == "use":
+        item_id = data[2]
+        item = SHOP_ITEMS.get(item_id)
+        
+        if not item:
+            await query.answer(sc("item not found!"), show_alert=True)
             return
         
-        await status_msg.edit_text(
-            f"✅ Found {len(files)} file(s)\n📤 Uploading...",
-            parse_mode='Markdown'
-        )
+        inventory = await get_inventory(uid)
+        if inventory.get(item_id, 0) <= 0:
+            await query.answer(sc("you don't have this item!"), show_alert=True)
+            return
         
-        # Send files
-        success_count = 0
-        for idx, item in enumerate(files, 1):
+        if item.effect_type in ["exp_boost", "coin_boost"]:
+            success = await add_boost(uid, item.effect_type, item.effect_value, item.duration)
+            if success:
+                await remove_item_from_inventory(uid, item_id, 1)
+                hours = item.duration // 60
+                await query.answer(f"✅ {item.name} activated! (+{item.effect_value}% for {hours}h)", show_alert=True)
+            else:
+                await query.answer(sc("failed to use item!"), show_alert=True)
+        
+        elif item.effect_type in ["ai_battles", "pvp_battles"]:
+            battle_data = doc.get('battle_data', {})
+            
+            if item.effect_type == "ai_battles":
+                battle_data['ai_battles'] = max(0, battle_data.get('ai_battles', 0) - item.effect_value)
+            else:
+                battle_data['pvp_battles'] = max(0, battle_data.get('pvp_battles', 0) - item.effect_value)
+            
             try:
-                caption = f"📥 {idx}/{len(files)}"
-                
-                if item['type'] == 'video':
-                    with open(item['path'], 'rb') as video_file:
-                        await message.reply_video(
-                            video=video_file,
-                            caption=caption,
-                            supports_streaming=True
-                        )
-                else:
-                    with open(item['path'], 'rb') as photo_file:
-                        await message.reply_photo(
-                            photo=photo_file,
-                            caption=caption
-                        )
-                
-                success_count += 1
-                
-            except Exception as e:
-                print(f"Error sending file {idx}: {e}")
-                # Try as document
-                try:
-                    with open(item['path'], 'rb') as doc_file:
-                        await message.reply_document(
-                            document=doc_file,
-                            caption=f"📎 Media {idx}"
-                        )
-                    success_count += 1
-                except:
-                    pass
+                await user_collection.update_one(
+                    {'id': uid},
+                    {'$set': {'battle_data': battle_data}}
+                )
+                await remove_item_from_inventory(uid, item_id, 1)
+                await query.answer(f"✅ +{item.effect_value} battles added!", show_alert=True)
+            except:
+                await query.answer(sc("failed to use item!"), show_alert=True)
         
-        # Cleanup
-        try:
-            await status_msg.delete()
-        except:
-            pass
+        else:
+            await query.answer(sc("this item can only be used in battle!"), show_alert=True)
         
-        try:
-            import shutil
-            shutil.rmtree(temp_dir_or_error)
-        except:
-            pass
-        
-        if success_count == 0:
-            await message.reply_text(
-                "❌ *Upload Failed*\n\n"
-                "Could not send files to Telegram.",
-                parse_mode='Markdown'
-            )
+        return
     
-    except Exception as e:
-        error_message = str(e)
-        print(f"Instagram download error: {error_message}")
+    if action == "inv":
+        inventory = await get_inventory(uid)
+        
+        if not inventory:
+            text = f"""<b>🎒 {sc('your inventory')} 🎒</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<i>{sc('your inventory is empty!')}</i>
+
+{sc('visit the shop to purchase items!')}"""
+        else:
+            text = f"""<b>🎒 {sc('your inventory')} 🎒</b>
+━━━━━━━━━━━━━━━━━━━━
+
+"""
+            for item_id, quantity in inventory.items():
+                item = SHOP_ITEMS.get(item_id)
+                if item:
+                    text += f"{item.emoji} <b>{item.name}</b> x{quantity}\n"
+            
+            text += f"\n<i>{sc('click on items in shop to use them!')}</i>"
+        
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"shop_main_{uid}")
+        ]])
         
         try:
-            await status_msg.edit_text(
-                f"❌ *Error Occurred*\n\n"
-                f"```\n{error_message[:150]}\n```",
-                parse_mode='Markdown'
-            )
+            await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
         except:
             pass
+        return
+    
+    if action == "boosts":
+        boosts = await get_active_boosts(uid)
+        
+        if not boosts:
+            text = f"""<b>📊 {sc('active boosts')} 📊</b>
+━━━━━━━━━━━━━━━━━━━━
 
+<i>{sc('no active boosts!')}</i>
 
-# Register handlers
-application.add_handler(CommandHandler(["ig", "insta", "instagram"], ig_download))
+{sc('purchase boosters from the shop to enhance your gameplay!')}"""
+        else:
+            text = f"""<b>📊 {sc('active boosts')} 📊</b>
+━━━━━━━━━━━━━━━━━━━━
+
+"""
+            for boost in boosts:
+                boost_type = boost['type'].replace('_', ' ').title()
+                value = boost['value']
+                expires_at = datetime.fromisoformat(boost['expires_at'])
+                time_left = expires_at - datetime.utcnow()
+                hours = int(time_left.total_seconds() // 3600)
+                minutes = int((time_left.total_seconds() % 3600) // 60)
+                
+                emoji = "⭐" if 'exp' in boost['type'] else "💰"
+                text += f"{emoji} <b>{boost_type}</b>\n"
+                text += f"   +{value}% | {hours}h {minutes}m remaining\n\n"
+        
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"shop_main_{uid}")
+        ]])
+        
+        try:
+            await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+
+application.add_handler(CommandHandler("hop", shop_main))
+application.add_handler(CommandHandler("battleshop", shop_main))
+application.add_handler(CommandHandler("bshop", shop_main))
+application.add_handler(CallbackQueryHandler(shop_callback, pattern="^shop_"))
