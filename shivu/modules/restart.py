@@ -1016,7 +1016,7 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     
     # Import shop utilities
     try:
-        from shivu.modules.restart import get_active_boosts
+        from shivu.modules.up import get_active_boosts
         winner_boosts = await get_active_boosts(winner_p.user_id)
         exp_boost = 0
         coin_boost = 0
