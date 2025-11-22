@@ -34,7 +34,7 @@ ELEMENTAL_CHART = {
 }
 
 SMALLCAPS_MAP = {c: v for c, v in zip('abcdefghijklmnopqrstuvwxyz', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ')}
-BATTLE_TIMEOUT = 90
+BATTLE_TIMEOUT = 120
 MAX_AI_BATTLES_PER_DAY = 20
 MAX_PVP_BATTLES_PER_DAY = 30
 
@@ -58,12 +58,17 @@ class AttackData:
 ATTACKS = {
     "punch": AttackData("Punch", Element.NORMAL, 0, 15, 100, 0, 1, "👊", "Basic attack"),
     "slash": AttackData("Slash", Element.NORMAL, 10, 25, 95, 0.05, 1, "⚔️", "Swift blade strike"),
-    "fireball": AttackData("Fireball", Element.FIRE, 25, 35, 90, 0.05, 1, "🔥", "Launches fire", "burn", 25),
+    "fireball": AttackData("Fireball", Element.FIRE, 25, 35, 90, 0.05, 1, "🔥", "Fire ball", "burn", 25),
     "flame_burst": AttackData("Flame Burst", Element.FIRE, 40, 55, 85, 0.1, 8, "💥", "Explosive fire", "burn", 35),
+    "inferno": AttackData("Inferno", Element.FIRE, 70, 90, 75, 0.15, 18, "🌋", "Devastating flames", "burn", 50),
     "ice_shard": AttackData("Ice Shard", Element.ICE, 20, 30, 95, 0.03, 1, "❄️", "Sharp ice", "freeze", 15),
     "blizzard": AttackData("Blizzard", Element.ICE, 45, 60, 80, 0.08, 10, "🌨️", "Freezing storm", "freeze", 30),
     "spark": AttackData("Spark", Element.LIGHTNING, 22, 32, 92, 0.08, 3, "⚡", "Electric jolt", "stun", 20),
-    "thunderbolt": AttackData("Thunderbolt", Element.LIGHTNING, 50, 70, 82, 0.12, 12, "🌩️", "Powerful lightning", "stun", 35),
+    "thunderbolt": AttackData("Thunderbolt", Element.LIGHTNING, 50, 70, 82, 0.12, 12, "🌩️", "Lightning", "stun", 35),
+    "aqua_jet": AttackData("Aqua Jet", Element.WATER, 18, 28, 98, 0.02, 5, "💧", "High-speed water"),
+    "tidal_wave": AttackData("Tidal Wave", Element.WATER, 55, 75, 78, 0.1, 14, "🌊", "Crushing wave"),
+    "rock_throw": AttackData("Rock Throw", Element.EARTH, 20, 30, 90, 0.05, 7, "🪨", "Boulder throw"),
+    "earthquake": AttackData("Earthquake", Element.EARTH, 60, 80, 75, 0.08, 16, "🏔️", "Ground quake", "stun", 25),
 }
 
 @dataclass
@@ -77,13 +82,13 @@ class StatusEffect:
     description: str
 
 STATUS_EFFECTS = {
-    "burn": StatusEffect("Burn", "🔥", 3, 8, {"defense": 0.85}, False, "Takes fire damage"),
-    "freeze": StatusEffect("Freeze", "🧊", 2, 0, {"speed": 0.5}, False, "Slowed movement"),
+    "burn": StatusEffect("Burn", "🔥", 3, 8, {"defense": 0.85}, False, "Fire damage"),
+    "freeze": StatusEffect("Freeze", "🧊", 2, 0, {"speed": 0.5}, False, "Slowed"),
     "stun": StatusEffect("Stun", "💫", 1, 0, {}, True, "Cannot act"),
-    "regen": StatusEffect("Regen", "💚", 3, -15, {}, False, "Healing over time"),
-    "shield": StatusEffect("Shield", "🛡️", 2, 0, {"defense": 1.5}, False, "Defense boosted"),
-    "might": StatusEffect("Might", "💪", 3, 0, {"attack": 1.3}, False, "Attack boosted"),
-    "haste": StatusEffect("Haste", "⚡", 2, 0, {"speed": 1.5}, False, "Speed boosted"),
+    "regen": StatusEffect("Regen", "💚", 3, -15, {}, False, "Healing"),
+    "shield": StatusEffect("Shield", "🛡️", 2, 0, {"defense": 1.5}, False, "Defense up"),
+    "might": StatusEffect("Might", "💪", 3, 0, {"attack": 1.3}, False, "Attack up"),
+    "haste": StatusEffect("Haste", "⚡", 2, 0, {"speed": 1.5}, False, "Speed up"),
 }
 
 @dataclass
@@ -153,16 +158,15 @@ class Battle:
             if eff_data.damage_per_turn != 0:
                 if eff_data.damage_per_turn > 0:
                     player.hp = max(0, player.hp - eff_data.damage_per_turn)
-                    messages.append(f"{eff_data.emoji} {player.username}: -{eff_data.damage_per_turn} HP")
+                    messages.append(f"{eff_data.emoji} -{eff_data.damage_per_turn} HP")
                 else:
                     heal = abs(eff_data.damage_per_turn)
                     player.hp = min(player.max_hp, player.hp + heal)
-                    messages.append(f"{eff_data.emoji} {player.username}: +{heal} HP")
+                    messages.append(f"{eff_data.emoji} +{heal} HP")
             
             effect.turns_remaining -= 1
             if effect.turns_remaining <= 0:
                 expired.append(i)
-                messages.append(f"✖️ {effect.effect_name} wore off!")
         
         for i in reversed(expired):
             player.active_effects.pop(i)
@@ -188,7 +192,7 @@ class Battle:
         for effect in player.active_effects:
             eff_data = STATUS_EFFECTS.get(effect.effect_name)
             if eff_data and eff_data.prevents_action:
-                return False, f"{eff_data.emoji} {player.username} is {effect.effect_name}!"
+                return False, f"{eff_data.emoji} {player.username} is stunned!"
         return True, None
     
     def switch_turn(self):
@@ -362,7 +366,10 @@ def perform_attack(battle: Battle, attack_name: str) -> BattleMessage:
     defender = battle.get_opponent()
     
     attack = ATTACKS.get(attack_name)
-    if not attack or attacker.mana < attack.mana_cost:
+    if not attack:
+        return BattleMessage("❌ Invalid attack!")
+    
+    if attacker.mana < attack.mana_cost:
         return BattleMessage(f"❌ Not enough mana! Need {attack.mana_cost} MP")
     
     if attack.unlock_level > attacker.level:
@@ -371,7 +378,7 @@ def perform_attack(battle: Battle, attack_name: str) -> BattleMessage:
     attacker.mana -= attack.mana_cost
     
     if random.randint(1, 100) > attack.accuracy:
-        battle.add_log(f"💨 {attacker.username}: MISSED!")
+        battle.add_log(f"💨 {attacker.username}: MISSED")
         return BattleMessage(f"💨 {attacker.username}'s {attack.name} missed!")
     
     atk_eff = battle.get_effective_stats(attacker)
@@ -386,20 +393,26 @@ def perform_attack(battle: Battle, attack_name: str) -> BattleMessage:
     is_crit = random.random() < (attacker.crit_chance + attack.crit_bonus)
     if is_crit:
         damage = int(damage * 1.75)
+        attacker.combo_counter += 1
+    else:
+        attacker.combo_counter = 0
     
     defender.hp = max(0, defender.hp - damage)
     
     effect_msg = ""
     if attack.effect and random.randint(1, 100) <= attack.effect_chance:
-        eff_data = STATUS_EFFECTS.get(attack.effect)
-        if eff_data:
-            defender.active_effects.append(ActiveEffect(attack.effect, eff_data.duration, attacker.username))
-            effect_msg = f" [{eff_data.emoji} {attack.effect}!]"
+        has_effect = any(e.effect_name == attack.effect for e in defender.active_effects)
+        if not has_effect:
+            eff_data = STATUS_EFFECTS.get(attack.effect)
+            if eff_data:
+                defender.active_effects.append(ActiveEffect(attack.effect, eff_data.duration, attacker.username))
+                effect_msg = f" [{eff_data.emoji} {attack.effect}!]"
     
     crit_text = " 💥CRIT!" if is_crit else ""
-    eff_text = f" ⚡SUPER!" if effectiveness == "super" else f" 🛡️Not very!" if effectiveness == "not very" else ""
+    eff_text = " ⚡SUPER!" if effectiveness == "super" else " 🛡️Not very!" if effectiveness == "not very" else ""
+    combo_text = f" 🔥x{attacker.combo_counter}" if attacker.combo_counter >= 2 else ""
     
-    msg = f"{attack.emoji} {attacker.username} used {attack.name}!\n➤ {damage} DMG{crit_text}{eff_text}{effect_msg}"
+    msg = f"{attack.emoji} {attacker.username} used {attack.name}!\n➤ {damage} DMG{crit_text}{eff_text}{combo_text}{effect_msg}"
     battle.add_log(f"{attack.emoji} {attacker.username}: {damage}{crit_text}")
     
     return BattleMessage(msg, is_crit)
@@ -409,13 +422,13 @@ def perform_defend(battle: Battle) -> BattleMessage:
     player.is_defending = True
     mana_regen = min(20, player.max_mana - player.mana)
     player.mana += mana_regen
-    battle.add_log(f"🛡️ {player.username}: DEFENDING")
+    battle.add_log(f"🛡️ {player.username}: DEFEND")
     return BattleMessage(f"🛡️ {player.username} is defending!\n➤ Defense x2, +{mana_regen} MP")
 
 def perform_heal(battle: Battle) -> BattleMessage:
     player = battle.get_current_player()
     if player.mana < 30:
-        return BattleMessage("❌ Need 30 MP to heal!")
+        return BattleMessage("❌ Need 30 MP!")
     
     player.mana -= 30
     heal_amount = 40 + (player.level * 3)
@@ -424,11 +437,33 @@ def perform_heal(battle: Battle) -> BattleMessage:
     battle.add_log(f"💚 {player.username}: +{actual_heal} HP")
     return BattleMessage(f"💚 {player.username} healed!\n➤ +{actual_heal} HP")
 
+def perform_buff(battle: Battle, buff_type: str) -> BattleMessage:
+    player = battle.get_current_player()
+    
+    costs = {"might": 35, "shield": 30, "haste": 40, "regen": 45}
+    cost = costs.get(buff_type, 30)
+    
+    if player.mana < cost:
+        return BattleMessage(f"❌ Need {cost} MP!")
+    
+    has_buff = any(e.effect_name == buff_type for e in player.active_effects)
+    if has_buff:
+        return BattleMessage(f"❌ Already have {buff_type}!")
+    
+    player.mana -= cost
+    eff_data = STATUS_EFFECTS.get(buff_type)
+    
+    if eff_data:
+        player.active_effects.append(ActiveEffect(buff_type, eff_data.duration, player.username))
+        battle.add_log(f"{eff_data.emoji} {player.username}: {buff_type.upper()}")
+        return BattleMessage(f"{eff_data.emoji} {player.username} used {buff_type.title()}!\n➤ {eff_data.description} for {eff_data.duration} turns")
+    
+    return BattleMessage("❌ Invalid buff!")
+
 async def ai_turn(battle: Battle) -> BattleMessage:
     await asyncio.sleep(0.5)
     
     ai = battle.player2
-    player = battle.player1
     
     hp_pct = ai.hp / ai.max_hp
     mp_pct = ai.mana / ai.max_mana
@@ -436,8 +471,14 @@ async def ai_turn(battle: Battle) -> BattleMessage:
     if hp_pct < 0.25 and ai.mana >= 30:
         return perform_heal(battle)
     
-    if mp_pct < 0.2 or ai.mana < 20:
+    if mp_pct < 0.2:
         return perform_defend(battle)
+    
+    if random.random() < 0.15 and ai.mana >= 35:
+        buffs = ["might", "shield", "haste"]
+        available = [b for b in buffs if not any(e.effect_name == b for e in ai.active_effects)]
+        if available:
+            return perform_buff(battle, random.choice(available))
     
     available_attacks = [(name, data) for name, data in ATTACKS.items()
                         if data.unlock_level <= ai.level and ai.mana >= data.mana_cost]
@@ -445,8 +486,20 @@ async def ai_turn(battle: Battle) -> BattleMessage:
     if not available_attacks:
         return perform_defend(battle)
     
-    chosen = random.choice(available_attacks)[0]
+    # Prefer higher damage attacks
+    weights = [data.base_damage for _, data in available_attacks]
+    chosen = random.choices(available_attacks, weights=weights, k=1)[0][0]
     return perform_attack(battle, chosen)
+
+def format_effects(effects: List[ActiveEffect]) -> str:
+    if not effects:
+        return ""
+    parts = []
+    for e in effects:
+        eff = STATUS_EFFECTS.get(e.effect_name)
+        if eff:
+            parts.append(f"{eff.emoji}{e.turns_remaining}")
+    return " ".join(parts)
 
 def format_battle_ui(battle: Battle, action_msg: str = None) -> str:
     p1, p2 = battle.player1, battle.player2
@@ -454,18 +507,26 @@ def format_battle_ui(battle: Battle, action_msg: str = None) -> str:
     t1 = "▶" if battle.current_turn == 1 else "○"
     t2 = "▶" if battle.current_turn == 2 else "○"
     
+    p1_eff = format_effects(p1.active_effects)
+    p2_eff = format_effects(p2.active_effects)
+    
+    p1_def = " 🛡️" if p1.is_defending else ""
+    p2_def = " 🛡️" if p2.is_defending else ""
+    
     panel = f"""<b>⚔️ {sc('battle arena')} ⚔️</b>
 ━━━━━━━━━━━━━━━━━━━━
 
-{t1} <b>{sc(p1.username)}</b> {p1.rank_emoji} Lv.{p1.level}
+{t1} <b>{sc(p1.username)}</b> {p1.rank_emoji} Lv.{p1.level}{p1_def}
 {create_hp_bar(p1.hp, p1.max_hp)} <code>{p1.hp}/{p1.max_hp}</code>
 {create_mp_bar(p1.mana, p1.max_mana)} <code>{p1.mana}/{p1.max_mana}</code>
+{p1_eff}
 
 <b>━━━━━━ VS ━━━━━━</b>
 
-{t2} <b>{sc(p2.username if battle.is_pvp else 'ai warrior')}</b> {p2.rank_emoji} Lv.{p2.level}
+{t2} <b>{sc(p2.username if battle.is_pvp else 'ai warrior')}</b> {p2.rank_emoji} Lv.{p2.level}{p2_def}
 {create_hp_bar(p2.hp, p2.max_hp)} <code>{p2.hp}/{p2.max_hp}</code>
 {create_mp_bar(p2.mana, p2.max_mana)} <code>{p2.mana}/{p2.max_mana}</code>
+{p2_eff}
 
 ━━━━━━━━━━━━━━━━━━━━
 <b>📜 {sc('battle log')}</b>"""
@@ -476,6 +537,8 @@ def format_battle_ui(battle: Battle, action_msg: str = None) -> str:
     if action_msg:
         panel += f"\n\n<b>➤ {action_msg}</b>"
     
+    panel += f"\n\n<i>Turn {battle.turn_count + 1}</i>"
+    
     return panel
 
 def create_attack_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
@@ -485,26 +548,39 @@ def create_attack_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
     keyboard = []
     row = []
     
-    for name, atk in ATTACKS.items():
-        if name in unlocked:
-            can_use = player.mana >= atk.mana_cost
-            emoji = atk.emoji if can_use else "✗"
-            btn = InlineKeyboardButton(emoji, callback_data=f"bat_atk_{name}_{uid}")
-            row.append(btn)
-            
-            if len(row) >= 5:
-                keyboard.append(row)
-                row = []
+    for name in unlocked[:12]:  # Limit to first 12 attacks
+        atk = ATTACKS[name]
+        can_use = player.mana >= atk.mana_cost
+        emoji = atk.emoji if can_use else "✗"
+        btn = InlineKeyboardButton(emoji, callback_data=f"bat_atk_{name}_{uid}")
+        row.append(btn)
+        
+        if len(row) >= 4:
+            keyboard.append(row)
+            row = []
     
     if row:
         keyboard.append(row)
     
-    keyboard.extend([
-        [InlineKeyboardButton("🛡️", callback_data=f"bat_def_{uid}"),
-         InlineKeyboardButton("💚", callback_data=f"bat_heal_{uid}"),
-         InlineKeyboardButton(f"🏳️", callback_data=f"bat_ff_{uid}")]
+    # Action buttons
+    keyboard.append([
+        InlineKeyboardButton("🛡️", callback_data=f"bat_def_{uid}"),
+        InlineKeyboardButton("💚", callback_data=f"bat_heal_{uid}"),
+        InlineKeyboardButton("📖", callback_data=f"bat_skill_{uid}"),
     ])
     
+    keyboard.append([InlineKeyboardButton(f"🏳️ {sc('forfeit')}", callback_data=f"bat_ff_{uid}")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def create_skills_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(f"💪 {sc('might')} (35MP)", callback_data=f"bat_might_{uid}"),
+         InlineKeyboardButton(f"🛡️ {sc('shield')} (30MP)", callback_data=f"bat_shield_{uid}")],
+        [InlineKeyboardButton(f"⚡ {sc('haste')} (40MP)", callback_data=f"bat_haste_{uid}"),
+         InlineKeyboardButton(f"💚 {sc('regen')} (45MP)", callback_data=f"bat_regen_{uid}")],
+        [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"bat_back_{uid}")]
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
@@ -525,8 +601,22 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     winner_xp = int(base_xp * (1 + max(0, loser_p.level - winner_p.level) * 0.2))
     loser_xp = int(base_xp * 0.35) if battle.is_pvp else 0
     
-    winner_coins = 200 if battle.is_pvp else 100
+    winner_coins = 200 + (winner_p.level * 20) + random.randint(50, 150)
     loser_coins = winner_coins // 3 if battle.is_pvp else 0
+    
+    # Check for XP boost
+    try:
+        from shivu.modules.up import get_active_boosts
+        boosts = await get_active_boosts(winner_p.user_id)
+        for boost in boosts:
+            if boost['type'] == 'exp_boost':
+                bonus = int(winner_xp * (boost['value'] / 100))
+                winner_xp += bonus
+            elif boost['type'] == 'coin_boost':
+                bonus = int(winner_coins * (boost['value'] / 100))
+                winner_coins += bonus
+    except:
+        pass
     
     await save_progress(winner_p.user_id, winner_xp, winner_coins)
     if battle.is_pvp:
@@ -544,8 +634,10 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     if battle.is_pvp and loser_xp > 0:
         result += f"\n<b>{loser_p.username}:</b> +{loser_xp} XP, +{loser_coins} 💰"
     
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"⚔️ {sc('new battle')}", callback_data=f"rpg_menu_{winner_p.user_id}")]])
+    
     try:
-        await message.edit_text(result, parse_mode="HTML")
+        await message.edit_text(result, reply_markup=kb, parse_mode="HTML")
     except:
         pass
 
@@ -555,9 +647,10 @@ async def rpg_start(update: Update, context: CallbackContext):
     
     existing = battle_manager.get(user.id)
     if existing:
-        await msg.reply_text(f"⚠️ {sc('already in battle!')}", parse_mode="HTML")
+        await msg.reply_text(f"⚠️ {sc('already in battle! use /rpgforfeit to quit')}", parse_mode="HTML")
         return
     
+    # Handle PVP challenge
     if msg.reply_to_message and msg.reply_to_message.from_user.id != user.id:
         target = msg.reply_to_message.from_user
         
@@ -570,6 +663,11 @@ async def rpg_start(update: Update, context: CallbackContext):
             await msg.reply_text(limit_msg, parse_mode="HTML")
             return
         
+        can_battle_target, limit_msg_target = await check_battle_limits(target.id, True)
+        if not can_battle_target:
+            await msg.reply_text(f"❌ {target.first_name} {limit_msg_target}", parse_mode="HTML")
+            return
+        
         battle_manager.challenge(user.id, target.id, user.first_name)
         
         kb = InlineKeyboardMarkup([
@@ -578,11 +676,12 @@ async def rpg_start(update: Update, context: CallbackContext):
         ])
         
         await msg.reply_text(
-            f"<b>⚔️ {sc('battle challenge!')} ⚔️</b>\n\n<b>{target.first_name}</b> challenged by <b>{user.first_name}</b>!",
+            f"<b>⚔️ {sc('battle challenge!')} ⚔️</b>\n\n<b>{target.first_name}</b>, you've been challenged by <b>{user.first_name}</b>!",
             reply_markup=kb, parse_mode="HTML"
         )
         return
     
+    # Handle PVE battle
     can_battle, limit_msg = await check_battle_limits(user.id, False)
     if not can_battle:
         await msg.reply_text(limit_msg, parse_mode="HTML")
@@ -615,6 +714,11 @@ async def rpg_start(update: Update, context: CallbackContext):
         if battle.current_turn == 2:
             await asyncio.sleep(1)
             result = await ai_turn(battle)
+            
+            effect_msgs = battle.process_turn_effects(battle.player2)
+            for em in effect_msgs:
+                battle.add_log(em)
+            
             battle.switch_turn()
             
             over, winner = battle.is_over()
@@ -629,18 +733,109 @@ async def rpg_start(update: Update, context: CallbackContext):
 
 async def rpg_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    data = query.data.split("_")
+    data_parts = query.data.split("_")
     
-    if len(data) < 2:
+    if len(data_parts) < 2:
         await query.answer(sc("invalid action!"), show_alert=True)
         return
     
-    action = data[1]
+    action = data_parts[1]
     await query.answer()
     
-    # Handle challenge accept/decline
+    # Handle menu
+    if action == "menu":
+        uid = int(data_parts[2])
+        if update.effective_user.id != uid:
+            await query.answer(sc("not your button!"), show_alert=True)
+            return
+        
+        doc = await get_user(uid)
+        battle_data = doc.get('battle_data', {}) if doc else {}
+        ai_count = battle_data.get('ai_battles', 0)
+        pvp_count = battle_data.get('pvp_battles', 0)
+        
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"⚔️ {sc('start pve')} ({ai_count}/{MAX_AI_BATTLES_PER_DAY})", callback_data=f"rpg_pve_{uid}")],
+            [InlineKeyboardButton(f"📊 {sc('view stats')}", callback_data=f"rpg_stats_{uid}")],
+            [InlineKeyboardButton(f"🛒 {sc('battle shop')}", callback_data=f"bshop_home_{uid}")]
+        ])
+        
+        try:
+            await query.message.edit_text(
+                f"""<b>⚔️ {sc('rpg battle system')} ⚔️</b>
+
+{sc('daily limits:')}
+• AI: {ai_count}/{MAX_AI_BATTLES_PER_DAY}
+• PVP: {pvp_count}/{MAX_PVP_BATTLES_PER_DAY}
+
+{sc('select an option:')}""",
+                reply_markup=kb, parse_mode="HTML"
+            )
+        except:
+            pass
+        return
+    
+    # Handle PVE start
+    if action == "pve":
+        uid = int(data_parts[2])
+        if update.effective_user.id != uid:
+            await query.answer(sc("not your button!"), show_alert=True)
+            return
+        
+        can_battle, limit_msg = await check_battle_limits(uid, False)
+        if not can_battle:
+            await query.answer(limit_msg, show_alert=True)
+            return
+        
+        # Create a fake message object for rpg_start
+        update.message = query.message
+        update.message.reply_to_message = None
+        await rpg_start(update, context)
+        return
+    
+    # Handle stats view
+    if action == "stats":
+        uid = int(data_parts[2])
+        if update.effective_user.id != uid:
+            await query.answer(sc("not your stats!"), show_alert=True)
+            return
+        
+        player = await load_player(uid, update.effective_user.first_name)
+        doc = await get_user(uid)
+        balance = doc.get('balance', 0) if doc else 0
+        unlocked = get_unlocked_attacks(player.level)
+        
+        stats_text = f"""<b>📊 {sc('player statistics')} 📊</b>
+━━━━━━━━━━━━━━━━━━━━
+
+<b>{sc('profile')}</b>
+• Name: {player.username}
+• Level: {player.level} {player.rank_emoji}
+• Rank: {player.rank}
+
+<b>{sc('combat stats')}</b>
+• HP: {player.max_hp}
+• Mana: {player.max_mana}
+• Attack: {player.attack}
+• Defense: {player.defense}
+• Speed: {player.speed}
+• Crit: {player.crit_chance*100:.1f}%
+
+<b>{sc('inventory')}</b>
+• 💰 Coins: {balance:,}
+
+<b>{sc('attacks unlocked:')}</b> {len(unlocked)}/{len(ATTACKS)}"""
+        
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"rpg_menu_{uid}")]])
+        try:
+            await query.message.edit_text(stats_text, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    # Handle challenge accept
     if action == "acc":
-        cid, tid = int(data[2]), int(data[3])
+        cid, tid = int(data_parts[2]), int(data_parts[3])
         
         if update.effective_user.id != tid:
             await query.answer(sc("not your challenge!"), show_alert=True)
@@ -674,8 +869,9 @@ async def rpg_callback(update: Update, context: CallbackContext):
             battle_manager.end(p1.user_id, p2.user_id)
         return
     
+    # Handle challenge decline
     if action == "dec":
-        tid = int(data[3])
+        tid = int(data_parts[3])
         
         if update.effective_user.id != tid:
             await query.answer(sc("not your challenge!"), show_alert=True)
@@ -689,7 +885,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
         return
     
     # Battle actions
-    uid = int(data[-1]) if len(data) > 2 else 0
+    uid = int(data_parts[-1]) if len(data_parts) > 2 else 0
     
     if update.effective_user.id != uid:
         await query.answer(sc("not your turn!"), show_alert=True)
@@ -742,6 +938,11 @@ async def rpg_callback(update: Update, context: CallbackContext):
         
         if not battle.is_pvp and battle.current_turn == 2:
             ai_result = await ai_turn(battle)
+            
+            ai_effect_msgs = battle.process_turn_effects(battle.player2)
+            for msg in ai_effect_msgs:
+                battle.add_log(msg)
+            
             battle.switch_turn()
             
             over, winner = battle.is_over()
@@ -761,11 +962,33 @@ async def rpg_callback(update: Update, context: CallbackContext):
     
     result = None
     
+    # Handle back button
+    if action == "back":
+        panel = format_battle_ui(battle)
+        kb = create_attack_keyboard(battle, uid)
+        try:
+            await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    # Handle skill menu
+    if action == "skill":
+        panel = format_battle_ui(battle)
+        panel += f"\n\n<b>{sc('select a skill:')}</b>"
+        kb = create_skills_keyboard(battle, uid)
+        try:
+            await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    # Handle attacks
     if action == "atk":
-        atk_name = data[2]
+        atk_name = data_parts[2]
         result = perform_attack(battle, atk_name)
         
-        if "Not enough" in result.text or "Unlock" in result.text:
+        if "Not enough" in result.text or "Unlock" in result.text or "Invalid" in result.text:
             await query.answer(result.text, show_alert=True)
             return
     
@@ -775,6 +998,12 @@ async def rpg_callback(update: Update, context: CallbackContext):
     elif action == "heal":
         result = perform_heal(battle)
         if "Need" in result.text:
+            await query.answer(result.text, show_alert=True)
+            return
+    
+    elif action in ["might", "shield", "haste", "regen"]:
+        result = perform_buff(battle, action)
+        if "Need" in result.text or "Already" in result.text:
             await query.answer(result.text, show_alert=True)
             return
     
@@ -792,6 +1021,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
     if not result:
         return
     
+    # Process turn effects
     effect_msgs = battle.process_turn_effects(current)
     for msg in effect_msgs:
         battle.add_log(msg)
@@ -803,6 +1033,7 @@ async def rpg_callback(update: Update, context: CallbackContext):
         await handle_battle_end(query.message, battle, winner)
         return
     
+    # AI turn for PVE
     if not battle.is_pvp and battle.current_turn == 2:
         panel = format_battle_ui(battle, result.text)
         try:
@@ -865,7 +1096,6 @@ async def rpg_stats_cmd(update: Update, context: CallbackContext):
     user = update.effective_user
     player = await load_player(user.id, user.first_name)
     doc = await get_user(user.id)
-    
     balance = doc.get('balance', 0) if doc else 0
     unlocked = get_unlocked_attacks(player.level)
     
@@ -886,7 +1116,7 @@ async def rpg_stats_cmd(update: Update, context: CallbackContext):
 • Crit: {player.crit_chance*100:.1f}%
 
 <b>{sc('inventory')}</b>
-• 💰 Coins: {balance}
+• 💰 Coins: {balance:,}
 
 <b>{sc('attacks unlocked:')}</b> {len(unlocked)}/{len(ATTACKS)}"""
     
@@ -919,11 +1149,16 @@ async def rpg_help(update: Update, context: CallbackContext):
 • AI: {MAX_AI_BATTLES_PER_DAY}/day
 • PVP: {MAX_PVP_BATTLES_PER_DAY}/day
 
-<b>{sc('tips')}</b>
+<b>{sc('combat')}</b>
 • Higher speed = first turn
 • Crits deal 75% more damage
-• Defending restores mana
-• Use elemental advantages!"""
+• Defending restores 20 MP
+• Use elemental advantages!
+
+<b>{sc('tips')}</b>
+• Level up to unlock attacks
+• Buy items from /bshop
+• Stack combos for bonus damage"""
     
     await update.message.reply_text(text, parse_mode="HTML")
 
