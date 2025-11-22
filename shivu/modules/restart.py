@@ -944,7 +944,7 @@ def create_skills_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
 async def create_items_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
     # Import shop items
     try:
-        from shivu.modules.restart import get_inventory, SHOP_ITEMS
+        from shivu.modules.up import get_inventory, SHOP_ITEMS
     except:
         # Fallback if import fails
         keyboard = [[InlineKeyboardButton(f"❌ {sc('shop not available')}", callback_data=f"bat_wait")]]
