@@ -918,6 +918,7 @@ def create_attack_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
     ])
     
     keyboard.append([
+        InlineKeyboardButton("🎒", callback_data=f"btl_items_{uid}"),
         InlineKeyboardButton(f"🏳️ {sc('forfeit')}", callback_data=f"btl_forfeit_{uid}")
     ])
     
@@ -937,6 +938,40 @@ def create_skills_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_back_{uid}")]
     ]
+    
+    return InlineKeyboardMarkup(keyboard)
+
+async def create_items_keyboard(battle: Battle, uid: int) -> InlineKeyboardMarkup:
+    from shivu.modules.restart import get_inventory, SHOP_ITEMS
+    
+    inventory = await get_inventory(uid)
+    keyboard = []
+    
+    usable_in_battle = ["hp_potion_small", "hp_potion_medium", "hp_potion_large",
+                        "mana_potion_small", "mana_potion_medium", "mana_potion_large",
+                        "elixir", "phoenix_feather", "lucky_charm", "smoke_bomb",
+                        "strength_potion", "defense_potion", "speed_potion"]
+    
+    usable_in_battle.extend([k for k in SHOP_ITEMS.keys() if "crystal" in k])
+    
+    has_items = False
+    for item_id in usable_in_battle:
+        if inventory.get(item_id, 0) > 0:
+            item = SHOP_ITEMS.get(item_id)
+            if item:
+                has_items = True
+                keyboard.append([InlineKeyboardButton(
+                    f"{item.emoji} {item.name} (x{inventory[item_id]})",
+                    callback_data=f"btl_useitem_{item_id}_{uid}"
+                )])
+    
+    if not has_items:
+        keyboard.append([InlineKeyboardButton(
+            f"📦 {sc('no usable items')}",
+            callback_data=f"btl_wait"
+        )])
+    
+    keyboard.append([InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_back_{uid}")])
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -972,9 +1007,29 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     winner_xp = int(base_xp * xp_mult)
     loser_xp = int(base_xp * 0.35) if battle.is_pvp else 0
     
+    from shivu.modules.restart import get_active_boosts
+    
+    winner_boosts = await get_active_boosts(winner_p.user_id)
+    exp_boost = 0
+    coin_boost = 0
+    
+    for boost in winner_boosts:
+        if boost['type'] == 'exp_boost':
+            exp_boost = boost['value']
+        elif boost['type'] == 'coin_boost':
+            coin_boost = boost['value']
+    
+    if exp_boost > 0:
+        bonus_xp = int(winner_xp * (exp_boost / 100))
+        winner_xp += bonus_xp
+    
     base_coins = 200 if battle.is_pvp else 100
     winner_coins = base_coins + (winner_p.level * 20) + random.randint(50, 150)
     loser_coins = base_coins // 3 if battle.is_pvp else 0
+    
+    if coin_boost > 0:
+        bonus_coins = int(winner_coins * (coin_boost / 100))
+        winner_coins += bonus_coins
     
     old_level = winner_p.level
     await save_progress(winner_p.user_id, winner_xp, winner_coins)
@@ -986,6 +1041,14 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     new_xp = new_doc.get('user_xp', 0) if new_doc else 0
     new_level = calc_level(new_xp)
     new_rank, new_rank_emoji = calc_rank(new_level)
+    
+    boost_text = ""
+    if exp_boost > 0 or coin_boost > 0:
+        boost_text = f"\n\n<b>⚡ {sc('active boosts')} ⚡</b>"
+        if exp_boost > 0:
+            boost_text += f"\n⭐ +{exp_boost}% EXP"
+        if coin_boost > 0:
+            boost_text += f"\n💰 +{coin_boost}% Coins"
     
     level_up_text = ""
     if new_level > old_level:
@@ -1036,6 +1099,7 @@ async def handle_battle_end(message, battle: Battle, winner: Optional[int]):
     if battle.is_pvp and loser_xp > 0:
         result += f"\n<b>{loser_p.username}:</b> +{loser_xp} XP, +{loser_coins} 💰"
     
+    result += boost_text
     result += level_up_text
     
     try:
@@ -1414,28 +1478,9 @@ async def rpg_callback(update: Update, context: CallbackContext):
             await query.answer(sc("not your shop!"), show_alert=True)
             return
         
-        text = f"""<b>🛒 {sc('battle shop')} 🛒</b>
-━━━━━━━━━━━━━━━━━━━━
-
-<b>{sc('coming soon!')}</b>
-
-{sc('purchase items to boost your battles:')}
-• HP Potions
-• Mana Potions
-• Element Crystals
-• Stat Boosters
-• Special Abilities
-
-<i>{sc('check back later for updates!')}</i>"""
-        
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"◀️ {sc('back')}", callback_data=f"btl_menu_{uid}")]
-        ])
-        
-        try:
-            await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-        except:
-            pass
+        from shivu.modules.restart import shop_main
+        update.callback_query = query
+        await shop_main(update, context)
         return
     
     uid = int(data[-1]) if len(data) > 2 else 0
@@ -1539,6 +1584,149 @@ async def rpg_callback(update: Update, context: CallbackContext):
             await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
         except:
             pass
+        return
+    
+    if action == "items":
+        panel = format_battle_ui(battle)
+        panel += f"\n\n<b>🎒 {sc('select an item:')}</b>"
+        kb = await create_items_keyboard(battle, uid)
+        try:
+            await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
+        except:
+            pass
+        return
+    
+    if action == "useitem":
+        from shivu.modules.restart import SHOP_ITEMS, get_inventory, remove_item_from_inventory
+        
+        item_id = data[2]
+        item = SHOP_ITEMS.get(item_id)
+        
+        if not item:
+            await query.answer(sc("item not found!"), show_alert=True)
+            return
+        
+        inventory = await get_inventory(uid)
+        if inventory.get(item_id, 0) <= 0:
+            await query.answer(sc("you don't have this item!"), show_alert=True)
+            return
+        
+        current = battle.get_current_player()
+        
+        if item.effect_type == "heal_hp":
+            heal = min(item.effect_value, current.max_hp - current.hp)
+            current.hp += heal
+            result = BattleMessage(
+                f"🧪 {current.username} used {item.name}!\n➤ +{heal} HP",
+                BATTLE_ANIMATIONS["heal"]
+            )
+        
+        elif item.effect_type == "heal_mana":
+            restore = min(item.effect_value, current.max_mana - current.mana)
+            current.mana += restore
+            result = BattleMessage(
+                f"💙 {current.username} used {item.name}!\n➤ +{restore} MP",
+                BATTLE_ANIMATIONS["buff"]
+            )
+        
+        elif item.effect_type == "full_restore":
+            hp_restored = current.max_hp - current.hp
+            mana_restored = current.max_mana - current.mana
+            current.hp = current.max_hp
+            current.mana = current.max_mana
+            result = BattleMessage(
+                f"✨ {current.username} used {item.name}!\n➤ +{hp_restored} HP, +{mana_restored} MP",
+                BATTLE_ANIMATIONS["heal"]
+            )
+        
+        elif "boost" in item.effect_type:
+            buff_name = item.effect_type.replace("_boost", "")
+            
+            has_effect = any(e.effect_name == item.item_id for e in current.active_effects)
+            if has_effect:
+                await query.answer(f"❌ {sc('already active!')}",show_alert=True)
+                return
+            
+            current.active_effects.append(ActiveEffect(
+                item.item_id, item.duration, current.username
+            ))
+            
+            result = BattleMessage(
+                f"{item.emoji} {current.username} used {item.name}!\n➤ +{item.effect_value}% {buff_name} for {item.duration} turns",
+                BATTLE_ANIMATIONS["buff"]
+            )
+        
+        else:
+            await query.answer(sc("cannot use this item in battle!"), show_alert=True)
+            return
+        
+        await remove_item_from_inventory(uid, item_id, 1)
+        
+        if result.animation_url:
+            try:
+                await query.message.reply_animation(result.animation_url, caption=result.text, parse_mode="HTML")
+            except:
+                pass
+        
+        battle.add_log(f"{item.emoji} {current.username}: Used {item.name}")
+        
+        effect_msgs = battle.process_turn_effects(current)
+        for msg in effect_msgs:
+            battle.add_log(msg)
+        
+        battle.switch_turn()
+        
+        over, winner = battle.is_over()
+        if over:
+            await handle_battle_end(query.message, battle, winner)
+            return
+        
+        if not battle.is_pvp and battle.current_turn == 2:
+            opponent_name = battle.player2.username
+            panel = format_battle_ui(battle, result.text)
+            kb = create_waiting_keyboard(opponent_name)
+            
+            try:
+                await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
+            except:
+                pass
+            
+            ai_result = await ai_turn(battle)
+            
+            if ai_result.animation_url:
+                try:
+                    await query.message.reply_animation(ai_result.animation_url, caption=ai_result.text, parse_mode="HTML")
+                except:
+                    pass
+            
+            ai_effect_msgs = battle.process_turn_effects(battle.player2)
+            for msg in ai_effect_msgs:
+                battle.add_log(msg)
+            
+            battle.switch_turn()
+            
+            over, winner = battle.is_over()
+            if over:
+                await handle_battle_end(query.message, battle, winner)
+                return
+            
+            result = ai_result
+        
+        panel = format_battle_ui(battle, result.text if result else None)
+        next_id = battle.player1.user_id if battle.current_turn == 1 else battle.player2.user_id
+        
+        if battle.is_pvp:
+            kb = create_attack_keyboard(battle, next_id)
+        else:
+            kb = create_attack_keyboard(battle, next_id) if battle.current_turn == 1 else create_waiting_keyboard("AI")
+        
+        try:
+            await query.message.edit_text(panel, reply_markup=kb, parse_mode="HTML")
+        except BadRequest:
+            pass
+        except Exception:
+            battle_manager.end(battle.player1.user_id, battle.player2.user_id)
+        
         return
     
     if action == "atk":
