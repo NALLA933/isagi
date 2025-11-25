@@ -152,18 +152,14 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         
         # Clean and attractive caption without problematic pre tags
         caption = (
-            f"<b>🎁 GIFT TRANSFER</b>\n\n"
-            f"<blockquote expandable><b>📦 Gift Details</b>\n\n"
-            f"<b>💝 Recipient</b>\n"
-            f"▸ <a href='tg://user?id={receiver_id}'>{escape(receiver_first_name)}</a>\n\n"
-            f"<b>✨ Character Information</b>\n"
-            f"▸ <i>Name:</i> <code>{escape(char_name)}</code>\n"
-            f"▸ <i>Series:</i> <u>{escape(char_anime)}</u>\n"
-            f"▸ <i>ID:</i> <code>#{char_id}</code>\n"
-            f"▸ <i>Rarity:</i> <tg-spoiler>⭐ {char_rarity}</tg-spoiler></blockquote>\n\n"
-            f"<b>⏰ Status:</b> <s>Pending</s> → <u>Awaiting Confirmation</u>\n\n"
-            f"<i>⚡ You have <b>{GIFT_TIMEOUT} seconds</b> to confirm this gift transfer</i>"
-        )
+    f"<b>➤ GIFT REQUEST</b>\n\n"
+    f"→ <b>Recipient:</b> <a href='tg://user?id={receiver_id}'>{escape(receiver_first_name)}</a>\n"
+    f"→ <b>Character:</b> <code>{escape(char_name)}</code>\n"
+    f"→ <b>Anime:</b> {escape(char_anime)}\n"
+    f"→ <b>ID:</b> #{char_id}\n"
+    f"→ <b>Rarity:</b> {char_rarity}\n\n"
+    f"⌚ <i>{GIFT_TIMEOUT} seconds remaining — confirm below</i>"
+)
 
         keyboard = [[
             InlineKeyboardButton("✅ Confirm", callback_data=f"z:{sender_id}"),
@@ -257,20 +253,12 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
 
             # Clean success message
             caption = (
-                f"<b>✅ GIFT SENT!</b>\n\n"
-                f"<b><u>🎊 Transfer Completed Successfully!</u></b>\n\n"
-                f"<blockquote><b>📦 Delivered Character</b>\n\n"
-                f"<i>Character:</i> <b>{escape(character.get('name', 'Unknown'))}</b>\n"
-                f"<i>From Series:</i> <code>{escape(character.get('anime', 'Unknown'))}</code>\n"
-                f"<i>Character ID:</i> <code>#{character.get('id', 'N/A')}</code>\n\n"
-                f"<b>🎁 Sent To:</b> <a href='tg://user?id={gift_data['receiver_id']}'>{escape(gift_data['receiver_first_name'])}</a></blockquote>\n\n"
-                f"<b>✨ Transfer Timeline:</b>\n"
-                f"<code>▸ Initiated  ✅</code>\n"
-                f"<code>▸ Verified   ✅</code>\n"
-                f"<code>▸ Processed  ✅</code>\n"
-                f"<code>▸ Delivered  ✅</code>\n\n"
-                f"<i>💝 Thank you for spreading joy in our community!</i>"
-            )
+    f"<b>➤ GIFT DELIVERED</b>\n\n"
+    f"→ <b>Character:</b> <code>{escape(character.get('name'))}</code>\n"
+    f"→ <b>Anime:</b> {escape(character.get('anime'))}\n"
+    f"→ <b>Delivered To:</b> <a href='tg://user?id={gift_data['receiver_id']}'>{escape(gift_data['receiver_first_name'])}</a>\n\n"
+    f"✓ <i>Transfer completed successfully</i>"
+)
             
             await query.edit_message_caption(
                 caption=caption,
@@ -282,14 +270,11 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
             
             # Clean cancel message
             cancel_msg = (
-                f"<b>❌ GIFT CANCELED</b>\n\n"
-                f"<blockquote><b>🔄 Transaction Cancelled</b>\n\n"
-                f"<s>Character: {escape(character.get('name', 'Unknown'))}</s>\n"
-                f"<s>Recipient: {escape(gift_data['receiver_first_name'])}</s>\n\n"
-                f"<b>Status:</b> <u>Reverted to your collection</u></blockquote>\n\n"
-                f"<i>✨ The character <b>remains safely</b> in your inventory.</i>\n"
-                f"<i>💫 You can send a new gift anytime!</i>"
-            )
+    f"<b>➤ GIFT CANCELLED</b>\n\n"
+    f"→ Transfer aborted\n"
+    f"→ Character returned to your collection\n"
+    f"✓ <i>No changes were made</i>"
+)
             
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
