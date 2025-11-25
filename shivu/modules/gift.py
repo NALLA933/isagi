@@ -4,45 +4,6 @@ from shivu import LOGGER, application, user_collection
 from html import escape
 import asyncio
 
-# Stylized text functions
-def text_bold(text):
-    """Convert to bold unicode characters"""
-    bold_map = {
-        'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝',
-        'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧',
-        'U': '𝗨', 'V': '𝗩', 'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭',
-        'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲', 'f': '𝗳', 'g': '𝗴', 'h': '𝗵', 'i': '𝗶', 'j': '𝗷',
-        'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻', 'o': '𝗼', 'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁',
-        'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
-        '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰', '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵'
-    }
-    return ''.join(bold_map.get(c, c) for c in text)
-
-def text_fancy(text):
-    """Convert to fancy script characters"""
-    fancy_map = {
-        'A': '𝓐', 'B': '𝓑', 'C': '𝓒', 'D': '𝓓', 'E': '𝓔', 'F': '𝓕', 'G': '𝓖', 'H': '𝓗', 'I': '𝓘', 'J': '𝓙',
-        'K': '𝓚', 'L': '𝓛', 'M': '𝓜', 'N': '𝓝', 'O': '𝓞', 'P': '𝓟', 'Q': '𝓠', 'R': '𝓡', 'S': '𝓢', 'T': '𝓣',
-        'U': '𝓤', 'V': '𝓥', 'W': '𝓦', 'X': '𝓧', 'Y': '𝓨', 'Z': '𝓩',
-        'a': '𝓪', 'b': '𝓫', 'c': '𝓬', 'd': '𝓭', 'e': '𝓮', 'f': '𝓯', 'g': '𝓰', 'h': '𝓱', 'i': '𝓲', 'j': '𝓳',
-        'k': '𝓴', 'l': '𝓵', 'm': '𝓶', 'n': '𝓷', 'o': '𝓸', 'p': '𝓹', 'q': '𝓺', 'r': '𝓻', 's': '𝓼', 't': '𝓽',
-        'u': '𝓾', 'v': '𝓿', 'w': '𝔀', 'x': '𝔁', 'y': '𝔂', 'z': '𝔃'
-    }
-    return ''.join(fancy_map.get(c, c) for c in text)
-
-def text_monospace(text):
-    """Convert to monospace characters"""
-    mono_map = {
-        'A': '𝙰', 'B': '𝙱', 'C': '𝙲', 'D': '𝙳', 'E': '𝙴', 'F': '𝙵', 'G': '𝙶', 'H': '𝙷', 'I': '𝙸', 'J': '𝙹',
-        'K': '𝙺', 'L': '𝙻', 'M': '𝙼', 'N': '𝙽', 'O': '𝙾', 'P': '𝙿', 'Q': '𝚀', 'R': '𝚁', 'S': '𝚂', 'T': '𝚃',
-        'U': '𝚄', 'V': '𝚅', 'W': '𝚆', 'X': '𝚇', 'Y': '𝚈', 'Z': '𝚉',
-        'a': '𝚊', 'b': '𝚋', 'c': '𝚌', 'd': '𝚍', 'e': '𝚎', 'f': '𝚏', 'g': '𝚐', 'h': '𝚑', 'i': '𝚒', 'j': '𝚓',
-        'k': '𝚔', 'l': '𝚕', 'm': '𝚖', 'n': '𝚗', 'o': '𝚘', 'p': '𝚙', 'q': '𝚚', 'r': '𝚛', 's': '𝚜', 't': '𝚝',
-        'u': '𝚞', 'v': '𝚟', 'w': '𝚠', 'x': '𝚡', 'y': '𝚢', 'z': '𝚣',
-        '0': '𝟶', '1': '𝟷', '2': '𝟸', '3': '𝟹', '4': '𝟺', '5': '𝟻', '6': '𝟼', '7': '𝟽', '8': '𝟾', '9': '𝟿'
-    }
-    return ''.join(mono_map.get(c, c) for c in text)
-
 pending_gifts = {}
 GIFT_TIMEOUT = 60
 
@@ -184,18 +145,14 @@ async def handle_gift_command(update: Update, context: CallbackContext):
             'sender_first_name': message.from_user.first_name
         }
 
-        # Create stylized caption with better formatting
         char_name = character.get('name', 'Unknown')
         char_anime = character.get('anime', 'Unknown')
         char_id = character.get('id', 'N/A')
         char_rarity = character.get('rarity', 'Common')
         
+        # Clean and attractive caption without problematic pre tags
         caption = (
-            f"<pre>\n"
-            f"╔═══════════════════════╗\n"
-            f"║  🎁 {text_bold('GIFT TRANSFER')}  ║\n"
-            f"╚═══════════════════════╝\n"
-            f"</pre>\n\n"
+            f"<b>🎁 GIFT TRANSFER</b>\n\n"
             f"<blockquote expandable><b>📦 Gift Details</b>\n\n"
             f"<b>💝 Recipient</b>\n"
             f"▸ <a href='tg://user?id={receiver_id}'>{escape(receiver_first_name)}</a>\n\n"
@@ -298,13 +255,9 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                     'characters': [character]
                 })
 
-            # Success message with stylized text
+            # Clean success message
             caption = (
-                f"<pre>\n"
-                f"╔═══════════════════════╗\n"
-                f"║   ✅ {text_bold('GIFT SENT')}!   ║\n"
-                f"╚═══════════════════════╝\n"
-                f"</pre>\n\n"
+                f"<b>✅ GIFT SENT!</b>\n\n"
                 f"<b><u>🎊 Transfer Completed Successfully!</u></b>\n\n"
                 f"<blockquote><b>📦 Delivered Character</b>\n\n"
                 f"<i>Character:</i> <b>{escape(character.get('name', 'Unknown'))}</b>\n"
@@ -312,28 +265,24 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                 f"<i>Character ID:</i> <code>#{character.get('id', 'N/A')}</code>\n\n"
                 f"<b>🎁 Sent To:</b> <a href='tg://user?id={gift_data['receiver_id']}'>{escape(gift_data['receiver_first_name'])}</a></blockquote>\n\n"
                 f"<b>✨ Transfer Timeline:</b>\n"
-                f"<code>▸ Initiated:  ✅</code>\n"
-                f"<code>▸ Verified:   ✅</code>\n"
-                f"<code>▸ Processed:  ✅</code>\n"
-                f"<code>▸ Delivered:  ✅</code>\n\n"
+                f"<code>▸ Initiated  ✅</code>\n"
+                f"<code>▸ Verified   ✅</code>\n"
+                f"<code>▸ Processed  ✅</code>\n"
+                f"<code>▸ Delivered  ✅</code>\n\n"
                 f"<i>💝 Thank you for spreading joy in our community!</i>"
             )
             
             await query.edit_message_caption(
                 caption=caption,
                 parse_mode='HTML'
-            )parse_mode='HTML'
             )
 
         elif action == "v":
             await query.message.delete()
             
+            # Clean cancel message
             cancel_msg = (
-                f"<pre>\n"
-                f"╔═══════════════════════╗\n"
-                f"║  ❌ {text_bold('GIFT CANCELED')}  ║\n"
-                f"╚═══════════════════════╝\n"
-                f"</pre>\n\n"
+                f"<b>❌ GIFT CANCELED</b>\n\n"
                 f"<blockquote><b>🔄 Transaction Cancelled</b>\n\n"
                 f"<s>Character: {escape(character.get('name', 'Unknown'))}</s>\n"
                 f"<s>Recipient: {escape(gift_data['receiver_first_name'])}</s>\n\n"
