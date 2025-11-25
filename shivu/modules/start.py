@@ -5,6 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPre
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, user_totals_collection
 from shivu.modules.chatlog import track_bot_start
+import asyncio
 
 VIDEOS = [
     "https://files.catbox.moe/k3dhbe.mp4", 
@@ -130,10 +131,8 @@ async def start(update: Update, context: CallbackContext):
             await user_collection.insert_one(new_user)
             user_data = new_user
 
-            try:
-                await track_bot_start(user_id, first_name, username, is_new_user)
-            except Exception as e:
-                LOGGER.error(f"Error tracking bot start: {e}")
+            # Track bot start in background - don't wait for it
+            asyncio.create_task(safe_track_bot_start(user_id, first_name, username, is_new_user))
 
             if referring_user_id:
                 await process_referral(user_id, first_name, referring_user_id, context)
@@ -149,10 +148,8 @@ async def start(update: Update, context: CallbackContext):
                 }
             )
 
-            try:
-                await track_bot_start(user_id, first_name, username, is_new_user)
-            except Exception as e:
-                LOGGER.error(f"Error tracking bot start: {e}")
+            # Track bot start in background - don't wait for it
+            asyncio.create_task(safe_track_bot_start(user_id, first_name, username, is_new_user))
 
         balance = user_data.get('balance', 0)
 
@@ -209,6 +206,19 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
             await update.message.reply_text("⚠️ An error occurred while processing your request. Please try again later.")
         except:
             pass
+
+
+async def safe_track_bot_start(user_id, first_name, username, is_new_user):
+    """Wrapper to safely call track_bot_start without blocking the main flow"""
+    try:
+        await asyncio.wait_for(
+            track_bot_start(user_id, first_name, username, is_new_user),
+            timeout=5.0  # 5 second timeout
+        )
+    except asyncio.TimeoutError:
+        LOGGER.warning(f"track_bot_start timed out for user {user_id}")
+    except Exception as e:
+        LOGGER.error(f"Error in safe_track_bot_start: {e}", exc_info=True)
 
 
 async def button_callback(update: Update, context: CallbackContext):
