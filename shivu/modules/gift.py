@@ -156,8 +156,8 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         )
 
         keyboard = [[
-            InlineKeyboardButton("✅ Confirm", callback_data=f"gift_confirm:{sender_id}"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"gift_cancel:{sender_id}")
+            InlineKeyboardButton("✅ Confirm", callback_data=f"giftchar_cfm:{sender_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"giftchar_cncl:{sender_id}")
         ]]
 
         media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
@@ -204,7 +204,7 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
         gift_data = pending_gifts[user_id]
         character = gift_data['character']
 
-        if action == "gift_confirm":
+        if action == "giftchar_cfm":
             sender = await user_collection.find_one({'id': user_id})
 
             if not sender:
@@ -256,7 +256,7 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                 parse_mode='HTML'
             )
 
-        elif action == "gift_cancel":
+        elif action == "giftchar_cncl":
             await query.message.delete()
             
             await context.bot.send_message(
@@ -278,4 +278,4 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
 
 
 application.add_handler(CommandHandler("gift", handle_gift_command, block=False))
-application.add_handler(CallbackQueryHandler(handle_gift_callback, pattern='^gift_(confirm|cancel):', block=False))
+application.add_handler(CallbackQueryHandler(handle_gift_callback, pattern='^giftchar_(cfm|cncl):', block=False))
