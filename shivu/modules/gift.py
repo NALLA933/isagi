@@ -7,18 +7,15 @@ pending_gifts = {}
 
 
 def is_video_url(url):
-    """Check if URL is a video based on extension or domain patterns"""
     if not url:
         return False
-    
+
     url_lower = url.lower()
-    
-    # Check for video file extensions
+
     video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
     if any(url_lower.endswith(ext) for ext in video_extensions):
         return True
-    
-    # Check for video hosting patterns in URL
+
     video_patterns = [
         '/video/',
         '/videos/',
@@ -29,24 +26,16 @@ def is_video_url(url):
     ]
     if any(pattern in url_lower for pattern in video_patterns):
         return True
-    
+
     return False
 
 
-async def send_media_message(context, chat_id, media_url, caption, reply_markup=None, is_video=False, reply_to_message_id=None):
-    """Helper function to send photo or video with fallback support (removed - not needed)"""
-    pass
-
-
 async def reply_media_message(message, media_url, caption, reply_markup=None, is_video=False):
-    """Helper function to reply with photo or video with fallback support"""
     try:
-        # Auto-detect if not explicitly set
         if not is_video:
             is_video = is_video_url(media_url)
-        
+
         if is_video:
-            # Try sending as video
             try:
                 return await message.reply_video(
                     video=media_url,
@@ -59,7 +48,6 @@ async def reply_media_message(message, media_url, caption, reply_markup=None, is
                 )
             except Exception as video_error:
                 LOGGER.warning(f"Failed to send as video, trying as photo: {video_error}")
-                # Fallback to photo if video fails
                 return await message.reply_photo(
                     photo=media_url,
                     caption=caption,
@@ -67,7 +55,6 @@ async def reply_media_message(message, media_url, caption, reply_markup=None, is
                     parse_mode='HTML'
                 )
         else:
-            # Send as photo
             return await message.reply_photo(
                 photo=media_url,
                 caption=caption,
@@ -76,7 +63,6 @@ async def reply_media_message(message, media_url, caption, reply_markup=None, is
             )
     except Exception as e:
         LOGGER.error(f"Failed to send media: {e}")
-        # Ultimate fallback to text-only
         return await message.reply_text(
             text=caption,
             reply_markup=reply_markup,
@@ -85,7 +71,6 @@ async def reply_media_message(message, media_url, caption, reply_markup=None, is
 
 
 async def handle_gift_command(update: Update, context: CallbackContext):
-    """Handle gift command with FULL IMAGE & VIDEO SUPPORT"""
     try:
         message = update.message
         sender_id = message.from_user.id
@@ -153,10 +138,8 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         ]]
 
         media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
-        # Check both database flag and URL pattern for video detection
         is_video = character.get('is_video', False) or is_video_url(media_url)
 
-        # Use helper function for sending media with auto-detection
         await reply_media_message(
             message, 
             media_url, 
@@ -173,7 +156,6 @@ async def handle_gift_command(update: Update, context: CallbackContext):
 
 
 async def handle_gift_callback(update: Update, context: CallbackContext):
-    """Handle gift confirmation/cancellation with FULL IMAGE & VIDEO SUPPORT"""
     query = update.callback_query
 
     try:
@@ -208,13 +190,21 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
             if not char_exists:
                 raise Exception("Character no longer available")
 
-            # Remove from sender
+            sender_characters = sender.get('characters', [])
+            found = False
+            updated_characters = []
+            
+            for c in sender_characters:
+                if not found and isinstance(c, dict) and str(c.get('id')) == str(character['id']):
+                    found = True
+                    continue
+                updated_characters.append(c)
+            
             await user_collection.update_one(
                 {'id': user_id}, 
-                {'$pull': {'characters': {'id': character['id']}}}
+                {'$set': {'characters': updated_characters}}
             )
 
-            # Add to receiver
             receiver = await user_collection.find_one({'id': gift_data['receiver_id']})
 
             if receiver:
@@ -230,7 +220,6 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                     'characters': [character]
                 })
 
-            # Update the confirmation message
             await query.edit_message_caption(
                 caption=(
                     f"<b>✅ Gift Successful!</b>\n\n"
@@ -247,7 +236,6 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                 parse_mode='HTML'
             )
 
-        # Clean up pending gift
         del pending_gifts[user_id]
 
     except Exception as e:
@@ -260,6 +248,5 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
             pass
 
 
-# Register handlers
 application.add_handler(CommandHandler("gift", handle_gift_command, block=False))
 application.add_handler(CallbackQueryHandler(handle_gift_callback, pattern='^gift_(confirm|cancel):', block=False))
