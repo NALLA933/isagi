@@ -2,8 +2,10 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from shivu import LOGGER, application, user_collection
 from html import escape
+import asyncio
 
 pending_gifts = {}
+GIFT_TIMEOUT = 60
 
 
 def is_video_url(url):
@@ -70,6 +72,27 @@ async def reply_media_message(message, media_url, caption, reply_markup=None, is
         )
 
 
+async def expire_gift(sender_id, message, chat_id):
+    await asyncio.sleep(GIFT_TIMEOUT)
+    
+    if sender_id in pending_gifts:
+        try:
+            await message.delete()
+        except Exception as e:
+            LOGGER.error(f"Failed to delete expired gift message: {e}")
+        
+        del pending_gifts[sender_id]
+        
+        try:
+            await application.bot.send_message(
+                chat_id=chat_id,
+                text="⏰ <b>Gift Expired</b>\n\n<i>Your gift request has timed out. You can send a new gift now.</i>",
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            LOGGER.error(f"Failed to send expiration notice: {e}")
+
+
 async def handle_gift_command(update: Update, context: CallbackContext):
     try:
         message = update.message
@@ -123,13 +146,13 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         }
 
         caption = (
-            f"<b>🎁 Gift Confirmation</b>\n"
-            f"To: <a href='tg://user?id={receiver_id}'>{escape(receiver_first_name)}</a>\n\n"
-            f"✨ <b>Name:</b> {escape(character.get('name', 'Unknown'))}\n"
-            f"📺 <b>Anime:</b> {escape(character.get('anime', 'Unknown'))}\n"
-            f"🆔 <b>ID:</b> {character.get('id', 'N/A')}\n"
-            f"🎴 <b>Rarity:</b> {character.get('rarity', 'Common')}\n\n"
-            f"<i>Confirm gift?</i>"
+            f"<blockquote expandable><b>🎁 Gift Confirmation</b>\n"
+            f"<b>To:</b> <a href='tg://user?id={receiver_id}'>{escape(receiver_first_name)}</a>\n\n"
+            f"<b>✨ Name:</b> <code>{escape(character.get('name', 'Unknown'))}</code>\n"
+            f"<b>📺 Anime:</b> <code>{escape(character.get('anime', 'Unknown'))}</code>\n"
+            f"<b>🆔 ID:</b> <code>{character.get('id', 'N/A')}</code>\n"
+            f"<b>🎴 Rarity:</b> <code>{character.get('rarity', 'Common')}</code></blockquote>\n\n"
+            f"<i>⏰ You have {GIFT_TIMEOUT} seconds to confirm</i>"
         )
 
         keyboard = [[
@@ -140,13 +163,15 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         media_url = character.get('img_url', 'https://i.imgur.com/placeholder.png')
         is_video = character.get('is_video', False) or is_video_url(media_url)
 
-        await reply_media_message(
+        sent_message = await reply_media_message(
             message, 
             media_url, 
             caption, 
             InlineKeyboardMarkup(keyboard), 
             is_video
         )
+
+        asyncio.create_task(expire_gift(sender_id, sent_message, message.chat_id))
 
     except Exception as e:
         LOGGER.error(f"Gift command error: {e}")
@@ -222,17 +247,21 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
 
             await query.edit_message_caption(
                 caption=(
-                    f"<b>✅ Gift Successful!</b>\n\n"
-                    f"✨ {escape(character.get('name', 'Unknown'))} sent to "
-                    f"<a href='tg://user?id={gift_data['receiver_id']}'>{escape(gift_data['receiver_first_name'])}</a>\n\n"
+                    f"<blockquote expandable><b>✅ Gift Successful!</b>\n\n"
+                    f"<b>✨ Character:</b> <code>{escape(character.get('name', 'Unknown'))}</code>\n"
+                    f"<b>📺 From:</b> <code>{escape(character.get('anime', 'Unknown'))}</code>\n"
+                    f"<b>🎁 Sent to:</b> <a href='tg://user?id={gift_data['receiver_id']}'>{escape(gift_data['receiver_first_name'])}</a></blockquote>\n\n"
                     f"<i>Thank you for gifting! 🎁</i>"
                 ),
                 parse_mode='HTML'
             )
 
         elif action == "gift_cancel":
-            await query.edit_message_caption(
-                caption="<b>❌ Gift Cancelled</b>\n\n<i>The character remains in your collection.</i>",
+            await query.message.delete()
+            
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="<b>❌ Gift Cancelled</b>\n\n<i>The character remains in your collection.</i>",
                 parse_mode='HTML'
             )
 
