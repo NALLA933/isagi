@@ -185,9 +185,9 @@ async def search_chars(q: str, lim: int = 500) -> List[Dict]:
     return chars
 
 async def col_cap(ch: Dict, u: Dict, fav: bool, stats: Dict, rank: Tuple) -> str:
-    cid = ch.get('id', '?')
-    nm = ch.get('name', '?')
-    an = ch.get('anime', '?')
+    cid = ch.get('id', '??')
+    nm = ch.get('name', 'Unknown')
+    an = ch.get('anime', 'Unknown')
     rar = ch.get('rarity', '🟢 Common')
     vid = ch.get('is_video', False)
 
@@ -202,84 +202,96 @@ async def col_cap(ch: Dict, u: Dict, fav: bool, stats: Dict, rank: Tuple) -> str
     animes = stats.get('animes', 0)
     rank_pos, rank_tot, pct = rank
 
-    anime_info = await collection.count_documents({'anime': an})
+    anime_total = await collection.count_documents({'anime': an})
 
-    cap = (
-        f"{'💖 ' if fav else ''}<b><u>{escape(nm)}</u></b>\n"
-        f"╰┈➤ ✨ <b>Character Info</b>\n\n"
-        f"👤 <a href='tg://user?id={uid}'><b>{escape(trunc(fn, 12))}</b></a>\n"
-        f"📊 <code>{unique}</code>/<code>{total}</code> chars • <code>{animes}</code> anime\n"
-        f"🏆 Rank <b>#{rank_pos}</b> • Top <b>{pct}%</b>\n\n"
-        f"<blockquote>🆔 <code>{cid}</code>\n"
-        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
-        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n"
-        f"📦 Collection: <b>{ua}</b>/<code>{anime_info}</code>\n"
-        f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'} • Owned <b>×{uc}</b>"
-    )
+    cap = f"""{'💖 ' if fav else ''}<b>{escape(nm)}</b>
+
+<b>📋 ᴄʜᴀʀᴀᴄᴛᴇʀ ᴅᴇᴛᴀɪʟs</b>
+┣ 🆔 <b>ɪᴅ:</b> <code>{cid}</code>
+┣ {e} <b>ʀᴀʀɪᴛʏ:</b> <code>{sc(rt)}</code>
+┣ 📺 <b>ᴀɴɪᴍᴇ:</b> <i>{escape(an)}</i>
+┗ {'🎬' if vid else '🖼'} <b>ᴛʏᴘᴇ:</b> {'ᴠɪᴅᴇᴏ' if vid else 'ɪᴍᴀɢᴇ'}
+
+<b>👤 ᴏᴡɴᴇʀ ɪɴғᴏ</b>
+┣ <a href='tg://user?id={uid}'><b>{escape(trunc(fn, 15))}</b></a>
+┣ 📊 <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ:</b> <code>{unique}</code>/<code>{total}</code>
+┣ 📚 <b>ᴀɴɪᴍᴇs:</b> <code>{animes}</code>
+┗ 🏆 <b>ʀᴀɴᴋ:</b> <code>#{rank_pos}</code> • ᴛᴏᴘ <code>{pct}%</code>
+
+<b>📦 ᴄᴏʟʟᴇᴄᴛɪᴏɴ sᴛᴀᴛs</b>
+┣ 🎯 <b>ᴏᴡɴᴇᴅ:</b> <code>×{uc}</code>
+┗ 📺 <b>ғʀᴏᴍ ᴀɴɪᴍᴇ:</b> <code>{ua}</code>/<code>{anime_total}</code>"""
 
     return cap
 
 async def glob_cap(ch: Dict, total: int) -> str:
-    cid = ch.get('id', '?')
-    nm = ch.get('name', '?')
-    an = ch.get('anime', '?')
+    cid = ch.get('id', '??')
+    nm = ch.get('name', 'Unknown')
+    an = ch.get('anime', 'Unknown')
     rar = ch.get('rarity', '🟢 Common')
     vid = ch.get('is_video', False)
 
     e, rt, rv = parse_rar(rar)
 
-    owners = await get_owners(cid, 1)
+    owners = await get_owners(cid, 50)
     top = owners[0] if owners else None
-    gc = sum(o.get('count', 0) for o in owners[:50])
+    gc = sum(o.get('count', 0) for o in owners)
+    uo = len(owners)
 
-    anime_info = await collection.count_documents({'anime': an})
+    anime_total = await collection.count_documents({'anime': an})
 
-    cap = (
-        f"<b><u>{escape(nm)}</u></b>\n"
-        f"╰┈➤ 🌐 <b>Global Database</b>\n\n"
-        f"📚 <code>{total}</code> characters available\n\n"
-        f"<blockquote>🆔 <code>{cid}</code>\n"
-        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
-        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n"
-        f"📦 Anime Total: <code>{anime_info}</code>\n"
-        f"{'🎬' if vid else '🖼'} {'Video' if vid else 'Image'}\n"
-        f"🎯 Grabbed <b>{gc}×</b> times"
-    )
+    cap = f"""<b>{escape(nm)}</b>
+
+<b>📋 ᴄʜᴀʀᴀᴄᴛᴇʀ ɪɴғᴏ</b>
+┣ 🆔 <b>ɪᴅ:</b> <code>{cid}</code>
+┣ {e} <b>ʀᴀʀɪᴛʏ:</b> <code>{sc(rt)}</code>
+┣ 📺 <b>ᴀɴɪᴍᴇ:</b> <i>{escape(an)}</i>
+┗ {'🎬' if vid else '🖼'} <b>ᴛʏᴘᴇ:</b> {'ᴠɪᴅᴇᴏ' if vid else 'ɪᴍᴀɢᴇ'}
+
+<b>🌐 ɢʟᴏʙᴀʟ sᴛᴀᴛs</b>
+┣ 📚 <b>ᴅᴀᴛᴀʙᴀsᴇ:</b> <code>{total}</code> ᴄʜᴀʀᴀᴄᴛᴇʀs
+┣ 📦 <b>ᴀɴɪᴍᴇ ᴛᴏᴛᴀʟ:</b> <code>{anime_total}</code>
+┣ 🎯 <b>ɢʀᴀʙʙᴇᴅ:</b> <code>{gc}×</code> ᴛɪᴍᴇs
+┗ 👥 <b>ᴏᴡɴᴇʀs:</b> <code>{uo}</code> ᴜsᴇʀs"""
 
     if top:
-        cap += f"\n\n👑 <b>Top Owner:</b> {trunc(escape(top.get('first_name', 'User')), 10)} <b>×{top.get('count', 0)}</b>"
+        cap += f"\n\n<b>👑 ᴛᴏᴘ ᴏᴡɴᴇʀ</b>\n┗ {escape(trunc(top.get('first_name', 'User'), 12))} • <code>×{top.get('count', 0)}</code>"
 
     return cap
 
 async def own_cap(ch: Dict, owners: List[Dict]) -> str:
-    cid = ch.get('id', '?')
-    nm = ch.get('name', '?')
-    an = ch.get('anime', '?')
+    cid = ch.get('id', '??')
+    nm = ch.get('name', 'Unknown')
+    an = ch.get('anime', 'Unknown')
     e, rt, rv = parse_rar(ch.get('rarity', '🟢 Common'))
 
     gc = sum(o.get('count', 0) for o in owners)
+    uo = len(owners)
 
-    cap = (
-        f"<b><u>{escape(nm)}</u></b>\n"
-        f"╰┈➤ 👥 <b>TOP OWNERS</b> ({len(owners)} users)\n\n"
-        f"<blockquote>🆔 <code>{cid}</code>\n"
-        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
-        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n\n"
-    )
+    cap = f"""<b>{escape(nm)}</b>
+
+<b>📋 ᴄʜᴀʀᴀᴄᴛᴇʀ ɪɴғᴏ</b>
+┣ 🆔 <code>{cid}</code>
+┣ {e} <code>{sc(rt)}</code>
+┗ 📺 <i>{escape(an)}</i>
+
+<b>👥 ᴛᴏᴘ ᴏᴡɴᴇʀs</b> (<code>{uo}</code> ᴜsᴇʀs)
+┗ 🎯 <b>ᴛᴏᴛᴀʟ:</b> <code>{gc}×</code> ɢʀᴀʙʙᴇᴅ
+
+"""
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, o in enumerate(owners[:40], 1):
         medal = medals.get(i, f"<b>{i}.</b>")
-        fn = trunc(escape(o.get('first_name', 'User')), 11)
-        cap += f"{medal} {fn} <b>×{o.get('count', 0)}</b> of <code>{o.get('total', 0)}</code>\n"
+        fn = escape(trunc(o.get('first_name', 'User'), 13))
+        cap += f"{medal} {fn} <code>×{o.get('count', 0)}</code> ᴏғ <code>{o.get('total', 0)}</code>\n"
 
-    cap += f"\n✦ Total grabbed <b>{gc}×</b>"
     return cap
 
 async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
-    cid = ch.get('id', '?')
-    nm = ch.get('name', '?')
-    an = ch.get('anime', '?')
+    cid = ch.get('id', '??')
+    nm = ch.get('name', 'Unknown')
+    an = ch.get('anime', 'Unknown')
     e, rt, rv = parse_rar(ch.get('rarity', '🟢 Common'))
 
     gc = sum(o.get('count', 0) for o in owners)
@@ -287,29 +299,31 @@ async def stat_cap(ch: Dict, owners: List[Dict]) -> str:
     avg = round(gc / uo, 1) if uo > 0 else 0
     anime_total = await collection.count_documents({'anime': an})
 
-    cap = (
-        f"<b><u>{escape(nm)}</u></b>\n"
-        f"╰┈➤ 📊 <b>STATISTICS</b>\n\n"
-        f"<blockquote>🆔 <code>{cid}</code>\n"
-        f"{e} <b>{sc(trunc(rt, 10))}</b>\n"
-        f"📺 <i>{trunc(escape(an), 16)}</i></blockquote>\n\n"
-        f"🎯 Grabbed: <b>{gc}×</b>\n"
-        f"👥 Owners: <code>{uo}</code> users\n"
-        f"📈 Average: <b>{avg}×</b> per user\n"
-        f"📚 Anime Total: <code>{anime_total}</code> chars"
-    )
+    cap = f"""<b>{escape(nm)}</b>
+
+<b>📋 ᴄʜᴀʀᴀᴄᴛᴇʀ ɪɴғᴏ</b>
+┣ 🆔 <code>{cid}</code>
+┣ {e} <code>{sc(rt)}</code>
+┗ 📺 <i>{escape(an)}</i>
+
+<b>📊 sᴛᴀᴛɪsᴛɪᴄs</b>
+┣ 🎯 <b>ɢʀᴀʙʙᴇᴅ:</b> <code>{gc}×</code>
+┣ 👥 <b>ᴏᴡɴᴇʀs:</b> <code>{uo}</code> ᴜsᴇʀs
+┣ 📈 <b>ᴀᴠᴇʀᴀɢᴇ:</b> <code>{avg}×</code> ᴘᴇʀ ᴜsᴇʀ
+┗ 📚 <b>ᴀɴɪᴍᴇ ᴛᴏᴛᴀʟ:</b> <code>{anime_total}</code>"""
 
     if owners:
-        cap += f"\n\n╰┈➤ 🏆 <b>Top Collectors</b>\n\n"
+        cap += f"\n\n<b>🏆 ᴛᴏᴘ ᴄᴏʟʟᴇᴄᴛᴏʀs</b>\n"
         for i, o in enumerate(owners[:15], 1):
-            fn = trunc(escape(o.get('first_name', 'User')), 10)
-            cap += f"<b>{i}.</b> {fn} <b>×{o.get('count', 0)}</b>\n"
+            fn = escape(trunc(o.get('first_name', 'User'), 12))
+            cap += f"┣ <b>{i}.</b> {fn} <code>×{o.get('count', 0)}</code>\n"
 
     return cap
 
 async def comp_cap(ch: Dict, u1: Dict, u2: Dict) -> str:
-    cid = ch.get('id', '?')
-    nm = ch.get('name', '?')
+    cid = ch.get('id', '??')
+    nm = ch.get('name', 'Unknown')
+    e, rt, rv = parse_rar(ch.get('rarity', '🟢 Common'))
 
     u1c = sum(1 for c in u1.get('characters', []) if c.get('id') == cid)
     u2c = sum(1 for c in u2.get('characters', []) if c.get('id') == cid)
@@ -320,20 +334,37 @@ async def comp_cap(ch: Dict, u1: Dict, u2: Dict) -> str:
     r1 = await get_rank(u1.get('id'))
     r2 = await get_rank(u2.get('id'))
 
-    cap = (
-        f"<b><u>{escape(nm)}</u></b>\n"
-        f"╰┈➤ ⚔️ <b>COMPARISON</b>\n\n"
-        f"<blockquote expandable>👤 <a href='tg://user?id={u1['id']}'><b>{escape(trunc(u1.get('first_name', 'User1'), 9))}</b></a>\n"
-        f"   • Owned: <b>×{u1c}</b>\n"
-        f"   • Collection: <code>{s1['unique']}</code>/<code>{s1['total']}</code>\n"
-        f"   • Rank: <b>#{r1[0]}</b></blockquote>\n\n"
-        f"<b>VS</b>\n\n"
-        f"<blockquote expandable>👤 <a href='tg://user?id={u2['id']}'><b>{escape(trunc(u2.get('first_name', 'User2'), 9))}</b></a>\n"
-        f"   • Owned: <b>×{u2c}</b>\n"
-        f"   • Collection: <code>{s2['unique']}</code>/<code>{s2['total']}</code>\n"
-        f"   • Rank: <b>#{r2[0]}</b></blockquote>"
-    )
+    cap = f"""<b>{escape(nm)}</b>
 
+<b>📋 ᴄʜᴀʀᴀᴄᴛᴇʀ</b>
+┣ 🆔 <code>{cid}</code>
+┗ {e} <code>{sc(rt)}</code>
+
+<b>⚔️ ᴄᴏᴍᴘᴀʀɪsᴏɴ</b>
+
+<b>👤 ᴘʟᴀʏᴇʀ 1</b>
+┣ <a href='tg://user?id={u1['id']}'>{escape(trunc(u1.get('first_name', 'User'), 12))}</a>
+┣ 🎯 <b>ᴏᴡɴᴇᴅ:</b> <code>×{u1c}</code>
+┣ 📊 <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ:</b> <code>{s1['unique']}</code>/<code>{s1['total']}</code>
+┗ 🏆 <b>ʀᴀɴᴋ:</b> <code>#{r1[0]}</code>
+
+<b>vs</b>
+
+<b>👤 ᴘʟᴀʏᴇʀ 2</b>
+┣ <a href='tg://user?id={u2['id']}'>{escape(trunc(u2.get('first_name', 'User'), 12))}</a>
+┣ 🎯 <b>ᴏᴡɴᴇᴅ:</b> <code>×{u2c}</code>
+┣ 📊 <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ:</b> <code>{s2['unique']}</code>/<code>{s2['total']}</code>
+┗ 🏆 <b>ʀᴀɴᴋ:</b> <code>#{r2[0]}</code>"""
+
+    winner = ""
+    if u1c > u2c:
+        winner = f"\n\n🏅 {escape(trunc(u1.get('first_name', 'User'), 10))} ᴡɪɴs!"
+    elif u2c > u1c:
+        winner = f"\n\n🏅 {escape(trunc(u2.get('first_name', 'User'), 10))} ᴡɪɴs!"
+    else:
+        winner = "\n\n🤝 ɪᴛ's ᴀ ᴛɪᴇ!"
+
+    cap += winner
     return cap
 
 async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
@@ -385,10 +416,10 @@ async def inlinequery(update: Update, context) -> None:
                 await update.inline_query.answer([
                     InlineQueryResultArticle(
                         id="nouser",
-                        title="User Not Found",
-                        description="Start collecting characters",
+                        title="❌ User Not Found",
+                        description="Start collecting characters first",
                         input_message_content=InputTextMessageContent(
-                            "user not found start collecting",
+                            "<b>❌ ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b>\n\nsᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ ᴄʜᴀʀᴀᴄᴛᴇʀs ғɪʀsᴛ!",
                             parse_mode=ParseMode.HTML
                         )
                     )
@@ -486,15 +517,15 @@ async def inlinequery(update: Update, context) -> None:
                 cap = await glob_cap(ch, total_chars)
 
             kbd = InlineKeyboardMarkup([
-                [InlineKeyboardButton(sc("owners"), callback_data=f"o.{ci}"),
-                 InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
-                [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}"),
-                 InlineKeyboardButton(sc("compare"), callback_data=f"c.{ci}.{uid}")]
+                [InlineKeyboardButton(sc("👥 ᴏᴡɴᴇʀs"), callback_data=f"o.{ci}"),
+                 InlineKeyboardButton(sc("📊 sᴛᴀᴛs"), callback_data=f"s.{ci}")],
+                [InlineKeyboardButton(sc("🔗 sʜᴀʀᴇ"), switch_inline_query=f"{ci}"),
+                 InlineKeyboardButton(sc("⚔️ ᴄᴏᴍᴘᴀʀᴇ"), callback_data=f"c.{ci}.{uid}")]
             ])
 
             rid = f"{ci}{off}{int(time.time()*1000)}"
-            ttl = f"{'💖' if fav else ''}{e} {trunc(nm, 24)}"
-            dsc = f"{trunc(an, 18)} {'video' if vid else 'image'} {trunc(rt, 8)}"
+            ttl = f"{'💖 ' if fav else ''}{e} {trunc(nm, 24)}"
+            dsc = f"{trunc(an, 18)} • {'Video' if vid else 'Image'} • {trunc(rt, 8)}"
 
             if vid:
                 res.append(InlineQueryResultVideo(
@@ -509,7 +540,7 @@ async def inlinequery(update: Update, context) -> None:
 
         await update.inline_query.answer(res, next_offset=nxt, cache_time=5, is_personal=is_col)
 
-    except:
+    except Exception as e:
         import traceback
         traceback.print_exc()
         await update.inline_query.answer([], cache_time=5)
@@ -523,27 +554,27 @@ async def show_owners(update: Update, context) -> None:
         ch = await collection.find_one({'id': ci}, {'_id': 0})
 
         if not ch:
-            await q.answer("character not found", show_alert=True)
+            await q.answer("❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
 
         owners = await get_owners(ci, 150)
 
         if not owners:
-            await q.answer("no owners yet", show_alert=True)
+            await q.answer("ℹ️ ɴᴏ ᴏɴᴇ ᴏᴡɴs ᴛʜɪs ʏᴇᴛ", show_alert=True)
             return
 
         cap = await own_cap(ch, owners)
         kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
-             InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
-            [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
+            [InlineKeyboardButton(sc("⬅️ ʙᴀᴄᴋ"), callback_data=f"b.{ci}"),
+             InlineKeyboardButton(sc("📊 sᴛᴀᴛs"), callback_data=f"s.{ci}")],
+            [InlineKeyboardButton(sc("🔗 sʜᴀʀᴇ"), switch_inline_query=f"{ci}")]
         ])
 
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    except:
+    except Exception as e:
         import traceback
         traceback.print_exc()
-        await q.answer("error", show_alert=True)
+        await q.answer("❌ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ", show_alert=True)
 
 async def back_card(update: Update, context) -> None:
     q = update.callback_query
@@ -554,23 +585,23 @@ async def back_card(update: Update, context) -> None:
         ch = await collection.find_one({'id': ci}, {'_id': 0})
 
         if not ch:
-            await q.answer("character not found", show_alert=True)
+            await q.answer("❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
 
         total = len(await search_chars(''))
         cap = await glob_cap(ch, total)
         kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton(sc("owners"), callback_data=f"o.{ci}"),
-             InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
-            [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}"),
-             InlineKeyboardButton(sc("compare"), callback_data=f"c.{ci}.{q.from_user.id}")]
+            [InlineKeyboardButton(sc("👥 ᴏᴡɴᴇʀs"), callback_data=f"o.{ci}"),
+             InlineKeyboardButton(sc("📊 sᴛᴀᴛs"), callback_data=f"s.{ci}")],
+            [InlineKeyboardButton(sc("🔗 sʜᴀʀᴇ"), switch_inline_query=f"{ci}"),
+             InlineKeyboardButton(sc("⚔️ ᴄᴏᴍᴘᴀʀᴇ"), callback_data=f"c.{ci}.{q.from_user.id}")]
         ])
 
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    except:
+    except Exception as e:
         import traceback
         traceback.print_exc()
-        await q.answer("error", show_alert=True)
+        await q.answer("❌ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ", show_alert=True)
 
 async def show_stats(update: Update, context) -> None:
     q = update.callback_query
@@ -581,23 +612,23 @@ async def show_stats(update: Update, context) -> None:
         ch = await collection.find_one({'id': ci}, {'_id': 0})
 
         if not ch:
-            await q.answer("character not found", show_alert=True)
+            await q.answer("❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
 
         owners = await get_owners(ci, 150)
         cap = await stat_cap(ch, owners)
 
         kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
-             InlineKeyboardButton(sc("owners"), callback_data=f"o.{ci}")],
-            [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
+            [InlineKeyboardButton(sc("⬅️ ʙᴀᴄᴋ"), callback_data=f"b.{ci}"),
+             InlineKeyboardButton(sc("👥 ᴏᴡɴᴇʀs"), callback_data=f"o.{ci}")],
+            [InlineKeyboardButton(sc("🔗 sʜᴀʀᴇ"), switch_inline_query=f"{ci}")]
         ])
 
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    except:
+    except Exception as e:
         import traceback
         traceback.print_exc()
-        await q.answer("error", show_alert=True)
+        await q.answer("❌ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ", show_alert=True)
 
 async def compare_users(update: Update, context) -> None:
     q = update.callback_query
@@ -609,32 +640,37 @@ async def compare_users(update: Update, context) -> None:
         uid1 = int(parts[2])
         uid2 = q.from_user.id
 
+        if uid1 == uid2:
+            await q.answer("ℹ️ ᴄᴀɴ'ᴛ ᴄᴏᴍᴘᴀʀᴇ ᴡɪᴛʜ ʏᴏᴜʀsᴇʟғ", show_alert=True)
+            return
+
         ch = await collection.find_one({'id': ci}, {'_id': 0})
 
         if not ch:
-            await q.answer("character not found", show_alert=True)
+            await q.answer("❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
 
         u1 = await get_user(uid1)
         u2 = await get_user(uid2)
 
         if not u1 or not u2:
-            await q.answer("user not found", show_alert=True)
+            await q.answer("❌ ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
 
         cap = await comp_cap(ch, u1, u2)
         kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton(sc("back"), callback_data=f"b.{ci}"),
-             InlineKeyboardButton(sc("stats"), callback_data=f"s.{ci}")],
-            [InlineKeyboardButton(sc("share"), switch_inline_query=f"{ci}")]
+            [InlineKeyboardButton(sc("⬅️ ʙᴀᴄᴋ"), callback_data=f"b.{ci}"),
+             InlineKeyboardButton(sc("📊 sᴛᴀᴛs"), callback_data=f"s.{ci}")],
+            [InlineKeyboardButton(sc("🔗 sʜᴀʀᴇ"), switch_inline_query=f"{ci}")]
         ])
 
         await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
-    except:
+    except Exception as e:
         import traceback
         traceback.print_exc()
-        await q.answer("error", show_alert=True)
+        await q.answer("❌ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ", show_alert=True)
 
+# Register handlers
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
 application.add_handler(CallbackQueryHandler(show_owners, pattern=r'^o\.', block=False))
 application.add_handler(CallbackQueryHandler(back_card, pattern=r'^b\.', block=False))
