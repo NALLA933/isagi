@@ -73,9 +73,9 @@ async def is_character_allowed(character, chat_id=None):
 
         char_rarity = character.get('rarity', '🟢 Common')
         rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
-        
+
         is_video = character.get('is_video', False)
-        
+
         if is_video and rarity_emoji == '🎥':
             if chat_id == AMV_ALLOWED_GROUP_ID:
                 LOGGER.info(f"✅ AMV {character.get('name')} allowed in main group")
@@ -216,7 +216,12 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        if not update.message and not update.edited_message:
+        message = update.message if update.message else update.edited_message
+        
+        if not message:
+            return
+        
+        if not update.effective_user:
             return
 
         chat_id = update.effective_chat.id
@@ -232,35 +237,34 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 message_counts[chat_id_str] = 0
 
             message_counts[chat_id_str] += 1
-            
+
             msg_content = "unknown"
-            if update.message:
-                if update.message.text:
-                    if update.message.text.startswith('/'):
-                        msg_content = f"command: {update.message.text.split()[0]}"
-                    else:
-                        msg_content = "text"
-                elif update.message.photo:
-                    msg_content = "photo"
-                elif update.message.video:
-                    msg_content = "video"
-                elif update.message.document:
-                    msg_content = "document"
-                elif update.message.sticker:
-                    msg_content = "sticker"
-                elif update.message.animation:
-                    msg_content = "animation"
-                elif update.message.voice:
-                    msg_content = "voice"
-                elif update.message.audio:
-                    msg_content = "audio"
-                elif update.message.video_note:
-                    msg_content = "video_note"
+            if message.text:
+                if message.text.startswith('/'):
+                    msg_content = f"command: {message.text.split()[0]}"
                 else:
-                    msg_content = "other_media"
-            
+                    msg_content = "text"
+            elif message.photo:
+                msg_content = "photo"
+            elif message.video:
+                msg_content = "video"
+            elif message.document:
+                msg_content = "document"
+            elif message.sticker:
+                msg_content = "sticker"
+            elif message.animation:
+                msg_content = "animation"
+            elif message.voice:
+                msg_content = "voice"
+            elif message.audio:
+                msg_content = "audio"
+            elif message.video_note:
+                msg_content = "video_note"
+            else:
+                msg_content = "other_media"
+
             sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
-            
+
             LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | {msg_content}")
 
             if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
@@ -625,8 +629,8 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
 
 def main() -> None:
-    application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
+    application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
 
     LOGGER.info("ᴄʜᴏᴄᴏᴏᴏᴏ ʟᴇʟᴏᴏᴏᴏᴏ...")
     application.run_polling(drop_pending_updates=True)
