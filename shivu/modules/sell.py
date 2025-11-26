@@ -1,6 +1,8 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
+from datetime import datetime
+from bson import ObjectId
 from shivu import application, db, user_collection
 
 collection = db['anime_characters_lol']
@@ -212,13 +214,11 @@ async def render_market_page(message, context, listings, page, user_id):
     
     try:
         if is_video:
-            from telegram import InputMediaVideo
             await query.edit_message_media(
                 media=InputMediaVideo(media=img_url, caption=caption, parse_mode="HTML"),
                 reply_markup=markup
             )
         else:
-            from telegram import InputMediaPhoto
             await query.edit_message_media(
                 media=InputMediaPhoto(media=img_url, caption=caption, parse_mode="HTML"),
                 reply_markup=markup
@@ -229,12 +229,12 @@ async def render_market_page(message, context, listings, page, user_id):
         except:
             pass
 
+# Register handlers
 application.add_handler(CommandHandler("sell", sell, block=False))
 application.add_handler(CommandHandler("unsell", unsell, block=False))
 application.add_handler(CommandHandler("market", market, block=False))
 application.add_handler(CommandHandler("msales", msales, block=False))
-application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^m", block=False)))])
-    
+application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^m", block=False))
     if len(listings) > 1:
         nav = []
         if page > 0:
@@ -304,7 +304,6 @@ async def market_callback(update, context):
         
         listings = []
         for lid in listing_ids:
-            from bson import ObjectId
             l = await sell_listings.find_one({"_id": ObjectId(lid)})
             if l:
                 listings.append(l)
@@ -343,7 +342,6 @@ async def market_callback(update, context):
             await query.answer("😔 ɴᴏ ʟɪsᴛɪɴɢs", show_alert=True)
     
     elif data.startswith("mb_"):
-        from bson import ObjectId
         listing_id = ObjectId(data.split("_", 1)[1])
         listing = await sell_listings.find_one({"_id": listing_id})
         
@@ -392,7 +390,6 @@ async def market_callback(update, context):
             pass
     
     elif data.startswith("mc_"):
-        from bson import ObjectId
         listing_id = ObjectId(data.split("_", 1)[1])
         listing = await sell_listings.find_one({"_id": listing_id})
         
@@ -451,7 +448,6 @@ async def market_callback(update, context):
         await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ!")
     
     elif data.startswith("mu_"):
-        from bson import ObjectId
         listing_id = ObjectId(data.split("_", 1)[1])
         listing = await sell_listings.find_one({"_id": listing_id, "seller_id": user_id})
         
@@ -485,7 +481,6 @@ async def market_callback(update, context):
         
         listings = []
         for lid in listing_ids:
-            from bson import ObjectId
             l = await sell_listings.find_one({"_id": ObjectId(lid)})
             if l:
                 listings.append(l)
@@ -533,4 +528,4 @@ async def update_market_display(query, context, listings, page, user_id):
     if is_own:
         buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"mu_{listing['_id']}")])
     else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"mb_{listing['_id']}"
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"mb_{listing['_id']}")])
