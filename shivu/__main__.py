@@ -68,10 +68,21 @@ except Exception as e:
 async def is_character_allowed(character, chat_id=None):
     try:
         if character.get('removed', False):
+            LOGGER.debug(f"Character {character.get('name')} is removed")
             return False
 
         char_rarity = character.get('rarity', '🟢 Common')
         rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
+        
+        is_video = character.get('is_video', False)
+        
+        if is_video and rarity_emoji == '🎥':
+            if chat_id == AMV_ALLOWED_GROUP_ID:
+                LOGGER.info(f"✅ AMV {character.get('name')} allowed in main group")
+                return True
+            else:
+                LOGGER.debug(f"❌ AMV {character.get('name')} blocked in group {chat_id}")
+                return False
 
         if group_rarity_collection is not None and chat_id:
             try:
@@ -91,10 +102,6 @@ async def is_character_allowed(character, chat_id=None):
             except Exception as e:
                 LOGGER.error(f"Error checking group exclusivity: {e}")
 
-        is_video = character.get('is_video', False)
-        if is_video and chat_id != AMV_ALLOWED_GROUP_ID:
-            return False
-
         if spawn_settings_collection is not None and get_spawn_settings is not None:
             try:
                 settings = await get_spawn_settings()
@@ -110,7 +117,7 @@ async def is_character_allowed(character, chat_id=None):
         return True
 
     except Exception as e:
-        LOGGER.error(f"Error in is_character_allowed: {e}")
+        LOGGER.error(f"Error in is_character_allowed: {e}\n{traceback.format_exc()}")
         return True
 
 
@@ -621,7 +628,7 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("Bot starting...")
+    LOGGER.info("ᴄʜᴏᴄᴏᴏᴏᴏ ʟᴇʟᴏᴏᴏᴏᴏ...")
     application.run_polling(drop_pending_updates=True)
 
 
