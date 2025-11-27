@@ -368,11 +368,11 @@ async def msales(update: Update, context: CallbackContext):
 
 async def market_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     data = query.data
     
     if data.startswith("market_page_"):
+        await query.answer()
         page = int(data.split("_")[2])
         listings = [await sell_listings.find_one({"_id": ObjectId(lid)}) for lid in context.user_data.get('market_listings', [])]
         listings = [l for l in listings if l]
@@ -398,7 +398,8 @@ async def market_callback(update: Update, context: CallbackContext):
             await query.answer("😔 ɴᴏ ʟɪsᴛɪɴɢs", show_alert=True)
     
     elif data.startswith("bi_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
+        listing_id = data.replace("bi_", "")
+        listing = await sell_listings.find_one({"_id": ObjectId(listing_id)})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -451,11 +452,13 @@ async def market_callback(update: Update, context: CallbackContext):
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
+            await query.answer()
         except BadRequest:
-            pass
+            await query.answer()
     
     elif data.startswith("cf_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
+        listing_id = data.replace("cf_", "")
+        listing = await sell_listings.find_one({"_id": ObjectId(listing_id)})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -470,7 +473,14 @@ async def market_callback(update: Update, context: CallbackContext):
         price = listing["price"]
         
         if balance < price:
-            await query.answer("⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ", show_alert=True)
+            shortage = price - balance
+            await query.answer(
+                f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
+                f"💰 ɴᴇᴇᴅ: {price:,} ɢᴏʟᴅ\n"
+                f"💵 ʜᴀᴠᴇ: {balance:,} ɢᴏʟᴅ\n"
+                f"📉 sʜᴏʀᴛ: {shortage:,} ɢᴏʟᴅ",
+                show_alert=True
+            )
             return
         
         char = listing["character"]
@@ -541,13 +551,13 @@ async def market_callback(update: Update, context: CallbackContext):
                 caption=success_text,
                 parse_mode="HTML"
             )
+            await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!")
         except BadRequest:
-            pass
-        
-        await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!")
+            await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!")
     
     elif data.startswith("market_remove_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2]), "seller_id": user_id})
+        listing_id = data.replace("market_remove_", "")
+        listing = await sell_listings.find_one({"_id": ObjectId(listing_id), "seller_id": user_id})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
