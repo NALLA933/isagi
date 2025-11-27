@@ -9,10 +9,9 @@ collection = db['anime_characters_lol']
 sell_listings = db['sell_listings']
 sell_history = db['sell_history']
 
-# Constants
 MIN_PRICE = 100
 MAX_PRICE = 1000000
-MARKET_FEE = 0.05  # 5% transaction fee
+MARKET_FEE = 0.05
 
 async def sell(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -162,6 +161,7 @@ async def market(update: Update, context: CallbackContext):
     
     context.user_data['market_listings'] = [str(l['_id']) for l in listings]
     context.user_data['market_page'] = 0
+    context.user_data['viewing_mine'] = False
     await render_market_page(update.message, context, listings, 0, user_id)
 
 async def mymarket(update: Update, context: CallbackContext):
@@ -180,6 +180,7 @@ async def mymarket(update: Update, context: CallbackContext):
     
     context.user_data['market_listings'] = [str(l['_id']) for l in listings]
     context.user_data['market_page'] = 0
+    context.user_data['viewing_mine'] = True
     await render_market_page(update.message, context, listings, 0, user_id, my_listings=True)
 
 async def render_market_page(message, context, listings, page, user_id, my_listings=False):
@@ -247,28 +248,21 @@ async def render_market_page(message, context, listings, page, user_id, my_listi
     
     buttons = []
     
-    # Main action button
     if is_own:
-        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"k_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
     else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"t_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"market_buy_{listing['_id']}")])
     
-    # Navigation
     if len(listings) > 1:
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"p_{page-1}"))
-        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="z"))
+            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"market_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="market_pageinfo"))
         if page < len(listings) - 1:
-            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"p_{page+1}"))
+            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"market_page_{page+1}"))
         buttons.append(nav)
     
-    # Bottom controls
-    buttons.append([
-        InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="j"),
-        InlineKeyboardButton("🏪 ᴍᴀʀᴋᴇᴛ", callback_data="e_all"),
-        InlineKeyboardButton("📦 ᴍʏ ʟɪsᴛs", callback_data="e_mine")
-    ])
+    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="market_refresh")])
     
     markup = InlineKeyboardMarkup(buttons)
     
@@ -329,9 +323,8 @@ async def market_callback(update: Update, context: CallbackContext):
     user_id = query.from_user.id
     data = query.data
     
-    # Navigation
-    if data.startswith("p_"):
-        page = int(data.split("_")[1])
+    if data.startswith("market_page_"):
+        page = int(data.split("_")[2])
         listings = [await sell_listings.find_one({"_id": ObjectId(lid)}) for lid in context.user_data.get('market_listings', [])]
         listings = [l for l in listings if l]
         
@@ -339,12 +332,10 @@ async def market_callback(update: Update, context: CallbackContext):
             context.user_data['market_page'] = page
             await update_market_display(query, context, listings, page, user_id)
     
-    # Page info
-    elif data == "z":
+    elif data == "market_pageinfo":
         await query.answer("📖 ᴜsᴇ ᴀʀʀᴏᴡs ᴛᴏ ɴᴀᴠɪɢᴀᴛᴇ")
     
-    # Refresh
-    elif data == "j":
+    elif data == "market_refresh":
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
@@ -357,32 +348,8 @@ async def market_callback(update: Update, context: CallbackContext):
         else:
             await query.answer("😔 ɴᴏ ʟɪsᴛɪɴɢs", show_alert=True)
     
-    # View modes
-    elif data == "e_all":
-        listings = await sell_listings.find({}).sort("listed_at", -1).to_list(None)
-        if listings:
-            context.user_data['market_listings'] = [str(l['_id']) for l in listings]
-            context.user_data['market_page'] = 0
-            context.user_data['viewing_mine'] = False
-            await update_market_display(query, context, listings, 0, user_id)
-            await query.answer("🏪 ᴠɪᴇᴡɪɴɢ ᴀʟʟ ʟɪsᴛɪɴɢs")
-        else:
-            await query.answer("😔 ᴍᴀʀᴋᴇᴛ ᴇᴍᴘᴛʏ", show_alert=True)
-    
-    elif data == "e_mine":
-        listings = await sell_listings.find({"seller_id": user_id}).sort("listed_at", -1).to_list(None)
-        if listings:
-            context.user_data['market_listings'] = [str(l['_id']) for l in listings]
-            context.user_data['market_page'] = 0
-            context.user_data['viewing_mine'] = True
-            await update_market_display(query, context, listings, 0, user_id)
-            await query.answer("📦 ᴠɪᴇᴡɪɴɢ ʏᴏᴜʀ ʟɪsᴛɪɴɢs")
-        else:
-            await query.answer("😔 ɴᴏ ᴀᴄᴛɪᴠᴇ ʟɪsᴛɪɴɢs", show_alert=True)
-    
-    # Buy request
-    elif data.startswith("t_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
+    elif data.startswith("market_buy_"):
+        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2])})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -421,8 +388,8 @@ async def market_callback(update: Update, context: CallbackContext):
         )
         
         buttons = [[
-            InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ", callback_data=f"w_{listing['_id']}"),
-            InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="x")
+            InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ", callback_data=f"market_confirm_{listing['_id']}"),
+            InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="market_cancel")
         ]]
         
         try:
@@ -434,9 +401,8 @@ async def market_callback(update: Update, context: CallbackContext):
         except BadRequest:
             pass
     
-    # Confirm purchase
-    elif data.startswith("w_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
+    elif data.startswith("market_confirm_"):
+        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2])})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -456,28 +422,23 @@ async def market_callback(update: Update, context: CallbackContext):
         
         char = listing["character"]
         
-        # Calculate fees
         fee = int(price * MARKET_FEE)
         seller_gets = price - fee
         
-        # Update buyer
         await user_collection.update_one(
             {"id": user_id},
             {"$inc": {"balance": -price}, "$push": {"characters": char}},
             upsert=True
         )
         
-        # Update seller
         await user_collection.update_one(
             {"id": listing["seller_id"]},
             {"$inc": {"balance": seller_gets}},
             upsert=True
         )
         
-        # Remove listing
         await sell_listings.delete_one({"_id": listing["_id"]})
         
-        # Save to history
         await sell_history.insert_one({
             "seller_id": listing["seller_id"],
             "buyer_id": user_id,
@@ -488,7 +449,6 @@ async def market_callback(update: Update, context: CallbackContext):
             "sold_at": datetime.utcnow()
         })
         
-        # Notify seller
         try:
             await context.bot.send_message(
                 listing["seller_id"],
@@ -533,9 +493,8 @@ async def market_callback(update: Update, context: CallbackContext):
         
         await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!")
     
-    # Remove own listing
-    elif data.startswith("k_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1]), "seller_id": user_id})
+    elif data.startswith("market_remove_"):
+        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2]), "seller_id": user_id})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
@@ -549,7 +508,6 @@ async def market_callback(update: Update, context: CallbackContext):
         await sell_listings.delete_one({"_id": listing["_id"]})
         await query.answer("🔙 ʀᴇᴍᴏᴠᴇᴅ ғʀᴏᴍ ᴍᴀʀᴋᴇᴛ")
         
-        # Refresh view
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
@@ -567,8 +525,7 @@ async def market_callback(update: Update, context: CallbackContext):
             except:
                 pass
     
-    # Cancel
-    elif data == "x":
+    elif data == "market_cancel":
         page = context.user_data.get('market_page', 0)
         listings = [await sell_listings.find_one({"_id": ObjectId(lid)}) for lid in context.user_data.get('market_listings', [])]
         listings = [l for l in listings if l]
@@ -640,28 +597,21 @@ async def update_market_display(query, context, listings, page, user_id):
     
     buttons = []
     
-    # Main action button
     if is_own:
-        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"k_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
     else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"t_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"market_buy_{listing['_id']}")])
     
-    # Navigation
     if len(listings) > 1:
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"p_{page-1}"))
-        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="z"))
+            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"market_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="market_pageinfo"))
         if page < len(listings) - 1:
-            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"p_{page+1}"))
+            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"market_page_{page+1}"))
         buttons.append(nav)
     
-    # Bottom controls
-    buttons.append([
-        InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="j"),
-        InlineKeyboardButton("🏪 ᴍᴀʀᴋᴇᴛ", callback_data="e_all"),
-        InlineKeyboardButton("📦 ᴍʏ ʟɪsᴛs", callback_data="e_mine")
-    ])
+    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="market_refresh")])
     
     markup = InlineKeyboardMarkup(buttons)
     
@@ -682,10 +632,9 @@ async def update_market_display(query, context, listings, page, user_id):
         except:
             pass
 
-# Register handlers
 application.add_handler(CommandHandler("sell", sell, block=False))
 application.add_handler(CommandHandler("unsell", unsell, block=False))
 application.add_handler(CommandHandler("market", market, block=False))
 application.add_handler(CommandHandler("mymarket", mymarket, block=False))
 application.add_handler(CommandHandler("msales", msales, block=False))
-application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^[jpzetkwx]", block=False))
+application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^market_", block=False))
