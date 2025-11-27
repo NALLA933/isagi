@@ -1,9 +1,11 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 from shivu import application, db, user_collection
+import asyncio
+from typing import Optional, Dict, List
 
 collection = db['anime_characters_lol']
 sell_listings = db['sell_listings']
@@ -12,6 +14,110 @@ sell_history = db['sell_history']
 MIN_PRICE = 100
 MAX_PRICE = 1000000
 MARKET_FEE = 0.05
+MAX_LISTINGS_PER_USER = 10
+CACHE_TIMEOUT = 300
+BATCH_SIZE = 50
+
+cache_store: Dict[str, tuple] = {}
+
+async def get_cached_user(bot, user_id: int) -> Optional[str]:
+    cache_key = f"user_{user_id}"
+    if cache_key in cache_store:
+        data, timestamp = cache_store[cache_key]
+        if datetime.utcnow().timestamp() - timestamp < CACHE_TIMEOUT:
+            return data
+    
+    try:
+        user = await bot.get_chat(user_id)
+        username = user.first_name[:15]
+        cache_store[cache_key] = (username, datetime.utcnow().timestamp())
+        return username
+    except:
+        return "Unknown"
+
+async def validate_listing_ownership(user_id: int, char_id: str) -> tuple:
+    user_data = await user_collection.find_one({"id": user_id}, {"characters": 1})
+    if not user_data:
+        return False, None, "⚠️ <b>ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ɪɴ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>"
+    
+    char_to_sell = next((c for c in user_data.get("characters", []) if str(c.get("id", c.get("_id"))) == char_id), None)
+    
+    if not char_to_sell:
+        return False, None, f"⚠️ <b>ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b>\n\n<blockquote>ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴄʜᴀʀᴀᴄᴛᴇʀ ɪᴅ: <code>{char_id}</code>\n\n💡 ᴜsᴇ /collection ᴛᴏ ᴠɪᴇᴡ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs</blockquote>"
+    
+    return True, char_to_sell, None
+
+async def check_listing_limits(user_id: int) -> tuple:
+    user_listings = await sell_listings.count_documents({"seller_id": user_id})
+    if user_listings >= MAX_LISTINGS_PER_USER:
+        return False, "⚠️ <b>ʟɪsᴛɪɴɢ ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ</b>\n\n<blockquote>📦 <b>ᴍᴀx ʟɪsᴛɪɴɢs:</b> 10/10\n\n💡 ʀᴇᴍᴏᴠᴇ sᴏᴍᴇ ᴡɪᴛʜ /unsell ᴏʀ /mymarket</blockquote>"
+    return True, None
+
+def format_time_ago(timestamp: datetime) -> str:
+    time_diff = datetime.utcnow() - timestamp
+    hours = int(time_diff.total_seconds() / 3600)
+    days = hours // 24
+    if days > 0:
+        return f"{days}d ago"
+    elif hours > 0:
+        return f"{hours}h ago"
+    return "just now"
+
+def create_listing_caption(listing: dict, seller_name: str, is_own: bool, page: int, total: int) -> str:
+    char = listing["character"]
+    price = listing["price"]
+    fee = int(price * MARKET_FEE)
+    final_price = price - fee
+    time_str = format_time_ago(listing.get("listed_at", datetime.utcnow()))
+    
+    caption = f"{'📦 <b>ʏᴏᴜʀ ʟɪsᴛɪɴɢ</b>' if is_own else '🏪 <b>ᴍᴀʀᴋᴇᴛᴘʟᴀᴄᴇ</b>'}\n\n"
+    
+    caption += (
+        f"<blockquote expandable>"
+        f"🎭 <b>ɴᴀᴍᴇ:</b> <code>{char.get('name', 'Unknown')}</code>\n"
+        f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{char.get('anime', 'Unknown')}</code>\n"
+        f"💫 <b>ʀᴀʀɪᴛʏ:</b> {char.get('rarity', 'Unknown')}\n"
+        f"🆔 <b>ɪᴅ:</b> <code>{char.get('id', char.get('_id', 'N/A'))}</code>"
+        f"</blockquote>\n\n"
+        f"<blockquote>"
+        f"💰 <b>ᴘʀɪᴄᴇ:</b> <code>{price:,}</code> ɢᴏʟᴅ\n"
+        f"👤 <b>sᴇʟʟᴇʀ:</b> {seller_name}\n"
+        f"👁️ <b>ᴠɪᴇᴡs:</b> {listing.get('views', 0):,}\n"
+        f"⏰ <b>ʟɪsᴛᴇᴅ:</b> {time_str}"
+        f"</blockquote>\n\n"
+    )
+    
+    if is_own:
+        caption += (
+            f"<blockquote>"
+            f"💵 <b>ʏᴏᴜ'ʟʟ ʀᴇᴄᴇɪᴠᴇ:</b> <code>{final_price:,}</code> ɢᴏʟᴅ\n"
+            f"📉 <b>ᴍᴀʀᴋᴇᴛ ғᴇᴇ:</b> <code>{fee:,}</code> ({int(MARKET_FEE*100)}%)"
+            f"</blockquote>\n\n"
+        )
+    
+    caption += f"📖 <b>ᴘᴀɢᴇ:</b> {page+1}/{total}"
+    return caption
+
+def create_navigation_buttons(listing: dict, page: int, total: int, is_own: bool) -> InlineKeyboardMarkup:
+    buttons = []
+    
+    if is_own:
+        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
+    else:
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"bi_{listing['_id']}")])
+    
+    if total > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"market_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"• {page+1}/{total} •", callback_data="market_pageinfo"))
+        if page < total - 1:
+            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"market_page_{page+1}"))
+        buttons.append(nav)
+    
+    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="market_refresh")])
+    
+    return InlineKeyboardMarkup(buttons)
 
 async def sell(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -40,20 +146,9 @@ async def sell(update: Update, context: CallbackContext):
             )
             return
         
-        user_data = await user_collection.find_one({"id": user_id})
-        if not user_data:
-            await update.message.reply_text("⚠️ <b>ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ɪɴ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ</b>", parse_mode="HTML")
-            return
-        
-        char_to_sell = next((c for c in user_data.get("characters", []) if str(c.get("id", c.get("_id"))) == char_id), None)
-        
-        if not char_to_sell:
-            await update.message.reply_text(
-                f"⚠️ <b>ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b>\n\n"
-                f"<blockquote>ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴄʜᴀʀᴀᴄᴛᴇʀ ɪᴅ: <code>{char_id}</code>\n\n"
-                f"💡 ᴜsᴇ /collection ᴛᴏ ᴠɪᴇᴡ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs</blockquote>",
-                parse_mode="HTML"
-            )
+        valid, char_to_sell, error = await validate_listing_ownership(user_id, char_id)
+        if not valid:
+            await update.message.reply_text(error, parse_mode="HTML")
             return
         
         if await sell_listings.find_one({"seller_id": user_id, "character.id": char_to_sell.get("id", char_to_sell.get("_id"))}):
@@ -65,14 +160,9 @@ async def sell(update: Update, context: CallbackContext):
             )
             return
         
-        user_listings = await sell_listings.count_documents({"seller_id": user_id})
-        if user_listings >= 10:
-            await update.message.reply_text(
-                "⚠️ <b>ʟɪsᴛɪɴɢ ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ</b>\n\n"
-                "<blockquote>📦 <b>ᴍᴀx ʟɪsᴛɪɴɢs:</b> 10/10\n\n"
-                "💡 ʀᴇᴍᴏᴠᴇ sᴏᴍᴇ ᴡɪᴛʜ /unsell ᴏʀ /mymarket</blockquote>",
-                parse_mode="HTML"
-            )
+        can_list, error = await check_listing_limits(user_id)
+        if not can_list:
+            await update.message.reply_text(error, parse_mode="HTML")
             return
         
         await sell_listings.insert_one({
@@ -145,7 +235,7 @@ async def unsell(update: Update, context: CallbackContext):
 async def market(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
-    listings = await sell_listings.find({}).sort("listed_at", -1).to_list(length=100)
+    listings = await sell_listings.find({}).sort("listed_at", -1).limit(200).to_list(length=200)
     
     if not listings:
         await update.message.reply_text(
@@ -168,7 +258,7 @@ async def market(update: Update, context: CallbackContext):
 async def mymarket(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
-    listings = await sell_listings.find({"seller_id": user_id}).sort("listed_at", -1).to_list(length=100)
+    listings = await sell_listings.find({"seller_id": user_id}).sort("listed_at", -1).limit(100).to_list(length=100)
     
     if not listings:
         await update.message.reply_text(
@@ -185,7 +275,7 @@ async def mymarket(update: Update, context: CallbackContext):
     await render_market_page(update.message, context, listings, 0, user_id, my_listings=True)
 
 async def lists(update: Update, context: CallbackContext):
-    listings = await sell_listings.find({}).sort("listed_at", -1).to_list(length=100)
+    listings = await sell_listings.find({}).sort("listed_at", -1).limit(200).to_list(length=200)
     
     if not listings:
         await update.message.reply_text(
@@ -197,17 +287,14 @@ async def lists(update: Update, context: CallbackContext):
         return
     
     text = f"📋 <b>ᴍᴀʀᴋᴇᴛ ʟɪsᴛɪɴɢs</b>\n\n"
-    text += f"<blockquote><b>ᴛᴏᴛᴀʟ ʟɪsᴛɪɴɢs:</b> {len(listings)}/100</blockquote>\n\n"
+    text += f"<blockquote><b>ᴛᴏᴛᴀʟ ʟɪsᴛɪɴɢs:</b> {len(listings)}/200</blockquote>\n\n"
     
-    for idx, listing in enumerate(listings[:50], 1):
+    seller_tasks = [get_cached_user(context.bot, listing["seller_id"]) for listing in listings[:BATCH_SIZE]]
+    seller_names = await asyncio.gather(*seller_tasks)
+    
+    for idx, (listing, seller_name) in enumerate(zip(listings[:BATCH_SIZE], seller_names), 1):
         char = listing["character"]
         price = listing["price"]
-        
-        try:
-            seller = await context.bot.get_chat(listing["seller_id"])
-            seller_name = seller.first_name[:15]
-        except:
-            seller_name = "Unknown"
         
         text += (
             f"<blockquote expandable>"
@@ -225,9 +312,9 @@ async def lists(update: Update, context: CallbackContext):
     if text:
         await update.message.reply_text(text, parse_mode="HTML")
     
-    if len(listings) > 50:
+    if len(listings) > BATCH_SIZE:
         await update.message.reply_text(
-            f"<blockquote>📊 <b>sʜᴏᴡɪɴɢ:</b> 50/{len(listings)} ʟɪsᴛɪɴɢs\n\n"
+            f"<blockquote>📊 <b>sʜᴏᴡɪɴɢ:</b> {BATCH_SIZE}/{len(listings)} ʟɪsᴛɪɴɢs\n\n"
             f"💡 ᴜsᴇ /market ᴛᴏ ʙʀᴏᴡsᴇ ᴡɪᴛʜ ɪᴍᴀɢᴇs</blockquote>",
             parse_mode="HTML"
         )
@@ -239,81 +326,15 @@ async def render_market_page(message, context, listings, page, user_id, my_listi
     listing = listings[page]
     char = listing["character"]
     seller_id = listing["seller_id"]
-    price = listing["price"]
     
     await sell_listings.update_one({"_id": listing["_id"]}, {"$inc": {"views": 1}})
     
-    try:
-        seller = await context.bot.get_chat(seller_id)
-        seller_name = seller.first_name
-    except:
-        seller_name = f"User {seller_id}"
-    
+    seller_name = await get_cached_user(context.bot, seller_id)
     is_video = char.get("rarity") == "🎥 AMV"
     is_own = seller_id == user_id
     
-    fee = int(price * MARKET_FEE)
-    final_price = price - fee
-    
-    time_diff = datetime.utcnow() - listing.get("listed_at", datetime.utcnow())
-    hours = int(time_diff.total_seconds() / 3600)
-    days = hours // 24
-    if days > 0:
-        time_str = f"{days}d ago"
-    elif hours > 0:
-        time_str = f"{hours}h ago"
-    else:
-        time_str = "just now"
-    
-    caption = f"{'📦 <b>ʏᴏᴜʀ ʟɪsᴛɪɴɢ</b>' if is_own else '🏪 <b>ᴍᴀʀᴋᴇᴛᴘʟᴀᴄᴇ</b>'}\n\n"
-    
-    caption += (
-        f"<blockquote expandable>"
-        f"🎭 <b>ɴᴀᴍᴇ:</b> <code>{char.get('name', 'Unknown')}</code>\n"
-        f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{char.get('anime', 'Unknown')}</code>\n"
-        f"💫 <b>ʀᴀʀɪᴛʏ:</b> {char.get('rarity', 'Unknown')}\n"
-        f"🆔 <b>ɪᴅ:</b> <code>{char.get('id', char.get('_id', 'N/A'))}</code>"
-        f"</blockquote>\n\n"
-    )
-    
-    caption += (
-        f"<blockquote>"
-        f"💰 <b>ᴘʀɪᴄᴇ:</b> <code>{price:,}</code> ɢᴏʟᴅ\n"
-        f"👤 <b>sᴇʟʟᴇʀ:</b> {seller_name}\n"
-        f"👁️ <b>ᴠɪᴇᴡs:</b> {listing.get('views', 0):,}\n"
-        f"⏰ <b>ʟɪsᴛᴇᴅ:</b> {time_str}"
-        f"</blockquote>\n\n"
-    )
-    
-    if is_own:
-        caption += (
-            f"<blockquote>"
-            f"💵 <b>ʏᴏᴜ'ʟʟ ʀᴇᴄᴇɪᴠᴇ:</b> <code>{final_price:,}</code> ɢᴏʟᴅ\n"
-            f"📉 <b>ᴍᴀʀᴋᴇᴛ ғᴇᴇ:</b> <code>{fee:,}</code> ({int(MARKET_FEE*100)}%)"
-            f"</blockquote>\n\n"
-        )
-    
-    caption += f"📖 <b>ᴘᴀɢᴇ:</b> {page+1}/{len(listings)}"
-    
-    buttons = []
-    
-    if is_own:
-        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
-    else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"bi_{listing['_id']}")])
-    
-    if len(listings) > 1:
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"market_page_{page-1}"))
-        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="market_pageinfo"))
-        if page < len(listings) - 1:
-            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"market_page_{page+1}"))
-        buttons.append(nav)
-    
-    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="market_refresh")])
-    
-    markup = InlineKeyboardMarkup(buttons)
+    caption = create_listing_caption(listing, seller_name, is_own, page, len(listings))
+    markup = create_navigation_buttons(listing, page, len(listings), is_own)
     
     try:
         if is_video:
@@ -337,10 +358,12 @@ async def render_market_page(message, context, listings, page, user_id, my_listi
 
 async def msales(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    sales = await sell_history.find({"seller_id": user_id}).sort("sold_at", -1).limit(10).to_list(10)
-    purchases = await sell_history.find({"buyer_id": user_id}).sort("sold_at", -1).limit(10).to_list(10)
     
-    active_listings = await sell_listings.count_documents({"seller_id": user_id})
+    sales_task = sell_history.find({"seller_id": user_id}).sort("sold_at", -1).limit(10).to_list(10)
+    purchases_task = sell_history.find({"buyer_id": user_id}).sort("sold_at", -1).limit(10).to_list(10)
+    active_task = sell_listings.count_documents({"seller_id": user_id})
+    
+    sales, purchases, active_listings = await asyncio.gather(sales_task, purchases_task, active_task)
     
     text = "📊 <b>ᴛʀᴀᴅᴇ ʜɪsᴛᴏʀʏ</b>\n\n"
     
@@ -388,7 +411,7 @@ async def market_callback(update: Update, context: CallbackContext):
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
-        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(100)
+        listings = await sell_listings.find(filter_query).sort("listed_at", -1).limit(200).to_list(length=200)
         if listings:
             context.user_data['market_listings'] = [str(l['_id']) for l in listings]
             context.user_data['market_page'] = 0
@@ -409,7 +432,7 @@ async def market_callback(update: Update, context: CallbackContext):
             await query.answer("⚠️ ᴄᴀɴ'ᴛ ʙᴜʏ ʏᴏᴜʀ ᴏᴡɴ ʟɪsᴛɪɴɢ", show_alert=True)
             return
         
-        user_data = await user_collection.find_one({"id": user_id})
+        user_data = await user_collection.find_one({"id": user_id}, {"balance": 1})
         balance = user_data.get("balance", 0) if user_data else 0
         price = listing["price"]
         
@@ -468,7 +491,7 @@ async def market_callback(update: Update, context: CallbackContext):
             await query.answer("⚠️ ᴄᴀɴ'ᴛ ʙᴜʏ ʏᴏᴜʀ ᴏᴡɴ ʟɪsᴛɪɴɢ", show_alert=True)
             return
         
-        user_data = await user_collection.find_one({"id": user_id})
+        user_data = await user_collection.find_one({"id": user_id}, {"balance": 1})
         balance = user_data.get("balance", 0) if user_data else 0
         price = listing["price"]
         
@@ -484,25 +507,24 @@ async def market_callback(update: Update, context: CallbackContext):
             return
         
         char = listing["character"]
-        
         fee = int(price * MARKET_FEE)
         seller_gets = price - fee
         
-        await user_collection.update_one(
+        update_buyer = user_collection.update_one(
             {"id": user_id},
             {"$inc": {"balance": -price}, "$push": {"characters": char}},
             upsert=True
         )
         
-        await user_collection.update_one(
+        update_seller = user_collection.update_one(
             {"id": listing["seller_id"]},
             {"$inc": {"balance": seller_gets}},
             upsert=True
         )
         
-        await sell_listings.delete_one({"_id": listing["_id"]})
+        delete_listing = sell_listings.delete_one({"_id": listing["_id"]})
         
-        await sell_history.insert_one({
+        insert_history = sell_history.insert_one({
             "seller_id": listing["seller_id"],
             "buyer_id": user_id,
             "character_name": char.get("name", "Unknown"),
@@ -511,6 +533,8 @@ async def market_callback(update: Update, context: CallbackContext):
             "fee": fee,
             "sold_at": datetime.utcnow()
         })
+        
+        await asyncio.gather(update_buyer, update_seller, delete_listing, insert_history)
         
         try:
             await context.bot.send_message(
@@ -563,18 +587,20 @@ async def market_callback(update: Update, context: CallbackContext):
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
             return
         
-        await user_collection.update_one(
+        restore_char = user_collection.update_one(
             {"id": user_id},
             {"$push": {"characters": listing["character"]}},
             upsert=True
         )
-        await sell_listings.delete_one({"_id": listing["_id"]})
+        delete_list = sell_listings.delete_one({"_id": listing["_id"]})
+        
+        await asyncio.gather(restore_char, delete_list)
         await query.answer("🔙 ʀᴇᴍᴏᴠᴇᴅ ғʀᴏᴍ ᴍᴀʀᴋᴇᴛ")
         
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
-        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(100)
+        listings = await sell_listings.find(filter_query).sort("listed_at", -1).limit(200).to_list(length=200)
         if listings:
             context.user_data['market_listings'] = [str(l['_id']) for l in listings]
             context.user_data['market_page'] = 0
@@ -604,79 +630,13 @@ async def update_market_display(query, context, listings, page, user_id):
     listing = listings[page]
     char = listing["character"]
     seller_id = listing["seller_id"]
-    price = listing["price"]
     
-    try:
-        seller = await context.bot.get_chat(seller_id)
-        seller_name = seller.first_name
-    except:
-        seller_name = f"User {seller_id}"
-    
+    seller_name = await get_cached_user(context.bot, seller_id)
     is_video = char.get("rarity") == "🎥 AMV"
     is_own = seller_id == user_id
     
-    fee = int(price * MARKET_FEE)
-    final_price = price - fee
-    
-    time_diff = datetime.utcnow() - listing.get("listed_at", datetime.utcnow())
-    hours = int(time_diff.total_seconds() / 3600)
-    days = hours // 24
-    if days > 0:
-        time_str = f"{days}d ago"
-    elif hours > 0:
-        time_str = f"{hours}h ago"
-    else:
-        time_str = "just now"
-    
-    caption = f"{'📦 <b>ʏᴏᴜʀ ʟɪsᴛɪɴɢ</b>' if is_own else '🏪 <b>ᴍᴀʀᴋᴇᴛᴘʟᴀᴄᴇ</b>'}\n\n"
-    
-    caption += (
-        f"<blockquote expandable>"
-        f"🎭 <b>ɴᴀᴍᴇ:</b> <code>{char.get('name', 'Unknown')}</code>\n"
-        f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{char.get('anime', 'Unknown')}</code>\n"
-        f"💫 <b>ʀᴀʀɪᴛʏ:</b> {char.get('rarity', 'Unknown')}\n"
-        f"🆔 <b>ɪᴅ:</b> <code>{char.get('id', char.get('_id', 'N/A'))}</code>"
-        f"</blockquote>\n\n"
-    )
-    
-    caption += (
-        f"<blockquote>"
-        f"💰 <b>ᴘʀɪᴄᴇ:</b> <code>{price:,}</code> ɢᴏʟᴅ\n"
-        f"👤 <b>sᴇʟʟᴇʀ:</b> {seller_name}\n"
-        f"👁️ <b>ᴠɪᴇᴡs:</b> {listing.get('views', 0):,}\n"
-        f"⏰ <b>ʟɪsᴛᴇᴅ:</b> {time_str}"
-        f"</blockquote>\n\n"
-    )
-    
-    if is_own:
-        caption += (
-            f"<blockquote>"
-            f"💵 <b>ʏᴏᴜ'ʟʟ ʀᴇᴄᴇɪᴠᴇ:</b> <code>{final_price:,}</code> ɢᴏʟᴅ\n"
-            f"📉 <b>ᴍᴀʀᴋᴇᴛ ғᴇᴇ:</b> <code>{fee:,}</code> ({int(MARKET_FEE*100)}%)"
-            f"</blockquote>\n\n"
-        )
-    
-    caption += f"📖 <b>ᴘᴀɢᴇ:</b> {page+1}/{len(listings)}"
-    
-    buttons = []
-    
-    if is_own:
-        buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
-    else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"bi_{listing['_id']}")])
-    
-    if len(listings) > 1:
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"market_page_{page-1}"))
-        nav.append(InlineKeyboardButton(f"• {page+1}/{len(listings)} •", callback_data="market_pageinfo"))
-        if page < len(listings) - 1:
-            nav.append(InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"market_page_{page+1}"))
-        buttons.append(nav)
-    
-    buttons.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="market_refresh")])
-    
-    markup = InlineKeyboardMarkup(buttons)
+    caption = create_listing_caption(listing, seller_name, is_own, page, len(listings))
+    markup = create_navigation_buttons(listing, page, len(listings), is_own)
     
     try:
         if is_video:
