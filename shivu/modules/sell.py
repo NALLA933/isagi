@@ -145,7 +145,7 @@ async def unsell(update: Update, context: CallbackContext):
 async def market(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
-    listings = await sell_listings.find({}).sort("listed_at", -1).to_list(length=None)
+    listings = await sell_listings.find({}).sort("listed_at", -1).to_list(length=100)
     
     if not listings:
         await update.message.reply_text(
@@ -154,7 +154,8 @@ async def market(update: Update, context: CallbackContext):
             "<b>💡 ᴄᴏᴍᴍᴀɴᴅs:</b>\n"
             "• /sell - ʟɪsᴛ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
             "• /mymarket - ʏᴏᴜʀ ʟɪsᴛɪɴɢs\n"
-            "• /msales - ᴛʀᴀᴅᴇ ʜɪsᴛᴏʀʏ</blockquote>",
+            "• /msales - ᴛʀᴀᴅᴇ ʜɪsᴛᴏʀʏ\n"
+            "• /lists - ᴠɪᴇᴡ ᴀʟʟ ʟɪsᴛɪɴɢs</blockquote>",
             parse_mode="HTML"
         )
         return
@@ -167,7 +168,7 @@ async def market(update: Update, context: CallbackContext):
 async def mymarket(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
-    listings = await sell_listings.find({"seller_id": user_id}).sort("listed_at", -1).to_list(length=None)
+    listings = await sell_listings.find({"seller_id": user_id}).sort("listed_at", -1).to_list(length=100)
     
     if not listings:
         await update.message.reply_text(
@@ -182,6 +183,54 @@ async def mymarket(update: Update, context: CallbackContext):
     context.user_data['market_page'] = 0
     context.user_data['viewing_mine'] = True
     await render_market_page(update.message, context, listings, 0, user_id, my_listings=True)
+
+async def lists(update: Update, context: CallbackContext):
+    listings = await sell_listings.find({}).sort("listed_at", -1).to_list(length=100)
+    
+    if not listings:
+        await update.message.reply_text(
+            "📋 <b>ᴍᴀʀᴋᴇᴛ ʟɪsᴛɪɴɢs</b>\n\n"
+            "<blockquote>😔 ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴄᴜʀʀᴇɴᴛʟʏ ʟɪsᴛᴇᴅ\n\n"
+            "💡 ᴜsᴇ /sell ᴛᴏ ʟɪsᴛ ʏᴏᴜʀ ᴄʜᴀʀᴀᴄᴛᴇʀs</blockquote>",
+            parse_mode="HTML"
+        )
+        return
+    
+    text = f"📋 <b>ᴍᴀʀᴋᴇᴛ ʟɪsᴛɪɴɢs</b>\n\n"
+    text += f"<blockquote><b>ᴛᴏᴛᴀʟ ʟɪsᴛɪɴɢs:</b> {len(listings)}/100</blockquote>\n\n"
+    
+    for idx, listing in enumerate(listings[:50], 1):
+        char = listing["character"]
+        price = listing["price"]
+        
+        try:
+            seller = await context.bot.get_chat(listing["seller_id"])
+            seller_name = seller.first_name[:15]
+        except:
+            seller_name = "Unknown"
+        
+        text += (
+            f"<blockquote expandable>"
+            f"<b>{idx}.</b> <code>{char.get('name', 'Unknown')[:20]}</code>\n"
+            f"💰 <b>ᴘʀɪᴄᴇ:</b> <code>{price:,}</code> ɢᴏʟᴅ\n"
+            f"👤 <b>sᴇʟʟᴇʀ:</b> {seller_name}\n"
+            f"🆔 <b>ɪᴅ:</b> <code>{char.get('id', char.get('_id', 'N/A'))}</code>"
+            f"</blockquote>\n\n"
+        )
+        
+        if len(text) > 3500:
+            await update.message.reply_text(text, parse_mode="HTML")
+            text = ""
+    
+    if text:
+        await update.message.reply_text(text, parse_mode="HTML")
+    
+    if len(listings) > 50:
+        await update.message.reply_text(
+            f"<blockquote>📊 <b>sʜᴏᴡɪɴɢ:</b> 50/{len(listings)} ʟɪsᴛɪɴɢs\n\n"
+            f"💡 ᴜsᴇ /market ᴛᴏ ʙʀᴏᴡsᴇ ᴡɪᴛʜ ɪᴍᴀɢᴇs</blockquote>",
+            parse_mode="HTML"
+        )
 
 async def render_market_page(message, context, listings, page, user_id, my_listings=False):
     if page >= len(listings):
@@ -251,7 +300,7 @@ async def render_market_page(message, context, listings, page, user_id, my_listi
     if is_own:
         buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
     else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"market_buy_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"bi_{listing['_id']}")])
     
     if len(listings) > 1:
         nav = []
@@ -339,7 +388,7 @@ async def market_callback(update: Update, context: CallbackContext):
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
-        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(None)
+        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(100)
         if listings:
             context.user_data['market_listings'] = [str(l['_id']) for l in listings]
             context.user_data['market_page'] = 0
@@ -348,8 +397,8 @@ async def market_callback(update: Update, context: CallbackContext):
         else:
             await query.answer("😔 ɴᴏ ʟɪsᴛɪɴɢs", show_alert=True)
     
-    elif data.startswith("market_buy_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2])})
+    elif data.startswith("bi_"):
+        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -364,8 +413,12 @@ async def market_callback(update: Update, context: CallbackContext):
         price = listing["price"]
         
         if balance < price:
+            shortage = price - balance
             await query.answer(
-                f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\n\nɴᴇᴇᴅ: {price:,} 💎\nʜᴀᴠᴇ: {balance:,} 💎",
+                f"⚠️ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
+                f"💰 ɴᴇᴇᴅ: {price:,} ɢᴏʟᴅ\n"
+                f"💵 ʜᴀᴠᴇ: {balance:,} ɢᴏʟᴅ\n"
+                f"📉 sʜᴏʀᴛ: {shortage:,} ɢᴏʟᴅ",
                 show_alert=True
             )
             return
@@ -388,7 +441,7 @@ async def market_callback(update: Update, context: CallbackContext):
         )
         
         buttons = [[
-            InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ", callback_data=f"market_confirm_{listing['_id']}"),
+            InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ ᴘᴜʀᴄʜᴀsᴇ", callback_data=f"cf_{listing['_id']}"),
             InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="market_cancel")
         ]]
         
@@ -401,8 +454,8 @@ async def market_callback(update: Update, context: CallbackContext):
         except BadRequest:
             pass
     
-    elif data.startswith("market_confirm_"):
-        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 2)[2])})
+    elif data.startswith("cf_"):
+        listing = await sell_listings.find_one({"_id": ObjectId(data.split("_", 1)[1])})
         
         if not listing:
             await query.answer("⚠️ ʟɪsᴛɪɴɢ ɴᴏ ʟᴏɴɢᴇʀ ᴀᴠᴀɪʟᴀʙʟᴇ", show_alert=True)
@@ -511,7 +564,7 @@ async def market_callback(update: Update, context: CallbackContext):
         is_mine = context.user_data.get('viewing_mine', False)
         filter_query = {"seller_id": user_id} if is_mine else {}
         
-        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(None)
+        listings = await sell_listings.find(filter_query).sort("listed_at", -1).to_list(100)
         if listings:
             context.user_data['market_listings'] = [str(l['_id']) for l in listings]
             context.user_data['market_page'] = 0
@@ -600,7 +653,7 @@ async def update_market_display(query, context, listings, page, user_id):
     if is_own:
         buttons.append([InlineKeyboardButton("🗑️ ʀᴇᴍᴏᴠᴇ ʟɪsᴛɪɴɢ", callback_data=f"market_remove_{listing['_id']}")])
     else:
-        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"market_buy_{listing['_id']}")])
+        buttons.append([InlineKeyboardButton("💳 ʙᴜʏ ɴᴏᴡ", callback_data=f"bi_{listing['_id']}")])
     
     if len(listings) > 1:
         nav = []
@@ -637,4 +690,7 @@ application.add_handler(CommandHandler("unsell", unsell, block=False))
 application.add_handler(CommandHandler("market", market, block=False))
 application.add_handler(CommandHandler("mymarket", mymarket, block=False))
 application.add_handler(CommandHandler("msales", msales, block=False))
+application.add_handler(CommandHandler("lists", lists, block=False))
 application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^market_", block=False))
+application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^bi_", block=False))
+application.add_handler(CallbackQueryHandler(market_callback, pattern=r"^cf_", block=False))
