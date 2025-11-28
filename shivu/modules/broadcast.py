@@ -14,7 +14,7 @@ async def send_message(context, message, chat_id):
         return {"status": "success", "chat_id": chat_id}
     except Exception as e:
         error_text = str(e).lower()
-        
+
         if "retry after" in error_text or "flood" in error_text:
             await asyncio.sleep(2)
             try:
@@ -26,10 +26,10 @@ async def send_message(context, message, chat_id):
                 return {"status": "success", "chat_id": chat_id}
             except:
                 pass
-        
+
         if any(x in error_text for x in ["chat not found", "bot was blocked", "user is deactivated", "forbidden"]):
             return {"status": "invalid", "chat_id": chat_id}
-        
+
         return {"status": "failed", "chat_id": chat_id}
 
 async def broadcast(update: Update, context: CallbackContext) -> None:
@@ -52,22 +52,16 @@ async def broadcast(update: Update, context: CallbackContext) -> None:
 
     tasks = [send_message(context, message_to_broadcast, chat_id) for chat_id in targets]
     results = await asyncio.gather(*tasks)
-    
+
     success = sum(1 for r in results if r["status"] == "success")
     failed = sum(1 for r in results if r["status"] == "failed")
     invalid = sum(1 for r in results if r["status"] == "invalid")
-    
-    invalid_ids = [r["chat_id"] for r in results if r["status"] == "invalid"]
-    
-    if invalid_ids:
-        await top_global_groups_collection.delete_many({"group_id": {"$in": invalid_ids}})
-        await user_collection.delete_many({"id": {"$in": invalid_ids}})
-    
+
     await update.message.reply_text(
         f"Broadcast complete.\n"
         f"Sent: {success}\n"
         f"Failed: {failed}\n"
-        f"Invalid/Cleaned: {invalid}\n"
+        f"Invalid: {invalid}\n"
         f"Total: {len(targets)}"
     )
 
