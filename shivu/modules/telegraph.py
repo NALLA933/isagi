@@ -5,147 +5,80 @@ import os
 import tempfile
 from shivu import application
 
-# Telegraph API Configuration
-TELEGRAPH_API = "https://api.telegra.ph"
-ACCOUNT_URL = f"{TELEGRAPH_API}/createAccount?short_name=Sandbox&author_name=Anonymous"
-
-async def get_telegraph_token():
-    """Create a Telegraph account and return the access token"""
-    try:
-        response = requests.get(ACCOUNT_URL)
-        if response.ok:
-            result = response.json()
-            if result.get("ok"):
-                return result["result"]["access_token"]
-    except Exception as e:
-        print(f"Failed to get Telegraph token: {str(e)}")
-    return None
+CATBOX_API = "https://catbox.moe/user/api.php"
+LITTERBOX_API = "https://litterbox.catbox.moe/resources/internals/api.php"
 
 async def telegraph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
 
     if not message.reply_to_message:
-        await message.reply_text("Reply to a message with /telegraph to upload it!")
+        await message.reply_text("Reply to a message with /telegraph to upload it")
         return
 
     reply_msg = message.reply_to_message
-    status_message = await message.reply_text("Processing your request...")
+    status_message = await message.reply_text("Processing...")
 
-    # Get Telegraph token
-    access_token = await get_telegraph_token()
-    if not access_token:
-        await status_message.edit_text("Failed to create Telegraph account. Please try again later.")
-        return
-
-    # Handle text messages
-    if reply_msg.text or reply_msg.caption:
-        try:
-            text = reply_msg.text or reply_msg.caption
-            response = requests.post(
-                f"{TELEGRAPH_API}/createPage",
-                json={
-                    "access_token": access_token,
-                    "title": "Telegraph Post",
-                    "content": [{"tag": "p", "children": [text]}],
-                    "return_content": True
-                }
-            )
-            
-            if response.ok:
-                result = response.json()
-                if result.get("ok"):
-                    url = f"https://telegra.ph/{result['result']['path']}"
-                    await status_message.edit_text(f"✅ Successfully created!\n\n🔗 Link: {url}")
-                    return
-            await status_message.edit_text("Failed to create Telegraph page.")
-            return
-        except Exception as e:
-            await status_message.edit_text(f"Error creating page: {str(e)}")
-            return
-
-    # Handle media
     file_id = None
+    file_ext = "bin"
+    
     if reply_msg.photo:
         file_id = reply_msg.photo[-1].file_id
-        file_type = 'photo'
+        file_ext = "jpg"
     elif reply_msg.video:
         file_id = reply_msg.video.file_id
-        file_type = 'video'
+        file_ext = "mp4"
     elif reply_msg.animation:
         file_id = reply_msg.animation.file_id
-        file_type = 'animation'
+        file_ext = "gif"
     elif reply_msg.document:
         file_id = reply_msg.document.file_id
-        file_type = 'document'
-    elif reply_msg.audio:
-        file_id = reply_msg.audio.file_id
-        file_type = 'audio'
+        file_name = reply_msg.document.file_name
+        file_ext = file_name.split('.')[-1] if '.' in file_name else "bin"
     elif reply_msg.sticker:
         file_id = reply_msg.sticker.file_id
-        file_type = 'sticker'
+        file_ext = "webp"
+    elif reply_msg.audio:
+        file_id = reply_msg.audio.file_id
+        file_ext = "mp3"
     else:
-        await status_message.edit_text("Unsupported media type. Try sending a photo, video, animation, document, or text.")
+        await status_message.edit_text("Unsupported media type")
         return
 
-    # Process media file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as temp_file:
-        temp_path = temp_file.name
-        try:
-            # Download file
-            file = await context.bot.get_file(file_id)
-            await file.download_to_drive(temp_path)
+    temp_path = None
+    try:
+        file = await context.bot.get_file(file_id)
+        temp_path = tempfile.mktemp(suffix=f".{file_ext}")
+        await file.download_to_drive(temp_path)
 
-            # Upload to Telegraph
-            with open(temp_path, "rb") as f:
-                response = requests.post(
-                    f"{TELEGRAPH_API}/upload",
-                    files={"file": ("file", f, "multipart/form-data")}
+        with open(temp_path, "rb") as f:
+            files = {"fileToUpload": f}
+            data = {"reqtype": "fileupload"}
+            response = requests.post(CATBOX_API, data=data, files=files, timeout=60)
+
+        if response.ok:
+            url = response.text.strip()
+            if url.startswith("http"):
+                file_size = os.path.getsize(temp_path)
+                size_mb = file_size / (1024 * 1024)
+                await status_message.edit_text(
+                    f"Successfully uploaded\n\n"
+                    f"Size: {size_mb:.2f} MB\n"
+                    f"Link: {url}"
                 )
-
-            if response.ok:
-                result = response.json()
-                if isinstance(result, list) and len(result) > 0 and "src" in result[0]:
-                    telegraph_url = f"https://telegra.ph{result[0]['src']}"
-                    
-                    # Create page with media
-                    content = [{"tag": "img", "attrs": {"src": telegraph_url}}] if file_type == 'photo' else [
-                        {"tag": "a", "attrs": {"href": telegraph_url}, "children": ["Download/Play Media"]}
-                    ]
-                    
-                    page_response = requests.post(
-                        f"{TELEGRAPH_API}/createPage",
-                        json={
-                            "access_token": access_token,
-                            "title": f"Telegraph {file_type.title()}",
-                            "content": content,
-                            "return_content": True
-                        }
-                    )
-                    
-                    if page_response.ok:
-                        page_result = page_response.json()
-                        if page_result.get("ok"):
-                            page_url = f"https://telegra.ph/{page_result['result']['path']}"
-                            await status_message.edit_text(
-                                f"✅ Successfully uploaded!\n\n"
-                                f"🔗 Page: {page_url}\n"
-                                f"📎 Direct Media: {telegraph_url}"
-                            )
-                        else:
-                            await status_message.edit_text("Failed to create Telegraph page.")
-                    else:
-                        await status_message.edit_text("Failed to create Telegraph page.")
-                else:
-                    await status_message.edit_text("Failed to upload media to Telegraph.")
             else:
-                await status_message.edit_text("Failed to upload media to Telegraph.")
-                
-        except Exception as e:
-            await status_message.edit_text(f"An error occurred: {str(e)}")
-        finally:
-            # Clean up
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+                await status_message.edit_text(f"Upload failed: {url}")
+        else:
+            await status_message.edit_text(f"Upload failed with status {response.status_code}")
 
-# Register command handler
-application.add_handler(CommandHandler("telegraph", telegraph_command))
+    except requests.Timeout:
+        await status_message.edit_text("Upload timeout, file too large")
+    except Exception as e:
+        await status_message.edit_text(f"Error: {str(e)}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+application.add_handler(CommandHandler("tgm", telegraph_command))
