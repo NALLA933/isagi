@@ -70,16 +70,15 @@ async def telegraph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response.ok:
             url = response.text.strip()
             if url.startswith("http"):
-                keyboard = [
-                    [InlineKeyboardButton("Copy Link", callback_data=f"copy_{url}")]
-                ]
+                keyboard = [[InlineKeyboardButton("Copy Link", url=url)]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await status_message.edit_text(
                     f"Successfully uploaded\n\n"
-                    f"Size: {size_mb:.2f} MB\n"
-                    f"Link: {url}",
-                    reply_markup=reply_markup
+                    f"Size: {size_mb:.2f} MB\n\n"
+                    f"`{url}`",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
                 )
             else:
                 await status_message.edit_text(f"Upload failed: {url}")
@@ -97,13 +96,4 @@ async def telegraph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data.startswith("copy_"):
-        url = query.data.replace("copy_", "")
-        await query.answer(f"Link copied: {url}", show_alert=True)
-
-application.add_handler(CommandHandler("telegraph", telegraph_command))
-application.add_handler(CallbackQueryHandler(button_callback))
+application.add_handler(CommandHandler("t", telegraph_command))
