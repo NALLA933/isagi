@@ -1,8 +1,11 @@
 import random
 from datetime import datetime, timedelta
+import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.date import DateTrigger
 
 from shivu import application, db, user_collection, CHARA_CHANNEL_ID, SUPPORT_CHAT
 
@@ -16,8 +19,104 @@ bid_collection = db['bids']
 
 sudo_users = ["8297659126", "8420981179", "5147822244"]
 
+# Initialize scheduler for auto-ending giveaways
+scheduler = AsyncIOScheduler(timezone='Asia/Kolkata')
+scheduler.start()
+
+# Kolkata timezone
+IST = pytz.timezone('Asia/Kolkata')
+
+def get_ist_time():
+    """Get current time in IST"""
+    return datetime.now(IST)
+
+def to_ist(utc_time):
+    """Convert UTC datetime to IST"""
+    if utc_time.tzinfo is None:
+        utc_time = pytz.utc.localize(utc_time)
+    return utc_time.astimezone(IST)
+
+def to_utc(ist_time):
+    """Convert IST datetime to UTC"""
+    if ist_time.tzinfo is None:
+        ist_time = IST.localize(ist_time)
+    return ist_time.astimezone(pytz.utc).replace(tzinfo=None)
+
 async def is_sudo_user(user_id: int) -> bool:
     return str(user_id) in sudo_users
+
+async def auto_end_giveaway(giveaway_id, context):
+    """Automatically end giveaway and select winner"""
+    try:
+        giveaway = await giveaway_collection.find_one({"_id": giveaway_id, "status": "active"})
+        if not giveaway:
+            return
+        
+        participants = giveaway.get("participants", [])
+        character = await characters_collection.find_one({"id": giveaway["character_id"]})
+        
+        if not participants:
+            await giveaway_collection.update_one(
+                {"_id": giveaway_id},
+                {"$set": {"status": "ended", "end_reason": "no_participants"}}
+            )
+            return
+        
+        # Select random winner
+        winner_id = random.choice(participants)
+        
+        # Give character to winner
+        await user_collection.update_one(
+            {"id": winner_id},
+            {"$push": {"characters": character}},
+            upsert=True
+        )
+        
+        # Update giveaway status
+        await giveaway_collection.update_one(
+            {"_id": giveaway_id},
+            {
+                "$set": {
+                    "status": "ended",
+                    "winner": winner_id,
+                    "end_reason": "completed",
+                    "actual_end_time": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Try to get winner's name
+        try:
+            winner_user = await context.bot.get_chat(winner_id)
+            winner_name = winner_user.first_name
+        except:
+            winner_name = f"User {winner_id}"
+        
+        # Announce winner
+        announcement = (
+            f"<b>🎊 ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ!</b>\n\n"
+            f"🎁 <b>{character['name']}</b>\n"
+            f"🎭 {character.get('anime', 'Unknown')}\n"
+            f"💫 {character.get('rarity', 'Unknown')}\n\n"
+            f"🏆 ᴡɪɴɴᴇʀ: <a href='tg://user?id={winner_id}'>{winner_name}</a>\n"
+            f"👥 ᴛᴏᴛᴀʟ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {len(participants)}\n"
+            f"⏰ ᴇɴᴅᴇᴅ ᴀᴛ: {get_ist_time().strftime('%d %b %Y, %I:%M %p IST')}\n\n"
+            f"ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! 🎉"
+        )
+        
+        # Send announcement to support chat if available
+        try:
+            if SUPPORT_CHAT:
+                await context.bot.send_message(
+                    chat_id=SUPPORT_CHAT,
+                    text=announcement,
+                    parse_mode="HTML"
+                )
+        except:
+            pass
+            
+    except Exception as e:
+        print(f"Error auto-ending giveaway: {e}")
 
 async def sadd(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -308,7 +407,8 @@ async def gstart(update: Update, context: CallbackContext):
     if len(context.args) < 3:
         await update.message.reply_text(
             "⚠️ <b>ᴜsᴀɢᴇ:</b> /gstart &lt;id&gt; &lt;hours&gt; &lt;min_chars&gt;\n\n"
-            "<b>ᴇxᴀᴍᴘʟᴇ:</b>\n/gstart CHAR001 24 10",
+            "<b>ᴇxᴀᴍᴘʟᴇ:</b>\n/gstart CHAR001 24 10\n\n"
+            "⏰ ᴛɪᴍᴇᴢᴏɴᴇ: IST (Kolkata)",
             parse_mode="HTML"
         )
         return
@@ -317,6 +417,10 @@ async def gstart(update: Update, context: CallbackContext):
         char_id = context.args[0]
         duration_hours = int(context.args[1])
         min_activity = int(context.args[2])
+        
+        if duration_hours <= 0:
+            await update.message.reply_text("⚠️ ᴅᴜʀᴀᴛɪᴏɴ ᴍᴜsᴛ ʙᴇ ɢʀᴇᴀᴛᴇʀ ᴛʜᴀɴ 0")
+            return
         
         character = await characters_collection.find_one({"id": char_id})
         if not character:
@@ -328,20 +432,37 @@ async def gstart(update: Update, context: CallbackContext):
             await update.message.reply_text("⚠️ ᴀ ɢɪᴠᴇᴀᴡᴀʏ ɪs ᴀʟʀᴇᴀᴅʏ ᴀᴄᴛɪᴠᴇ!")
             return
         
-        end_time = datetime.utcnow() + timedelta(hours=duration_hours)
+        # Calculate end time in IST
+        start_time_ist = get_ist_time()
+        end_time_ist = start_time_ist + timedelta(hours=duration_hours)
+        
+        # Convert to UTC for storage
+        start_time_utc = to_utc(start_time_ist)
+        end_time_utc = to_utc(end_time_ist)
         
         giveaway = {
             "character_id": char_id,
-            "start_time": datetime.utcnow(),
-            "end_time": end_time,
+            "start_time": start_time_utc,
+            "end_time": end_time_utc,
             "min_activity": min_activity,
             "participants": [],
             "status": "active",
             "created_by": user_id,
-            "winner": None
+            "winner": None,
+            "duration_hours": duration_hours
         }
         
-        await giveaway_collection.insert_one(giveaway)
+        result = await giveaway_collection.insert_one(giveaway)
+        giveaway_id = result.inserted_id
+        
+        # Schedule auto-end using IST time
+        scheduler.add_job(
+            auto_end_giveaway,
+            trigger=DateTrigger(run_date=end_time_ist),
+            args=[giveaway_id, context],
+            id=f"giveaway_{giveaway_id}",
+            replace_existing=True
+        )
         
         img_url = character.get("img_url", "")
         caption = (
@@ -349,7 +470,9 @@ async def gstart(update: Update, context: CallbackContext):
             f"🎁 <b>{character['name']}</b>\n"
             f"🎭 {character.get('anime', 'Unknown')}\n"
             f"💫 {character.get('rarity', 'Unknown')}\n\n"
-            f"⏰ ᴇɴᴅs: {end_time.strftime('%d %b, %H:%M UTC')}\n"
+            f"🕐 sᴛᴀʀᴛᴇᴅ: {start_time_ist.strftime('%d %b, %I:%M %p IST')}\n"
+            f"⏰ ᴇɴᴅs: {end_time_ist.strftime('%d %b, %I:%M %p IST')}\n"
+            f"⏳ ᴅᴜʀᴀᴛɪᴏɴ: {duration_hours} ʜᴏᴜʀs\n"
             f"📊 ʀᴇǫᴜɪʀᴇᴍᴇɴᴛ: {min_activity} ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
             f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: 0\n\n"
             f"ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴊᴏɪɴ!"
@@ -357,7 +480,8 @@ async def gstart(update: Update, context: CallbackContext):
         
         buttons = [
             [InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="gj")],
-            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp")]
+            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp"),
+             InlineKeyboardButton("⏰ ᴛɪᴍᴇ ʟᴇғᴛ", callback_data="gt")]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -365,6 +489,13 @@ async def gstart(update: Update, context: CallbackContext):
             await update.message.reply_video(video=img_url, caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
             await update.message.reply_photo(photo=img_url, caption=caption, parse_mode="HTML", reply_markup=markup)
+            
+        await update.message.reply_text(
+            f"✅ <b>ɢɪᴠᴇᴀᴡᴀʏ sᴄʜᴇᴅᴜʟᴇᴅ!</b>\n\n"
+            f"⏰ ᴡɪʟʟ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴇɴᴅ ᴀᴛ:\n"
+            f"{end_time_ist.strftime('%d %b %Y, %I:%M %p IST')}",
+            parse_mode="HTML"
+        )
     except ValueError:
         await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ ғᴏʀᴍᴀᴛ!")
     except Exception as e:
@@ -381,9 +512,18 @@ async def gend(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ ғᴏᴜɴᴅ")
         return
     
+    # Cancel scheduled job if exists
+    try:
+        scheduler.remove_job(f"giveaway_{giveaway['_id']}")
+    except:
+        pass
+    
     participants = giveaway.get("participants", [])
     if not participants:
-        await giveaway_collection.update_one({"_id": giveaway["_id"]}, {"$set": {"status": "ended"}})
+        await giveaway_collection.update_one(
+            {"_id": giveaway["_id"]},
+            {"$set": {"status": "ended", "end_reason": "manual_no_participants"}}
+        )
         await update.message.reply_text("⚠️ ɴᴏ ᴏɴᴇ ᴊᴏɪɴᴇᴅ ᴛʜᴇ ɢɪᴠᴇᴀᴡᴀʏ 😢")
         return
     
@@ -398,7 +538,14 @@ async def gend(update: Update, context: CallbackContext):
     
     await giveaway_collection.update_one(
         {"_id": giveaway["_id"]},
-        {"$set": {"status": "ended", "winner": winner_id}}
+        {
+            "$set": {
+                "status": "ended",
+                "winner": winner_id,
+                "end_reason": "manual",
+                "actual_end_time": datetime.utcnow()
+            }
+        }
     )
     
     try:
@@ -411,10 +558,45 @@ async def gend(update: Update, context: CallbackContext):
         f"<b>🎊 ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ!</b>\n\n"
         f"🎁 <b>{character['name']}</b>\n"
         f"🏆 ᴡɪɴɴᴇʀ: <a href='tg://user?id={winner_id}'>{winner_name}</a>\n"
-        f"👥 ᴛᴏᴛᴀʟ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {len(participants)}\n\n"
+        f"👥 ᴛᴏᴛᴀʟ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {len(participants)}\n"
+        f"⏰ ᴇɴᴅᴇᴅ ᴀᴛ: {get_ist_time().strftime('%d %b %Y, %I:%M %p IST')}\n\n"
         f"ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! 🎉",
         parse_mode="HTML"
     )
+
+async def gstatus(update: Update, context: CallbackContext):
+    """Check current giveaway status"""
+    giveaway = await giveaway_collection.find_one({"status": "active"})
+    
+    if not giveaway:
+        await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ")
+        return
+    
+    character = await characters_collection.find_one({"id": giveaway["character_id"]})
+    start_time_ist = to_ist(giveaway["start_time"])
+    end_time_ist = to_ist(giveaway["end_time"])
+    current_time_ist = get_ist_time()
+    
+    time_left = end_time_ist - current_time_ist
+    hours_left = int(time_left.total_seconds() / 3600)
+    minutes_left = int((time_left.total_seconds() % 3600) / 60)
+    
+    participants = giveaway.get("participants", [])
+    
+    text = (
+        f"<b>🎉 ᴀᴄᴛɪᴠᴇ ɢɪᴠᴇᴀᴡᴀʏ</b>\n\n"
+        f"🎁 <b>{character['name']}</b>\n"
+        f"🎭 {character.get('anime', 'Unknown')}\n"
+        f"💫 {character.get('rarity', 'Unknown')}\n\n"
+        f"🕐 sᴛᴀʀᴛᴇᴅ: {start_time_ist.strftime('%d %b, %I:%M %p')}\n"
+        f"⏰ ᴇɴᴅs: {end_time_ist.strftime('%d %b, %I:%M %p')}\n"
+        f"⏳ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
+        f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {len(participants)}\n"
+        f"📊 ʀᴇǫᴜɪʀᴇᴍᴇɴᴛ: {giveaway['min_activity']} ᴄʜᴀʀs\n\n"
+        f"🕐 ᴄᴜʀʀᴇɴᴛ ᴛɪᴍᴇ: {current_time_ist.strftime('%I:%M %p IST')}"
+    )
+    
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def astart(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -748,14 +930,6 @@ async def shop_callback(update, context):
         page = int(data.split("_")[1])
         await render_page(page)
     
-    elif data == "spi":
-        await query.answer("📖 ᴜsᴇ ᴀʀʀᴏᴡs ᴛᴏ ɴᴀᴠɪɢᴀᴛᴇ")
-    
-    elif data == "sr":
-        page = context.user_data.get('shop_page', 0)
-        await render_page(page)
-        await query.answer("🔄 ʀᴇғʀᴇsʜᴇᴅ!")
-    
     elif data.startswith("ss_"):
         sort_type = data.split("_")[1]
         
@@ -777,11 +951,8 @@ async def shop_callback(update, context):
                     "ᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ ғᴏʀ ᴅᴇᴀʟs!",
                     show_alert=True
                 )
-        else:
-            await query.answer("⚠️ ɪɴᴠᴀʟɪᴅ ᴏᴘᴛɪᴏɴ")
     
     elif data == "sr_reload":
-        # Reload shop from empty state
         sort_by = [("featured", -1), ("added_at", -1)]
         shop_items = await shop_collection.find({}).sort(sort_by).to_list(length=None)
         
@@ -806,14 +977,12 @@ async def shop_callback(update, context):
         limit = shop_item.get("limit")
         sold = shop_item.get("sold", 0)
         
-        # Check if sold out
         if limit and sold >= limit:
             await query.answer("⚠️ sᴏʟᴅ ᴏᴜᴛ!", show_alert=True)
             page = context.user_data.get('shop_page', 0)
             await render_page(page)
             return
         
-        # Check if already owned
         user_chars = user_data.get("characters", []) if user_data else []
         already_bought = any((c.get("id") == char_id or c.get("_id") == char_id) for c in user_chars)
         
@@ -823,7 +992,6 @@ async def shop_callback(update, context):
             await render_page(page)
             return
         
-        # Show confirmation with balance check
         price = shop_item.get("final_price", shop_item.get("price", 0))
         original_price = shop_item.get("original_price", price)
         discount = shop_item.get("discount", 0)
@@ -834,7 +1002,6 @@ async def shop_callback(update, context):
             savings = original_price - price
             discount_text = f"💎 ᴏʀɪɢɪɴᴀʟ: <s>{original_price:,}</s> ɢᴏʟᴅ\n🏷️ <b>{discount}% ᴏғғ</b> (sᴀᴠᴇ {savings:,} ɢᴏʟᴅ)\n\n"
         
-        balance_status = ""
         can_afford = balance >= price
         
         if can_afford:
@@ -889,18 +1056,15 @@ async def shop_callback(update, context):
         limit = shop_item.get("limit")
         sold = shop_item.get("sold", 0)
         
-        # Check if item is sold out
         if limit and sold >= limit:
             await query.answer("⚠️ sᴏʟᴅ ᴏᴜᴛ!", show_alert=True)
             return
         
-        # Check if user already owns this character
         user_chars = user_data.get("characters", []) if user_data else []
         already_bought = any((c.get("id") == char_id or c.get("_id") == char_id) for c in user_chars)
         
         if already_bought:
             await query.answer("⚠️ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs!", show_alert=True)
-            # Show it as owned in the shop
             page = context.user_data.get('shop_page', 0)
             await render_page(page)
             return
@@ -970,6 +1134,10 @@ async def giveaway_callback(update, context):
             await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ", show_alert=True)
             return
         
+        if datetime.utcnow() > giveaway["end_time"]:
+            await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ʜᴀs ᴇxᴘɪʀᴇᴅ", show_alert=True)
+            return
+        
         user_data = await user_collection.find_one({"id": user_id})
         if not user_data:
             await query.answer("⚠️ sᴛᴀʀᴛ ᴘʟᴀʏɪɴɢ ғɪʀsᴛ!", show_alert=True)
@@ -994,14 +1162,16 @@ async def giveaway_callback(update, context):
         
         participants_count = len(giveaway.get("participants", [])) + 1
         character = await characters_collection.find_one({"id": giveaway["character_id"]})
-        end_time = giveaway.get("end_time")
+        start_time_ist = to_ist(giveaway["start_time"])
+        end_time_ist = to_ist(giveaway["end_time"])
         
         caption = (
             f"<b>🎉 ɴᴇᴡ ɢɪᴠᴇᴀᴡᴀʏ!</b>\n\n"
             f"🎁 <b>{character['name']}</b>\n"
             f"🎭 {character.get('anime', 'Unknown')}\n"
             f"💫 {character.get('rarity', 'Unknown')}\n\n"
-            f"⏰ ᴇɴᴅs: {end_time.strftime('%d %b, %H:%M UTC')}\n"
+            f"🕐 sᴛᴀʀᴛᴇᴅ: {start_time_ist.strftime('%d %b, %I:%M %p IST')}\n"
+            f"⏰ ᴇɴᴅs: {end_time_ist.strftime('%d %b, %I:%M %p IST')}\n"
             f"📊 ʀᴇǫᴜɪʀᴇᴍᴇɴᴛ: {giveaway['min_activity']} ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
             f"👥 ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs: {participants_count}\n\n"
             f"ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ ᴊᴏɪɴ!"
@@ -1009,7 +1179,8 @@ async def giveaway_callback(update, context):
         
         buttons = [
             [InlineKeyboardButton("🎫 ᴊᴏɪɴ ɢɪᴠᴇᴀᴡᴀʏ", callback_data="gj")],
-            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp")]
+            [InlineKeyboardButton("📊 ᴠɪᴇᴡ ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs", callback_data="gp"),
+             InlineKeyboardButton("⏰ ᴛɪᴍᴇ ʟᴇғᴛ", callback_data="gt")]
         ]
         markup = InlineKeyboardMarkup(buttons)
         
@@ -1033,6 +1204,29 @@ async def giveaway_callback(update, context):
         participants = giveaway.get("participants", [])
         await query.answer(
             f"👥 {len(participants)} ᴘᴀʀᴛɪᴄɪᴘᴀɴᴛs ᴊᴏɪɴᴇᴅ!",
+            show_alert=True
+        )
+    
+    elif data == "gt":
+        giveaway = await giveaway_collection.find_one({"status": "active"})
+        if not giveaway:
+            await query.answer("⚠️ ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ", show_alert=True)
+            return
+        
+        end_time_ist = to_ist(giveaway["end_time"])
+        current_time_ist = get_ist_time()
+        time_left = end_time_ist - current_time_ist
+        
+        if time_left.total_seconds() <= 0:
+            await query.answer("⏰ ɢɪᴠᴇᴀᴡᴀʏ ʜᴀs ᴇɴᴅᴇᴅ!", show_alert=True)
+            return
+        
+        hours_left = int(time_left.total_seconds() / 3600)
+        minutes_left = int((time_left.total_seconds() % 3600) / 60)
+        
+        await query.answer(
+            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
+            f"ᴇɴᴅs ᴀᴛ: {end_time_ist.strftime('%I:%M %p IST')}",
             show_alert=True
         )
 
@@ -1137,55 +1331,6 @@ async def auction_callback(update, context):
             "timestamp": datetime.utcnow()
         })
         
-        # Update the display
-        character = await characters_collection.find_one({"id": auction["character_id"]})
-        end_time = auction.get("end_time")
-        time_left = end_time - datetime.utcnow()
-        hours_left = int(time_left.total_seconds() / 3600)
-        minutes_left = int((time_left.total_seconds() % 3600) / 60)
-        
-        try:
-            bidder_user = await context.bot.get_chat(user_id)
-            bidder_text = bidder_user.first_name
-        except:
-            bidder_text = f"User {user_id}"
-        
-        increment_small = bid_amount // 10
-        increment_medium = bid_amount // 5
-        increment_large = bid_amount // 2
-        
-        caption = (
-            f"<b>🔨 ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n\n"
-            f"💎 <b>{character['name']}</b>\n"
-            f"🎭 {character.get('anime', 'Unknown')}\n"
-            f"💫 {character.get('rarity', 'Unknown')}\n\n"
-            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{bid_amount:,}</b> ɢᴏʟᴅ\n"
-            f"👤 ʜɪɢʜᴇsᴛ ʙɪᴅᴅᴇʀ: {bidder_text}\n"
-            f"⏰ ᴛɪᴍᴇ ʟᴇғᴛ: {hours_left}ʜ {minutes_left}ᴍ\n"
-            f"📊 ᴛᴏᴛᴀʟ ʙɪᴅs: {auction['bid_count'] + 1}\n\n"
-            f"ᴜsᴇ /bid [ᴀᴍᴏᴜɴᴛ] ᴛᴏ ʙɪᴅ!"
-        )
-        
-        buttons = [
-            [
-                InlineKeyboardButton(f"+{increment_small:,} 💰", callback_data=f"ab_{increment_small}"),
-                InlineKeyboardButton(f"+{increment_medium:,} 💰", callback_data=f"ab_{increment_medium}"),
-                InlineKeyboardButton(f"+{increment_large:,} 💰", callback_data=f"ab_{increment_large}")
-            ],
-            [InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="av")],
-            [InlineKeyboardButton("📊 ʙɪᴅ ʜɪsᴛᴏʀʏ", callback_data="ah")]
-        ]
-        markup = InlineKeyboardMarkup(buttons)
-        
-        try:
-            await query.edit_message_caption(
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=markup
-            )
-        except BadRequest:
-            pass
-        
         await query.answer(f"✅ ʙɪᴅ ᴘʟᴀᴄᴇᴅ: {bid_amount:,} ɢᴏʟᴅ!")
     
     elif data == "ah":
@@ -1224,6 +1369,7 @@ application.add_handler(CommandHandler("srm", srm, block=False))
 application.add_handler(CommandHandler("shist", shist, block=False))
 application.add_handler(CommandHandler("gstart", gstart, block=False))
 application.add_handler(CommandHandler("gend", gend, block=False))
+application.add_handler(CommandHandler("gstatus", gstatus, block=False))
 application.add_handler(CommandHandler("astart", astart, block=False))
 application.add_handler(CommandHandler("aend", aend, block=False))
 application.add_handler(CommandHandler("bid", bid, block=False))
