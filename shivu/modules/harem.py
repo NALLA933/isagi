@@ -225,26 +225,26 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                 if char_id and char_id not in included:
                     count = character_counts.get(char_id, 1)
                     name = char.get('name', 'Unknown')
-                    rarity = char.get('rarity', 'Common')
+                    rarity = char.get('rarity', '🟢 Common')
 
-                    # Get rarity emoji
-                    if isinstance(rarity, str):
-                        rarity_emoji = RARITY_EMOJIS.get(rarity, '🟢')
+                    # Get rarity emoji from the full rarity string
+                    if isinstance(rarity, str) and ' ' in rarity:
+                        rarity_emoji = rarity.split(' ')[0]
                     else:
                         rarity_emoji = '🟢'
 
                     fav_marker = ""
                     if fav_character and char_id == fav_character.get('id'):
-                        fav_marker = " [FAV]"
+                        fav_marker = " [🍁]"
 
                     # FEATURE 10: Duplicate indicator for 5+ copies
                     duplicate_indicator = ""
                     if count >= 5:
-                        duplicate_indicator = " [HIGH STOCK]"
+                        duplicate_indicator = " 🔥"
 
                     harem_message += (
-                        f"<code>{char_id}</code> {rarity_emoji} "
-                        f"<b>{escape(name)}</b>{fav_marker} x{count}{duplicate_indicator}\n"
+                        f"<b>𒄬 {char_id}</b> [ {rarity_emoji} ] "
+                        f"<b>{escape(name)}</b>{fav_marker} ×{count}{duplicate_indicator}\n"
                     )
                     included.add(char_id)
 
@@ -253,42 +253,33 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         keyboard = [
             [
                 InlineKeyboardButton(
-                    f"View All ({total_chars})", 
+                    f"🎭 View All ({total_chars})", 
                     switch_inline_query_current_chat=f"collection.{user_id}"
-                )
+                ),
+                InlineKeyboardButton("🔄 Refresh", callback_data=f"harem_refresh:{user_id}")
             ]
         ]
 
-        # FEATURE 2: Jump to first/last page navigation
+        # FEATURE 2: Jump to first/last page navigation (compact column layout)
         if total_pages > 1:
-            nav_buttons = []
-            
+            # First row: First and Previous
             if page > 0:
-                nav_buttons.append(
-                    InlineKeyboardButton("First", callback_data=f"harem_page:0:{user_id}")
-                )
-                nav_buttons.append(
-                    InlineKeyboardButton("Previous", callback_data=f"harem_page:{page - 1}:{user_id}")
-                )
+                keyboard.append([
+                    InlineKeyboardButton("⏮ First", callback_data=f"harem_page:0:{user_id}"),
+                    InlineKeyboardButton("◀️ Previous", callback_data=f"harem_page:{page - 1}:{user_id}")
+                ])
             
-            nav_buttons.append(
-                InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="noop")
-            )
+            # Second row: Page indicator
+            keyboard.append([
+                InlineKeyboardButton(f"📄 Page {page + 1}/{total_pages}", callback_data="noop")
+            ])
             
+            # Third row: Next and Last
             if page < total_pages - 1:
-                nav_buttons.append(
-                    InlineKeyboardButton("Next", callback_data=f"harem_page:{page + 1}:{user_id}")
-                )
-                nav_buttons.append(
-                    InlineKeyboardButton("Last", callback_data=f"harem_page:{total_pages - 1}:{user_id}")
-                )
-            
-            keyboard.append(nav_buttons)
-
-        # FEATURE 4: Refresh button
-        keyboard.append([
-            InlineKeyboardButton("Refresh", callback_data=f"harem_refresh:{user_id}")
-        ])
+                keyboard.append([
+                    InlineKeyboardButton("Next ▶️", callback_data=f"harem_page:{page + 1}:{user_id}"),
+                    InlineKeyboardButton("Last ⏭", callback_data=f"harem_page:{total_pages - 1}:{user_id}")
+                ])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
