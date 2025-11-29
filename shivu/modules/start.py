@@ -305,8 +305,16 @@ async def start(update: Update, context: CallbackContext):
         balance = user_data.get('balance', 0)
 
         try:
-            totals = await user_totals_collection.find_one({'id': user_id})
-            chars = totals.get('count', 0) if totals else 0
+            # Get actual character count from user's characters array
+            characters = user_data.get('characters', [])
+            # Count unique character IDs
+            unique_char_ids = set()
+            for char in characters:
+                if isinstance(char, dict):
+                    char_id = char.get('id')
+                    if char_id:
+                        unique_char_ids.add(char_id)
+            chars = len(unique_char_ids)
         except:
             chars = 0
 
@@ -685,8 +693,16 @@ sᴛᴀʀᴛ sʜᴀʀɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ ᴛᴏ ᴇᴀʀɴ ʀᴇᴡᴀʀ
             balance = user_data.get('balance', 0)
 
             try:
-                totals = await user_totals_collection.find_one({'id': user_id})
-                chars = totals.get('count', 0) if totals else 0
+                # Get actual character count from user's characters array
+                characters = user_data.get('characters', [])
+                # Count unique character IDs
+                unique_char_ids = set()
+                for char in characters:
+                    if isinstance(char, dict):
+                        char_id = char.get('id')
+                        if char_id:
+                            unique_char_ids.add(char_id)
+                chars = len(unique_char_ids)
             except:
                 chars = 0
 
