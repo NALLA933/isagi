@@ -9,26 +9,26 @@ collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 
 HAREM_MODE_MAPPING = {
-    "common": "Common",
-    "rare": "Rare",
-    "legendary": "Legendary",
-    "special": "Special Edition",
-    "neon": "Neon",
-    "manga": "Manga",
-    "cosplay": "Cosplay",
-    "celestial": "Celestial",
-    "premium": "Premium Edition",
-    "erotic": "Erotic",
-    "summer": "Summer",
-    "winter": "Winter",
-    "monsoon": "Monsoon",
-    "valentine": "Valentine",
-    "halloween": "Halloween",
-    "christmas": "Christmas",
-    "mythic": "Mythic",
-    "events": "Special Events",
-    "amv": "AMV",
-    "tiny": "Tiny",
+    "common": "🟢 Common",
+    "rare": "🟣 Rare",
+    "legendary": "🟡 Legendary",
+    "special": "💮 Special Edition",
+    "neon": "💫 Neon",
+    "manga": "✨ Manga",
+    "cosplay": "🎭 Cosplay",
+    "celestial": "🎐 Celestial",
+    "premium": "🔮 Premium Edition",
+    "erotic": "💋 Erotic",
+    "summer": "🌤 Summer",
+    "winter": "☃️ Winter",
+    "monsoon": "☔️ Monsoon",
+    "valentine": "💝 Valentine",
+    "halloween": "🎃 Halloween",
+    "christmas": "🎄 Christmas",
+    "mythic": "🏵 Mythic",
+    "events": "🎗 Special Events",
+    "amv": "🎥 AMV",
+    "tiny": "👼 Tiny",
     "default": None
 }
 
@@ -501,41 +501,47 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
 async def hmode_rarity(update: Update, context: CallbackContext) -> None:
     keyboard = [
         [
-            InlineKeyboardButton("Common", callback_data="harem_mode_common"),
-            InlineKeyboardButton("Rare", callback_data="harem_mode_rare"),
-            InlineKeyboardButton("Legendary", callback_data="harem_mode_legendary"),
+            InlineKeyboardButton("🟢 Common", callback_data="harem_mode_common"),
+            InlineKeyboardButton("🟣 Rare", callback_data="harem_mode_rare"),
         ],
         [
-            InlineKeyboardButton("Special", callback_data="harem_mode_special"),
-            InlineKeyboardButton("Neon", callback_data="harem_mode_neon"),
-            InlineKeyboardButton("Manga", callback_data="harem_mode_manga"),
+            InlineKeyboardButton("🟡 Legendary", callback_data="harem_mode_legendary"),
+            InlineKeyboardButton("💮 Special", callback_data="harem_mode_special"),
         ],
         [
-            InlineKeyboardButton("Cosplay", callback_data="harem_mode_cosplay"),
-            InlineKeyboardButton("Celestial", callback_data="harem_mode_celestial"),
-            InlineKeyboardButton("Premium", callback_data="harem_mode_premium"),
+            InlineKeyboardButton("💫 Neon", callback_data="harem_mode_neon"),
+            InlineKeyboardButton("✨ Manga", callback_data="harem_mode_manga"),
         ],
         [
-            InlineKeyboardButton("Erotic", callback_data="harem_mode_erotic"),
-            InlineKeyboardButton("Summer", callback_data="harem_mode_summer"),
-            InlineKeyboardButton("Winter", callback_data="harem_mode_winter"),
+            InlineKeyboardButton("🎭 Cosplay", callback_data="harem_mode_cosplay"),
+            InlineKeyboardButton("🎐 Celestial", callback_data="harem_mode_celestial"),
         ],
         [
-            InlineKeyboardButton("Monsoon", callback_data="harem_mode_monsoon"),
-            InlineKeyboardButton("Valentine", callback_data="harem_mode_valentine"),
-            InlineKeyboardButton("Halloween", callback_data="harem_mode_halloween"),
+            InlineKeyboardButton("🔮 Premium", callback_data="harem_mode_premium"),
+            InlineKeyboardButton("💋 Erotic", callback_data="harem_mode_erotic"),
         ],
         [
-            InlineKeyboardButton("Christmas", callback_data="harem_mode_christmas"),
-            InlineKeyboardButton("Mythic", callback_data="harem_mode_mythic"),
-            InlineKeyboardButton("Events", callback_data="harem_mode_events"),
+            InlineKeyboardButton("🌤 Summer", callback_data="harem_mode_summer"),
+            InlineKeyboardButton("☃️ Winter", callback_data="harem_mode_winter"),
         ],
         [
-            InlineKeyboardButton("AMV", callback_data="harem_mode_amv"),
-            InlineKeyboardButton("Tiny", callback_data="harem_mode_tiny"),
+            InlineKeyboardButton("☔️ Monsoon", callback_data="harem_mode_monsoon"),
+            InlineKeyboardButton("💝 Valentine", callback_data="harem_mode_valentine"),
         ],
         [
-            InlineKeyboardButton("Back", callback_data="harem_mode_back"),
+            InlineKeyboardButton("🎃 Halloween", callback_data="harem_mode_halloween"),
+            InlineKeyboardButton("🎄 Christmas", callback_data="harem_mode_christmas"),
+        ],
+        [
+            InlineKeyboardButton("🏵 Mythic", callback_data="harem_mode_mythic"),
+            InlineKeyboardButton("🎗 Events", callback_data="harem_mode_events"),
+        ],
+        [
+            InlineKeyboardButton("🎥 AMV", callback_data="harem_mode_amv"),
+            InlineKeyboardButton("👼 Tiny", callback_data="harem_mode_tiny"),
+        ],
+        [
+            InlineKeyboardButton("« Back", callback_data="harem_mode_back"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
