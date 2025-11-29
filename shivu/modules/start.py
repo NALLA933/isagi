@@ -212,7 +212,7 @@ async def process_referral(user_id, first_name, referring_user_id, context):
         if next_milestone:
             remaining = next_milestone - new_count
             reward = REFERRAL_MILESTONES[next_milestone]
-            msg += f"\n\n<b>ɴᴇxᴛ ᴍɪʟᴇsᴛᴏɴᴇ</b>\n{remaining} ᴍᴏʀᴇ ғᴏʀ {reward['gold']:,} ɢᴏʟᴅ + {reward['characters']} ᴄʜᴀʀᴀᴄᴛᴇʀs"
+            msg += f"\n\n<b>🎯 ɴᴇxᴛ ᴍɪʟᴇsᴛᴏɴᴇ</b>\n{remaining} ᴍᴏʀᴇ ғᴏʀ {reward['gold']:,} ɢᴏʟᴅ + {reward['characters']} ᴄʜᴀʀᴀᴄᴛᴇʀs"
 
         try:
             await context.bot.send_message(
@@ -680,3 +680,61 @@ sᴛᴀʀᴛ sʜᴀʀɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ ᴛᴏ ᴇᴀʀɴ ʀᴇᴡᴀʀ
                     prefer_large_media=True
                 )
             )
+
+        elif query.data == 'back':
+            balance = user_data.get('balance', 0)
+
+            try:
+                totals = await user_totals_collection.find_one({'id': user_id})
+                chars = totals.get('count', 0) if totals else 0
+            except:
+                chars = 0
+
+            refs = user_data.get('referred_users', 0)
+
+            caption = f"""<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
+
+ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
+ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
+
+<b>ʏᴏᴜʀ sᴛᴀᴛs</b>
+💰 ɢᴏʟᴅ: <b>{balance:,}</b>
+🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
+👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"""
+
+            keyboard = [
+                [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+                [
+                    InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+                    InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
+                ],
+                [
+                    InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'),
+                    InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')
+                ],
+                [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
+            ]
+
+            await query.edit_message_text(
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(
+                    url=video_url,
+                    show_above_text=True,
+                    prefer_large_media=True
+                )
+            )
+
+    except Exception as e:
+        LOGGER.error(f"Error in button callback: {e}", exc_info=True)
+        try:
+            await query.answer("⚠️ An error occurred. Please try again.", show_alert=True)
+        except:
+            pass
+
+
+# Register handlers
+application.add_handler(CommandHandler('start', start, block=False))
+application.add_handler(CommandHandler('refer', refer_command, block=False))
+application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back|view_invites)$', block=False))
