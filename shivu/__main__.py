@@ -19,7 +19,7 @@ user_totals_collection = db['user_totals_lmaoooo']
 group_user_totals_collection = db['group_user_totalsssssss']
 top_global_groups_collection = db['top_global_groups']
 
-MESSAGE_FREQUENCY = 30
+MESSAGE_FREQUENCY = 40
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
 
