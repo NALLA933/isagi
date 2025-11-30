@@ -218,4 +218,4 @@ application.add_handler(CommandHandler("gend", gend, block=False))
 application.add_handler(CommandHandler("gstatus", gstatus, block=False))
 application.add_handler(CommandHandler("glist", glist, block=False))
 application.add_handler(CommandHandler("gcancel", gcancel, block=False))
-application.add_handler(CallbackQueryHandler(giveaway_callback, pattern=r"^g", block=False)) ʀᴇғʀᴇsʜ", callback_data="gr")]
+application.add_handler(CallbackQueryHandler(giveaway_callback, pattern=r"^g", block=False)) ʀᴇғʀᴇsʜ", callback_data="gr")
