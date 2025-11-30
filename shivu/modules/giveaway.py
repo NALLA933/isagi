@@ -31,6 +31,7 @@ async def is_sudo_user(user_id: int) -> bool:
     return str(user_id) in sudo_users
 
 async def gstart(update: Update, context: CallbackContext):
+    """Start a new giveaway"""
     user_id = update.effective_user.id
 
     if not await is_sudo_user(user_id):
@@ -119,21 +120,27 @@ async def gstart(update: Update, context: CallbackContext):
         markup = InlineKeyboardMarkup(buttons)
 
         try:
-            if is_video:
+            if is_video and img_url:
                 await update.message.reply_video(
                     video=img_url,
                     caption=caption,
                     parse_mode="HTML",
                     reply_markup=markup
                 )
-            else:
+            elif img_url:
                 await update.message.reply_photo(
                     photo=img_url,
                     caption=caption,
                     parse_mode="HTML",
                     reply_markup=markup
                 )
-        except BadRequest:
+            else:
+                await update.message.reply_text(
+                    caption,
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
+        except BadRequest as e:
             await update.message.reply_text(
                 caption,
                 parse_mode="HTML",
@@ -144,8 +151,10 @@ async def gstart(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ ғᴏʀᴍᴀᴛ!")
     except Exception as e:
         await update.message.reply_text(f"⚠️ ᴇʀʀᴏʀ: {str(e)}")
+        print(f"Error in gstart: {e}")  # Debug log
 
 async def gend(update: Update, context: CallbackContext):
+    """End the active giveaway"""
     user_id = update.effective_user.id
 
     if not await is_sudo_user(user_id):
@@ -163,7 +172,7 @@ async def gend(update: Update, context: CallbackContext):
     if not participants:
         await giveaway_collection.update_one(
             {"_id": giveaway["_id"]},
-            {"$set": {"status": "ended"}}
+            {"$set": {"status": "ended", "ended_at": datetime.utcnow()}}
         )
         await update.message.reply_text(
             "😢 <b>ɢɪᴠᴇᴀᴡᴀʏ ᴇɴᴅᴇᴅ</b>\n\n"
@@ -217,18 +226,20 @@ async def gend(update: Update, context: CallbackContext):
     )
 
     try:
-        if is_video:
+        if is_video and img_url:
             await update.message.reply_video(
                 video=img_url,
                 caption=caption,
                 parse_mode="HTML"
             )
-        else:
+        elif img_url:
             await update.message.reply_photo(
                 photo=img_url,
                 caption=caption,
                 parse_mode="HTML"
             )
+        else:
+            await update.message.reply_text(caption, parse_mode="HTML")
     except BadRequest:
         await update.message.reply_text(caption, parse_mode="HTML")
 
@@ -246,6 +257,7 @@ async def gend(update: Update, context: CallbackContext):
         pass
 
 async def gstatus(update: Update, context: CallbackContext):
+    """Check giveaway status"""
     giveaway = await giveaway_collection.find_one({"status": "active"})
 
     if not giveaway:
@@ -295,7 +307,10 @@ async def gstatus(update: Update, context: CallbackContext):
     )
 
 async def glist(update: Update, context: CallbackContext):
-    giveaways = await giveaway_collection.find().sort("start_time", -1).limit(5).to_list(5)
+    """List recent giveaways"""
+    # Fixed: Use proper async iteration
+    cursor = giveaway_collection.find().sort("start_time", -1).limit(5)
+    giveaways = await cursor.to_list(length=5)
 
     if not giveaways:
         await update.message.reply_text(
@@ -334,6 +349,7 @@ async def glist(update: Update, context: CallbackContext):
     await update.message.reply_text(text, parse_mode="HTML")
 
 async def gcancel(update: Update, context: CallbackContext):
+    """Cancel active giveaway"""
     user_id = update.effective_user.id
 
     if not await is_sudo_user(user_id):
@@ -362,6 +378,7 @@ async def gcancel(update: Update, context: CallbackContext):
     )
 
 async def giveaway_callback(update: Update, context: CallbackContext):
+    """Handle giveaway button callbacks"""
     query = update.callback_query
     await query.answer()
 
@@ -507,9 +524,17 @@ async def giveaway_callback(update: Update, context: CallbackContext):
 
         await query.answer("🔄 ʀᴇғʀᴇsʜᴇᴅ!", show_alert=False)
 
-application.add_handler(CommandHandler("gstart", gstart, block=False))
-application.add_handler(CommandHandler("gend", gend, block=False))
-application.add_handler(CommandHandler("gstatus", gstatus, block=False))
-application.add_handler(CommandHandler("glist", glist, block=False))
-application.add_handler(CommandHandler("gcancel", gcancel, block=False))
-application.add_handler(CallbackQueryHandler(giveaway_callback, pattern=r"^g", block=False))
+
+# Register handlers
+def register_handlers():
+    """Register all giveaway handlers"""
+    application.add_handler(CommandHandler("gstart", gstart, block=False))
+    application.add_handler(CommandHandler("gend", gend, block=False))
+    application.add_handler(CommandHandler("gstatus", gstatus, block=False))
+    application.add_handler(CommandHandler("glist", glist, block=False))
+    application.add_handler(CommandHandler("gcancel", gcancel, block=False))
+    application.add_handler(CallbackQueryHandler(giveaway_callback, pattern=r"^g[jpr]$", block=False))
+
+
+# Call this function when your bot starts
+register_handlers()
