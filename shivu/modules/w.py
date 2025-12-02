@@ -1,467 +1,448 @@
 import asyncio
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Tuple, Any, Set
-from enum import IntEnum
-import random
-from functools import lru_cache, wraps
-from collections import deque
-import time
-import hashlib
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, ContextTypes
-from telegram.error import TelegramError, BadRequest, Forbidden, TimedOut, NetworkError
-from telegram.constants import ParseMode, ChatAction
+from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Dict, Tuple, Any
+from enum import Enum
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, User
+from telegram.ext import CommandHandler, CallbackContext, ContextTypes
+from telegram.error import TelegramError, BadRequest, Forbidden
 from shivu import application, user_collection, collection, LOGGER
+import random
+from functools import wraps
+from collections import defaultdict
 
-import motor.motor_asyncio
-from pymongo import UpdateOne, ReturnDocument
+class ClaimStatus(Enum):
+    SUCCESS = "success"
+    COOLDOWN = "cooldown"
+    NO_BIO = "no_bio"
+    NO_CHARACTERS = "no_characters"
+    ERROR = "error"
+    LOCKED = "locked"
+    WRONG_CHAT = "wrong_chat"
 
-class ClaimStatus(IntEnum):
-    SUCCESS = 0
-    COOLDOWN = 1
-    NO_BIO = 2
-    NO_CHARACTERS = 3
-    ERROR = 4
-    RATE_LIMIT = 5
-    WRONG_CHAT = 6
-
-class RarityTier(IntEnum):
-    SPECIAL = 100
-    NEON = 75
-    MANGA = 50
+class RarityTier(Enum):
+    SPECIAL = ("💮 Special Edition", 100)
+    NEON = ("💫 Neon", 75)
+    MANGA = ("✨ Manga", 50)
     
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def get_display_map() -> Dict[int, str]:
-        return {
-            RarityTier.SPECIAL: "💮 Special Edition",
-            RarityTier.NEON: "💫 Neon",
-            RarityTier.MANGA: "✨ Manga"
-        }
+    @property
+    def display(self) -> str:
+        return self.value[0]
     
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def get_all_displays() -> List[str]:
-        return list(RarityTier.get_display_map().values())
+    @property
+    def weight(self) -> int:
+        return self.value[1]
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class ClaimConfig:
     MAIN_GROUP_ID: int = -1003100468240
     MAIN_GROUP_LINK: str = "https://t.me/PICK_X_SUPPORT"
     BOT_USERNAME: str = "@siyaprobot"
-    CLAIM_COOLDOWN_SECONDS: int = 604800
-    BIO_CACHE_TTL: int = 180
-    CHARACTER_CACHE_TTL: int = 300
-    MAX_RETRIES: int = 2
-    TIMEOUT: int = 3
-    BATCH_SIZE: int = 100
-    MAX_RATE_PER_MINUTE: int = 3
-    PREFETCH_ENABLED: bool = True
+    CLAIM_COOLDOWN_DAYS: int = 7
+    MAX_CONCURRENT_CLAIMS: int = 3
+    CACHE_TTL_SECONDS: int = 300
+    BIO_CHECK_TIMEOUT: int = 5
+    
+    @property
+    def weekly_rarities(self) -> List[str]:
+        return [tier.display for tier in RarityTier]
+    
+    @property
+    def rarity_weights(self) -> Dict[str, int]:
+        return {tier.display: tier.weight for tier in RarityTier}
 
-@dataclass(slots=True)
-class CacheEntry:
-    value: Any
-    timestamp: float
-    hits: int = 0
+@dataclass
+class UserClaimData:
+    user_id: int
+    first_name: str
+    username: Optional[str]
+    last_weekly_claim: Optional[datetime]
+    total_weekly_claims: int = 0
+    characters: List[Dict] = field(default_factory=list)
+    bio_verified_at: Optional[datetime] = None
     
-    def is_valid(self, ttl: int) -> bool:
-        return time.time() - self.timestamp < ttl
+    @property
+    def has_claimed_today(self) -> bool:
+        if not self.last_weekly_claim:
+            return False
+        return datetime.utcnow() - self.last_weekly_claim < timedelta(days=7)
+    
+    @property
+    def next_claim_time(self) -> Optional[datetime]:
+        if not self.last_weekly_claim:
+            return None
+        return self.last_weekly_claim + timedelta(days=7)
 
-class UltraFastCache:
-    __slots__ = ('_data', '_ttl', '_max_size', '_access_queue')
+@dataclass
+class ClaimResult:
+    status: ClaimStatus
+    message: str
+    character: Optional[Dict] = None
+    time_remaining: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+class BioCacheManager:
+    def __init__(self, ttl: int = 300):
+        self.cache: Dict[int, Tuple[bool, datetime]] = {}
+        self.ttl = ttl
     
-    def __init__(self, ttl: int, max_size: int = 10000):
-        self._data: Dict[int, CacheEntry] = {}
-        self._ttl = ttl
-        self._max_size = max_size
-        self._access_queue: deque = deque(maxlen=max_size)
-    
-    def get(self, key: int) -> Optional[Any]:
-        entry = self._data.get(key)
-        if entry and entry.is_valid(self._ttl):
-            entry.hits += 1
-            return entry.value
-        if entry:
-            del self._data[key]
+    def get(self, user_id: int) -> Optional[bool]:
+        if user_id in self.cache:
+            verified, timestamp = self.cache[user_id]
+            if datetime.utcnow() - timestamp < timedelta(seconds=self.ttl):
+                return verified
+            del self.cache[user_id]
         return None
     
-    def set(self, key: int, value: Any) -> None:
-        if len(self._data) >= self._max_size:
-            self._evict_lru()
-        self._data[key] = CacheEntry(value=value, timestamp=time.time())
-        self._access_queue.append(key)
+    def set(self, user_id: int, verified: bool):
+        self.cache[user_id] = (verified, datetime.utcnow())
     
-    def _evict_lru(self) -> None:
-        if not self._access_queue:
-            return
-        key = self._access_queue.popleft()
-        self._data.pop(key, None)
+    def invalidate(self, user_id: int):
+        self.cache.pop(user_id, None)
     
-    def invalidate(self, key: int) -> None:
-        self._data.pop(key, None)
-    
-    def bulk_invalidate(self, keys: Set[int]) -> None:
-        for key in keys:
-            self._data.pop(key, None)
+    def cleanup(self):
+        now = datetime.utcnow()
+        expired = [
+            uid for uid, (_, ts) in self.cache.items()
+            if now - ts >= timedelta(seconds=self.ttl)
+        ]
+        for uid in expired:
+            del self.cache[uid]
 
-class TokenBucket:
-    __slots__ = ('_capacity', '_tokens', '_rate', '_last_update', '_lock')
+class RateLimiter:
+    def __init__(self, max_calls: int, time_window: int = 60):
+        self.max_calls = max_calls
+        self.time_window = time_window
+        self.calls: Dict[int, List[datetime]] = defaultdict(list)
     
-    def __init__(self, capacity: int, rate: float):
-        self._capacity = capacity
-        self._tokens = capacity
-        self._rate = rate
-        self._last_update = time.time()
-        self._lock = asyncio.Lock()
-    
-    async def consume(self, tokens: int = 1) -> Tuple[bool, float]:
-        async with self._lock:
-            now = time.time()
-            elapsed = now - self._last_update
-            self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
-            self._last_update = now
-            
-            if self._tokens >= tokens:
-                self._tokens -= tokens
-                return True, 0.0
-            
-            wait_time = (tokens - self._tokens) / self._rate
+    def is_allowed(self, user_id: int) -> Tuple[bool, Optional[int]]:
+        now = datetime.utcnow()
+        user_calls = self.calls[user_id]
+        
+        user_calls[:] = [call for call in user_calls if now - call < timedelta(seconds=self.time_window)]
+        
+        if len(user_calls) >= self.max_calls:
+            oldest_call = min(user_calls)
+            wait_time = int((oldest_call + timedelta(seconds=self.time_window) - now).total_seconds())
             return False, wait_time
+        
+        user_calls.append(now)
+        return True, None
 
-class HyperRateLimiter:
-    __slots__ = ('_buckets', '_capacity', '_rate')
-    
-    def __init__(self, capacity: int = 3, rate: float = 0.05):
-        self._buckets: Dict[int, TokenBucket] = {}
-        self._capacity = capacity
-        self._rate = rate
-    
-    async def check(self, user_id: int) -> Tuple[bool, float]:
-        if user_id not in self._buckets:
-            self._buckets[user_id] = TokenBucket(self._capacity, self._rate)
-        return await self._buckets[user_id].consume()
-
-class DatabasePool:
-    __slots__ = ('_user_cache', '_char_cache', '_write_buffer', '_flush_task')
-    
-    def __init__(self):
-        self._user_cache: Dict[int, Dict] = {}
-        self._char_cache: List[Dict] = []
-        self._write_buffer: List[UpdateOne] = []
-        self._flush_task = None
-    
-    async def get_user(self, user_id: int) -> Optional[Dict]:
-        if user_id in self._user_cache:
-            return self._user_cache[user_id]
-        
-        user = await user_collection.find_one(
-            {'id': user_id},
-            projection={'id': 1, 'first_name': 1, 'username': 1, 'last_weekly_claim': 1, 
-                       'total_weekly_claims': 1, 'characters': 1}
-        )
-        
-        if user:
-            self._user_cache[user_id] = user
-        return user
-    
-    async def batch_update_user(self, user_id: int, update_doc: Dict) -> None:
-        operation = UpdateOne(
-            {'id': user_id},
-            update_doc,
-            upsert=True
-        )
-        self._write_buffer.append(operation)
-        
-        if len(self._write_buffer) >= 10:
-            await self._flush_writes()
-    
-    async def _flush_writes(self) -> None:
-        if not self._write_buffer:
-            return
-        
-        try:
-            await user_collection.bulk_write(self._write_buffer, ordered=False)
-            self._write_buffer.clear()
-        except Exception as e:
-            LOGGER.error(f"Bulk write error: {e}")
-    
-    async def prefetch_characters(self, rarities: List[str]) -> None:
-        if self._char_cache:
-            return
-        
-        cursor = collection.find(
-            {'rarity': {'$in': rarities}},
-            projection={'id': 1, 'name': 1, 'rarity': 1, 'anime': 1, 'img_url': 1, 
-                       'event': 1, 'origin': 1, 'abilities': 1, 'description': 1}
-        )
-        self._char_cache = await cursor.to_list(length=None)
-    
-    def get_cached_characters(self) -> List[Dict]:
-        return self._char_cache
-    
-    def invalidate_user_cache(self, user_id: int) -> None:
-        self._user_cache.pop(user_id, None)
-
-def ultra_fast_hash(user_id: int, salt: str = "wclaim") -> str:
-    return hashlib.blake2b(f"{user_id}{salt}".encode(), digest_size=16).hexdigest()
-
-def async_timeout(seconds: int):
+def async_retry(max_attempts: int = 3, delay: float = 1.0):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            try:
-                return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
-            except asyncio.TimeoutError:
-                LOGGER.warning(f"Timeout in {func.__name__}")
-                return None
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    LOGGER.warning(f"Retry {attempt + 1}/{max_attempts} for {func.__name__}: {e}")
+                    await asyncio.sleep(delay * (attempt + 1))
+            return None
         return wrapper
     return decorator
 
-class HyperWeeklyClaimSystem:
-    __slots__ = ('config', '_bio_cache', '_cooldown_cache', '_rate_limiter', 
-                 '_db_pool', '_locks', '_stats', '_char_pool')
-    
+class WeeklyClaimSystem:
     def __init__(self, config: ClaimConfig):
         self.config = config
-        self._bio_cache = UltraFastCache(ttl=config.BIO_CACHE_TTL)
-        self._cooldown_cache = UltraFastCache(ttl=60)
-        self._rate_limiter = HyperRateLimiter()
-        self._db_pool = DatabasePool()
-        self._locks: Dict[int, asyncio.Lock] = {}
-        self._stats = {'claims': 0, 'cache_hits': 0, 'errors': 0}
-        self._char_pool: List[Tuple[Dict, int]] = []
-        
-        if config.PREFETCH_ENABLED:
-            asyncio.create_task(self._initialize())
+        self.claim_lock: Dict[int, asyncio.Lock] = {}
+        self.bio_cache = BioCacheManager(config.CACHE_TTL_SECONDS)
+        self.rate_limiter = RateLimiter(max_calls=5, time_window=60)
+        self.stats = defaultdict(int)
+        asyncio.create_task(self._periodic_cleanup())
     
-    async def _initialize(self) -> None:
-        try:
-            await self._db_pool.prefetch_characters(RarityTier.get_all_displays())
-            await self._build_character_pool()
-            LOGGER.info("HyperWeeklyClaimSystem initialized")
-        except Exception as e:
-            LOGGER.error(f"Initialization error: {e}")
-    
-    async def _build_character_pool(self) -> None:
-        chars = self._db_pool.get_cached_characters()
-        rarity_map = {v: k for k, v in RarityTier.get_display_map().items()}
-        
-        self._char_pool = [
-            (char, rarity_map.get(char['rarity'], RarityTier.MANGA))
-            for char in chars
-        ]
+    async def _periodic_cleanup(self):
+        while True:
+            await asyncio.sleep(300)
+            self.bio_cache.cleanup()
+            inactive_locks = [
+                uid for uid, lock in self.claim_lock.items()
+                if not lock.locked()
+            ]
+            for uid in inactive_locks:
+                del self.claim_lock[uid]
     
     def _get_lock(self, user_id: int) -> asyncio.Lock:
-        if user_id not in self._locks:
-            self._locks[user_id] = asyncio.Lock()
-        return self._locks[user_id]
+        if user_id not in self.claim_lock:
+            self.claim_lock[user_id] = asyncio.Lock()
+        return self.claim_lock[user_id]
     
-    @staticmethod
-    @lru_cache(maxsize=1024)
-    def _format_time(seconds: int) -> str:
-        if seconds < 60:
-            return f"{seconds}s"
+    async def format_time_delta(self, delta: timedelta) -> str:
+        seconds = int(delta.total_seconds())
+        if seconds < 0:
+            return "0s"
         
-        days, rem = divmod(seconds, 86400)
-        hours, rem = divmod(rem, 3600)
-        minutes, secs = divmod(rem, 60)
+        days, remainder = divmod(seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
         
+        parts = []
         if days > 0:
-            return f"{days}ᴅ {hours}ʜ"
-        if hours > 0:
-            return f"{hours}ʜ {minutes}ᴍ"
-        return f"{minutes}ᴍ {secs}s"
+            parts.append(f"{days}ᴅ")
+        if hours > 0 or days > 0:
+            parts.append(f"{hours}ʜ")
+        if minutes > 0 or hours > 0 or days > 0:
+            parts.append(f"{minutes}ᴍ")
+        if not parts or (days == 0 and hours == 0):
+            parts.append(f"{seconds}s")
+        
+        return " ".join(parts[:3])
     
-    @async_timeout(3)
-    async def _check_bio_fast(self, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        cached = self._bio_cache.get(user_id)
+    @async_retry(max_attempts=3, delay=1.0)
+    async def check_user_bio(self, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        cached = self.bio_cache.get(user_id)
         if cached is not None:
-            self._stats['cache_hits'] += 1
             return cached
         
         try:
-            user = await context.bot.get_chat(user_id)
-            has_bot = self.config.BOT_USERNAME.lower() in (user.bio or "").lower()
-            self._bio_cache.set(user_id, has_bot)
+            user = await asyncio.wait_for(
+                context.bot.get_chat(user_id),
+                timeout=self.config.BIO_CHECK_TIMEOUT
+            )
+            bio = (user.bio or "").lower()
+            has_bot = self.config.BOT_USERNAME.lower() in bio
+            
+            self.bio_cache.set(user_id, has_bot)
+            self.stats['bio_checks'] += 1
+            
             return has_bot
-        except (BadRequest, Forbidden, TimedOut, NetworkError):
+        except asyncio.TimeoutError:
+            LOGGER.warning(f"Bio check timeout for user {user_id}")
+            return False
+        except (BadRequest, Forbidden) as e:
+            LOGGER.error(f"Bio check failed for user {user_id}: {e}")
             return False
         except Exception as e:
-            LOGGER.error(f"Bio check error {user_id}: {e}")
+            LOGGER.error(f"Unexpected bio check error for user {user_id}: {e}")
             return False
     
-    async def _get_weighted_character_fast(self, user_id: int, claimed_ids: Set[int]) -> Optional[Dict]:
-        if not self._char_pool:
-            await self._build_character_pool()
+    async def fetch_user_data(self, user_id: int, first_name: str, username: Optional[str]) -> UserClaimData:
+        user_doc = await user_collection.find_one({'id': user_id})
         
-        available = [(char, weight) for char, weight in self._char_pool if char['id'] not in claimed_ids]
+        if not user_doc:
+            data = UserClaimData(
+                user_id=user_id,
+                first_name=first_name,
+                username=username,
+                last_weekly_claim=None
+            )
+            await user_collection.insert_one({
+                'id': user_id,
+                'first_name': first_name,
+                'username': username,
+                'characters': [],
+                'last_weekly_claim': None,
+                'total_weekly_claims': 0
+            })
+            return data
         
-        if not available:
-            return None
-        
-        chars, weights = zip(*available)
-        return random.choices(chars, weights=weights, k=1)[0]
+        return UserClaimData(
+            user_id=user_id,
+            first_name=first_name,
+            username=username,
+            last_weekly_claim=user_doc.get('last_weekly_claim'),
+            total_weekly_claims=user_doc.get('total_weekly_claims', 0),
+            characters=user_doc.get('characters', []),
+            bio_verified_at=user_doc.get('bio_verified_at')
+        )
     
-    @lru_cache(maxsize=512)
-    def _generate_caption_cached(self, name: str, rarity: str, anime: str, 
-                                  char_id: str, user_id: int, first_name: str, 
-                                  claim_count: int) -> str:
-        streak = "🔥" if claim_count >= 5 else "✨"
+    async def get_weighted_character(self, user_id: int) -> Optional[Dict]:
+        try:
+            user_data = await user_collection.find_one({'id': user_id})
+            claimed_ids = {c.get('id') for c in user_data.get('characters', [])} if user_data else set()
+            
+            available_by_rarity = {tier.display: [] for tier in RarityTier}
+            
+            async for char in collection.find({'rarity': {'$in': self.config.weekly_rarities}}):
+                if char.get('id') not in claimed_ids:
+                    rarity = char.get('rarity')
+                    if rarity in available_by_rarity:
+                        available_by_rarity[rarity].append(char)
+            
+            all_available = []
+            weights = []
+            
+            for tier in RarityTier:
+                chars = available_by_rarity[tier.display]
+                for char in chars:
+                    all_available.append(char)
+                    weights.append(tier.weight)
+            
+            if not all_available:
+                return None
+            
+            selected = random.choices(all_available, weights=weights, k=1)[0]
+            self.stats['characters_claimed'] += 1
+            
+            return selected
+        except Exception as e:
+            LOGGER.error(f"Character fetch error: {e}")
+            return None
+    
+    async def validate_claim(self, user_data: UserClaimData) -> ClaimResult:
+        if user_data.has_claimed_today:
+            remaining = user_data.next_claim_time - datetime.utcnow()
+            formatted_time = await self.format_time_delta(remaining)
+            return ClaimResult(
+                status=ClaimStatus.COOLDOWN,
+                message=f"⏰ ᴡᴇᴇᴋʟʏ ᴄʟᴀɪᴍ ᴀʟʀᴇᴀᴅʏ ᴜsᴇᴅ\n⏳ ɴᴇxᴛ ᴄʟᴀɪᴍ ɪɴ: `{formatted_time}`",
+                time_remaining=formatted_time,
+                metadata={'next_claim': user_data.next_claim_time.isoformat()}
+            )
+        
+        return ClaimResult(status=ClaimStatus.SUCCESS, message="")
+    
+    @async_retry(max_attempts=2, delay=0.5)
+    async def process_claim(self, user_data: UserClaimData, character: Dict) -> bool:
+        try:
+            result = await user_collection.update_one(
+                {'id': user_data.user_id},
+                {
+                    '$push': {'characters': character},
+                    '$set': {
+                        'last_weekly_claim': datetime.utcnow(),
+                        'first_name': user_data.first_name,
+                        'username': user_data.username,
+                        'bio_verified_at': datetime.utcnow()
+                    },
+                    '$inc': {'total_weekly_claims': 1}
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            LOGGER.error(f"Database update error: {e}")
+            return False
+    
+    def generate_character_caption(self, user_data: UserClaimData, character: Dict) -> str:
+        event = f"\n🎪 ᴇᴠᴇɴᴛ: <b>{character['event']['name']}</b>" if character.get('event', {}).get('name') else ""
+        origin = f"\n🌍 ᴏʀɪɢɪɴ: <b>{character['origin']}</b>" if character.get('origin') else ""
+        abilities = f"\n⚔️ ᴀʙɪʟɪᴛɪᴇs: <b>{character['abilities']}</b>" if character.get('abilities') else ""
+        description = f"\n📝 ᴅᴇsᴄʀɪᴘᴛɪᴏɴ: <b>{character['description']}</b>" if character.get('description') else ""
+        
+        claim_count = user_data.total_weekly_claims + 1
+        streak_emoji = "🔥" if claim_count >= 5 else "✨"
         
         return f"""🎁 ᴡᴇᴇᴋʟʏ ᴄʟᴀɪᴍ sᴜᴄᴄᴇss!
-💎 ᴄᴏɴɢʀᴀᴛs <a href='tg://user?id={user_id}'>{first_name}</a>
+💎 ᴄᴏɴɢʀᴀᴛs <a href='tg://user?id={user_data.user_id}'>{user_data.first_name}</a>
 
-🎴 ɴᴀᴍᴇ: <b>{name}</b>
-⭐ ʀᴀʀɪᴛʏ: <b>{rarity}</b>
-🎯 ᴀɴɪᴍᴇ: <b>{anime}</b>
-🆔 ɪᴅ: <code>{char_id}</code>
+🎴 ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
+⭐ ʀᴀʀɪᴛʏ: <b>{character.get('rarity', 'Unknown')}</b>
+🎯 ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
+🆔 ɪᴅ: <code>{character.get('id', 'N/A')}</code>{event}{origin}{abilities}{description}
 
-{streak} ᴛᴏᴛᴀʟ ᴄʟᴀɪᴍs: <b>{claim_count}</b>
-⏰ ɴᴇxᴛ: <b>7 ᴅᴀʏs</b>
-⚠️ ᴋᴇᴇᴘ <code>{self.config.BOT_USERNAME}</code> ɪɴ ʙɪᴏ!</a>"""
+{streak_emoji} ᴛᴏᴛᴀʟ ᴡᴇᴇᴋʟʏ ᴄʟᴀɪᴍs: <b>{claim_count}</b>
+⏰ ɴᴇxᴛ ᴄʟᴀɪᴍ: <b>7 ᴅᴀʏs</b>
+⚠️ ᴋᴇᴇᴘ <code>{self.config.BOT_USERNAME}</code> ɪɴ ʏᴏᴜʀ ʙɪᴏ!"""
     
-    async def _process_claim_fast(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    def generate_help_message(self) -> Tuple[str, InlineKeyboardMarkup]:
+        rarities = "\n".join([f"  • {tier.display}" for tier in RarityTier])
+        
+        message = f"""❌ ᴡᴇᴇᴋʟʏ ᴄʟᴀɪᴍ ʀᴇǫᴜɪʀᴇs {self.config.BOT_USERNAME} ɪɴ ʏᴏᴜʀ ʙɪᴏ!
+
+📝 <b>ʜᴏᴡ ᴛᴏ ᴄʟᴀɪᴍ:</b>
+1️⃣ ᴀᴅᴅ <code>{self.config.BOT_USERNAME}</code> ᴛᴏ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ʙɪᴏ
+2️⃣ ᴜsᴇ /wclaim ᴄᴏᴍᴍᴀɴᴅ ʜᴇʀᴇ
+3️⃣ ᴋᴇᴇᴘ ɪᴛ ɪɴ ʏᴏᴜʀ ʙɪᴏ ғᴏʀ 7 ᴅᴀʏs
+
+💎 <b>ʀᴇᴡᴀʀᴅs:</b>
+{rarities}
+
+⏰ <b>ᴄᴏᴏʟᴅᴏᴡɴ:</b> 7 ᴅᴀʏs
+🎯 <b>ʟᴏᴄᴀᴛɪᴏɴ:</b> ᴍᴀɪɴ ɢʀᴏᴜᴘ ᴏɴʟʏ"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📖 ʜᴏᴡ ᴛᴏ ᴀᴅᴅ ʙɪᴏ", url="https://telegram.org/blog/edit-profile")],
+            [InlineKeyboardButton("💬 sᴜᴘᴘᴏʀᴛ", url=self.config.MAIN_GROUP_LINK)]
+        ]
+        
+        return message, InlineKeyboardMarkup(keyboard)
+    
+    async def handle_weekly_claim(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message or not update.effective_user:
+            return
+        
+        chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         username = update.effective_user.username
         
-        allowed, wait = await self._rate_limiter.check(user_id)
-        if not allowed:
+        if chat_id != self.config.MAIN_GROUP_ID:
+            keyboard = [[InlineKeyboardButton("🔗 ᴊᴏɪɴ ᴍᴀɪɴ ɢʀᴏᴜᴘ", url=self.config.MAIN_GROUP_LINK)]]
             await update.message.reply_text(
-                f"⚠️ ʀᴀᴛᴇ ʟɪᴍɪᴛ! ᴡᴀɪᴛ {int(wait)}s",
-                parse_mode=ParseMode.HTML
-            )
-            return
-        
-        lock = self._get_lock(user_id)
-        if lock.locked():
-            return
-        
-        async with lock:
-            try:
-                await context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id,
-                    action=ChatAction.TYPING
-                )
-                
-                has_bio, user_data = await asyncio.gather(
-                    self._check_bio_fast(user_id, context),
-                    self._db_pool.get_user(user_id),
-                    return_exceptions=True
-                )
-                
-                if isinstance(has_bio, Exception):
-                    has_bio = False
-                if isinstance(user_data, Exception):
-                    user_data = None
-                
-                if not has_bio:
-                    msg = f"""❌ ᴀᴅᴅ <code>{self.config.BOT_USERNAME}</code> ᴛᴏ ʏᴏᴜʀ ʙɪᴏ!
-
-📝 sᴛᴇᴘs:
-1️⃣ ᴀᴅᴅ ʙᴏᴛ ᴜsᴇʀɴᴀᴍᴇ ᴛᴏ ʙɪᴏ
-2️⃣ ᴜsᴇ /wclaim
-3️⃣ ᴋᴇᴇᴘ ɪᴛ ғᴏʀ 7 ᴅᴀʏs
-
-💎 ʀᴇᴡᴀʀᴅs: {', '.join(RarityTier.get_all_displays())}"""
-                    
-                    keyboard = [[InlineKeyboardButton("📖 ʜᴇʟᴘ", url="https://telegram.org/blog/edit-profile")]]
-                    await update.message.reply_text(
-                        msg,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    return
-                
-                if not user_data:
-                    user_data = {
-                        'id': user_id,
-                        'first_name': first_name,
-                        'username': username,
-                        'characters': [],
-                        'last_weekly_claim': None,
-                        'total_weekly_claims': 0
-                    }
-                
-                last_claim = user_data.get('last_weekly_claim')
-                if last_claim:
-                    elapsed = (datetime.utcnow() - last_claim).total_seconds()
-                    if elapsed < self.config.CLAIM_COOLDOWN_SECONDS:
-                        remaining = int(self.config.CLAIM_COOLDOWN_SECONDS - elapsed)
-                        time_str = self._format_time(remaining)
-                        await update.message.reply_text(
-                            f"⏰ ᴀʟʀᴇᴀᴅʏ ᴄʟᴀɪᴍᴇᴅ\n⏳ ɴᴇxᴛ: `{time_str}`",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        return
-                
-                claimed_ids = {c.get('id') for c in user_data.get('characters', [])}
-                character = await self._get_weighted_character_fast(user_id, claimed_ids)
-                
-                if not character:
-                    await update.message.reply_text("❌ ɴᴏ ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ!")
-                    return
-                
-                claim_count = user_data.get('total_weekly_claims', 0) + 1
-                
-                update_doc = {
-                    '$push': {'characters': character},
-                    '$set': {
-                        'last_weekly_claim': datetime.utcnow(),
-                        'first_name': first_name,
-                        'username': username,
-                        'total_weekly_claims': claim_count
-                    }
-                }
-                
-                await self._db_pool.batch_update_user(user_id, update_doc)
-                self._bio_cache.invalidate(user_id)
-                self._db_pool.invalidate_user_cache(user_id)
-                
-                caption = self._generate_caption_cached(
-                    character.get('name', 'Unknown'),
-                    character.get('rarity', 'Unknown'),
-                    character.get('anime', 'Unknown'),
-                    str(character.get('id', 'N/A')),
-                    user_id,
-                    first_name,
-                    claim_count
-                )
-                
-                await update.message.reply_photo(
-                    photo=character.get('img_url'),
-                    caption=caption,
-                    parse_mode=ParseMode.HTML
-                )
-                
-                self._stats['claims'] += 1
-                
-            except TelegramError as e:
-                LOGGER.error(f"Telegram error: {e}")
-                self._stats['errors'] += 1
-            except Exception as e:
-                LOGGER.error(f"Claim error: {e}", exc_info=True)
-                self._stats['errors'] += 1
-    
-    async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message or not update.effective_user:
-            return
-        
-        if update.effective_chat.id != self.config.MAIN_GROUP_ID:
-            keyboard = [[InlineKeyboardButton("🔗 ᴊᴏɪɴ ɢʀᴏᴜᴘ", url=self.config.MAIN_GROUP_LINK)]]
-            await update.message.reply_text(
-                "⚠️ ᴜsᴇ ɪɴ ᴍᴀɪɴ ɢʀᴏᴜᴘ ᴏɴʟʏ!",
+                "⚠️ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋs ɪɴ ᴛʜᴇ ᴍᴀɪɴ ɢʀᴏᴜᴘ!\n\n"
+                "📍 ᴊᴏɪɴ ᴏᴜʀ ᴍᴀɪɴ ɢʀᴏᴜᴘ ᴛᴏ ᴜsᴇ ᴛʜɪs ғᴇᴀᴛᴜʀᴇ.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
         
-        await self._process_claim_fast(update, context)
+        allowed, wait_time = self.rate_limiter.is_allowed(user_id)
+        if not allowed:
+            await update.message.reply_text(
+                f"⚠️ ʀᴀᴛᴇ ʟɪᴍɪᴛ ᴇxᴄᴇᴇᴅᴇᴅ!\n"
+                f"⏳ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {wait_time} sᴇᴄᴏɴᴅs."
+            )
+            return
+        
+        lock = self._get_lock(user_id)
+        
+        if lock.locked():
+            await update.message.reply_text("⏳ ᴄʟᴀɪᴍ ɪɴ ᴘʀᴏɢʀᴇss, ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ...")
+            return
+        
+        async with lock:
+            try:
+                has_bot_in_bio = await self.check_user_bio(user_id, context)
+                
+                if not has_bot_in_bio:
+                    message, keyboard = self.generate_help_message()
+                    await update.message.reply_text(message, parse_mode='HTML', reply_markup=keyboard)
+                    return
+                
+                user_data = await self.fetch_user_data(user_id, first_name, username)
+                validation = await self.validate_claim(user_data)
+                
+                if validation.status != ClaimStatus.SUCCESS:
+                    await update.message.reply_text(validation.message, parse_mode='Markdown')
+                    return
+                
+                character = await self.get_weighted_character(user_id)
+                
+                if not character:
+                    await update.message.reply_text(
+                        "❌ ɴᴏ ɴᴇᴡ ᴡᴇᴇᴋʟʏ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ\n"
+                        "💫 ʏᴏᴜ'ᴠᴇ ᴄᴏʟʟᴇᴄᴛᴇᴅ ᴀʟʟ ᴡᴇᴇᴋʟʏ ᴄʜᴀʀᴀᴄᴛᴇʀs!"
+                    )
+                    return
+                
+                success = await self.process_claim(user_data, character)
+                
+                if not success:
+                    await update.message.reply_text("❌ ғᴀɪʟᴇᴅ ᴛᴏ ᴘʀᴏᴄᴇss ᴄʟᴀɪᴍ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ!")
+                    return
+                
+                caption = self.generate_character_caption(user_data, character)
+                
+                await update.message.reply_photo(
+                    photo=character.get('img_url', 'https://i.imgur.com/placeholder.png'),
+                    caption=caption,
+                    parse_mode='HTML'
+                )
+                
+                self.stats['successful_claims'] += 1
+                
+            except TelegramError as e:
+                LOGGER.error(f"Telegram error in weekly claim: {e}")
+                await update.message.reply_text("❌ ᴛᴇʟᴇɢʀᴀᴍ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ!")
+            except Exception as e:
+                LOGGER.error(f"Unexpected error in weekly claim: {e}", exc_info=True)
+                await update.message.reply_text("❌ ᴀɴ ᴜɴᴇxᴘᴇᴄᴛᴇᴅ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ!")
 
 config = ClaimConfig()
-hyper_system = HyperWeeklyClaimSystem(config)
+weekly_claim_system = WeeklyClaimSystem(config)
 
 application.add_handler(
-    CommandHandler(['wclaim', 'weeklyclaim', 'wc'], hyper_system.handle_command, block=False)
+    CommandHandler(['wclaim', 'weeklyclaim', 'wc'], weekly_claim_system.handle_weekly_claim, block=False)
 )
