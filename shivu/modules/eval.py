@@ -269,6 +269,8 @@ async def execute_terminal_command(_, message):
     
     text = message.text.strip()
     
+    text = re.sub(r'@\w+', '', text).strip()
+    
     if text.startswith(('#', '+', '@', '"', '-', ';', '!', "'", '/')):
         parts = text[1:].strip().split(None, 1)
         if len(parts) < 2:
@@ -312,6 +314,8 @@ async def evals(_, message):
         return
     
     text = message.text.strip()
+    
+    text = re.sub(r'@\w+', '', text).strip()
     
     if text.startswith(('#', '+', '@', '"', '-', ';', '!', "'", '/')):
         parts = text[1:].strip().split(None, 1)
