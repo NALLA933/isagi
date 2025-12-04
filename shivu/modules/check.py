@@ -215,11 +215,12 @@ class CardFormatter:
         return caption
     
     @staticmethod
-    def format_owners_card(
+    async def format_owners_card(
         char: CharacterData,
         owners: List[UserOwnership],
         page: int,
-        global_count: int
+        global_count: int,
+        client: Client
     ) -> str:
         rarity = RarityInfo.parse(char.rarity)
         
@@ -241,10 +242,14 @@ class CardFormatter:
         
         for i, owner in enumerate(page_owners, start=start_idx + 1):
             medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            user_link = f"<a href='tg://user?id={owner.id}'>{escape(owner.first_name)}</a>"
-            if owner.username:
-                user_link += f" (@{escape(owner.username)})"
-            caption += f"\n{medal} {user_link} <code>x{owner.count}</code>"
+            
+            try:
+                user = await client.get_users(owner.id)
+                user_mention = user.mention
+            except:
+                user_mention = f"<a href='tg://user?id={owner.id}'>{escape(owner.first_name)}</a>"
+            
+            caption += f"\n{medal} {user_mention} <code>x{owner.count}</code>"
         
         caption += (
             f"\n\n<b>📄 ᴘᴀɢᴇ</b> <code>{page + 1}/{total_pages}</code>\n"
@@ -480,7 +485,7 @@ async def find_users_with_character(client: Client, message: Message):
         global_count = await CharacterRepository.get_global_count(character_id)
         total_pages = (len(owners) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
         
-        caption = CardFormatter.format_owners_card(character, owners, 0, global_count)
+        caption = await CardFormatter.format_owners_card(character, owners, 0, global_count, client)
         keyboard = KeyboardBuilder.build_pagination(character_id, 0, total_pages, show_back=True)
 
         await MediaSender.send(message, character, caption, keyboard)
@@ -509,7 +514,7 @@ async def handle_owners_pagination(client: Client, query: CallbackQuery):
         global_count = await CharacterRepository.get_global_count(character_id)
         total_pages = (len(owners) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
         
-        caption = CardFormatter.format_owners_card(character, owners, page, global_count)
+        caption = await CardFormatter.format_owners_card(character, owners, page, global_count, client)
         keyboard = KeyboardBuilder.build_pagination(character_id, page, total_pages, show_back=True)
 
         await query.edit_message_caption(caption=caption, reply_markup=keyboard)
