@@ -8,9 +8,11 @@ import os
 import io
 from PIL import Image
 import base64
+import random
 
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.handlers import MessageHandler
 
 from shivu import shivuu as app
 from shivu import db
@@ -84,6 +86,8 @@ DEFAULT_SETTINGS = {
 settings_cache = TTLCache(maxsize=1000, ttl=3600)
 # Cache for user pending reference images
 reference_cache = TTLCache(maxsize=500, ttl=600)
+# Cache for user waiting for input
+waiting_for_input = TTLCache(maxsize=500, ttl=300)
 
 
 async def get_user_settings(user_id: int) -> Dict:
@@ -114,12 +118,13 @@ async def update_user_settings(user_id: int, updates: Dict):
 
 async def save_generation_history(user_id: int, prompt: str, settings: Dict, file_id: str = None):
     """Save generation to history"""
+    from datetime import datetime
     history_entry = {
         "user_id": user_id,
         "prompt": prompt,
         "settings": settings,
         "file_id": file_id,
-        "timestamp": None,  # MongoDB will add this
+        "timestamp": datetime.utcnow(),
     }
     await user_history_collection.insert_one(history_entry)
 
@@ -164,7 +169,7 @@ def build_pollinations_url(prompt: str, settings: Dict, reference_image: str = N
     negative = settings.get("negative_prompt", "")
     if not negative:
         preset = settings.get("negative_preset", "quality")
-        if preset != "none":
+        if preset != "none" and preset in NEGATIVE_PRESETS:
             negative = NEGATIVE_PRESETS.get(preset, "")
     
     if negative:
@@ -317,6 +322,35 @@ def get_negative_preset_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+async def generate_image(prompt: str, settings: Dict, user_mention: str, user_id: int):
+    """Generate image and return file path and caption"""
+    url = build_pollinations_url(prompt, settings)
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
+            if resp.status != 200:
+                return None, "⚠️ Failed to generate image. Please try again."
+            img_data = await resp.read()
+    
+    # Save to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+        tmp_file.write(img_data)
+        tmp_path = tmp_file.name
+    
+    model_name = MODELS.get(settings.get("model", "flux"), "Flux")
+    lora_name = LORA_MODELS.get(settings.get("lora", "none"), "None")
+    
+    caption = (
+        f"🎨 **Prompt:** `{escape(prompt[:100])}`\n"
+        f"🤖 **Model:** {model_name}\n"
+        f"✨ **LoRA:** {lora_name}\n"
+        f"📐 **Size:** {settings.get('width')}x{settings.get('height')}\n"
+        f"👤 **By:** {user_mention}"
+    )
+    
+    return tmp_path, caption
+
+
 @app.on_message(filters.command(["ai", "imagine", "generate"]))
 async def ai_image_command(client: Client, message: Message):
     """Generate AI image"""
@@ -351,14 +385,19 @@ async def ai_image_command(client: Client, message: Message):
         use_reference = True
         prompt = prompt.replace("--ref", "").replace("--reference", "").strip()
         
+        if not prompt:
+            return await message.reply("❌ Please provide a prompt with --ref flag!\nExample: `/ai cyberpunk city --ref`")
+        
         # Store pending generation
         reference_cache[user_id] = {
             "prompt": prompt,
-            "message": message
+            "chat_id": message.chat.id,
+            "message_id": message.id
         }
         
         return await message.reply(
             "📸 **Reference Image Mode**\n\n"
+            f"**Prompt:** `{prompt}`\n\n"
             "Please send me a reference image now.\n"
             "The AI will generate based on this image.\n\n"
             "⏱️ You have 10 minutes to send the image.",
@@ -373,36 +412,17 @@ async def ai_image_command(client: Client, message: Message):
     status_msg = await message.reply("🎨 Generating your image... Please wait.")
     
     try:
-        url = build_pollinations_url(prompt, settings)
+        tmp_path, caption = await generate_image(prompt, settings, message.from_user.mention, user_id)
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
-                if resp.status != 200:
-                    await status_msg.edit("⚠️ Failed to generate image. Please try again.")
-                    return
-                img_data = await resp.read()
-        
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-            tmp_file.write(img_data)
-            tmp_path = tmp_file.name
-        
-        model_name = MODELS.get(settings.get("model", "flux"), "Flux")
-        lora_name = LORA_MODELS.get(settings.get("lora", "none"), "None")
-        
-        caption = (
-            f"🎨 **Prompt:** `{escape(prompt[:100])}`\n"
-            f"🤖 **Model:** {model_name}\n"
-            f"✨ **LoRA:** {lora_name}\n"
-            f"📐 **Size:** {settings.get('width')}x{settings.get('height')}\n"
-            f"👤 **By:** {message.from_user.mention}"
-        )
+        if not tmp_path:
+            await status_msg.edit(caption)
+            return
         
         # Send image with generation buttons
         gen_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_regen_{user_id}")],
+            [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_regen")],
             [InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings"),
-             InlineKeyboardButton("📋 Details", callback_data=f"ai_details_{user_id}")]
+             InlineKeyboardButton("🎲 Variation", callback_data="ai_variation")]
         ])
         
         # Send image
@@ -436,68 +456,98 @@ async def ai_image_command(client: Client, message: Message):
         await status_msg.edit(f"❌ Error: {str(e)}\n\nPlease try again or contact support.")
 
 
-@app.on_message(filters.photo & filters.private)
-async def handle_reference_image(client: Client, message: Message):
-    """Handle reference image for generation"""
+@app.on_message(filters.photo & ~filters.command(["ai", "imagine", "generate", "aimenu", "aisettings", "aihelp", "aistats"]))
+async def handle_reference_or_input(client: Client, message: Message):
+    """Handle reference image for generation or other photo inputs"""
     user_id = message.from_user.id
     
-    if user_id not in reference_cache:
-        return
-    
-    ref_data = reference_cache[user_id]
-    prompt = ref_data["prompt"]
-    
-    # Remove from cache
-    del reference_cache[user_id]
-    
-    status_msg = await message.reply("🎨 Generating with reference image... Please wait.")
-    
-    try:
-        # Download reference image
-        file_path = await message.download()
+    # Check if user is in reference mode
+    if user_id in reference_cache:
+        ref_data = reference_cache[user_id]
+        prompt = ref_data["prompt"]
         
-        # Note: Pollinations doesn't directly support reference images via URL params
-        # This is a simplified implementation - in production, you'd upload to a CDN
-        # or use a service that supports reference images
+        # Remove from cache
+        del reference_cache[user_id]
         
-        settings = await get_user_settings(user_id)
-        prompt_with_ref = f"{prompt} (reference-based generation)"
-        
-        url = build_pollinations_url(prompt_with_ref, settings)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
-                if resp.status != 200:
-                    await status_msg.edit("⚠️ Failed to generate image.")
-                    return
-                img_data = await resp.read()
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-            tmp_file.write(img_data)
-            tmp_path = tmp_file.name
-        
-        model_name = MODELS.get(settings.get("model", "flux"), "Flux")
-        caption = (
-            f"🎨 **Prompt:** `{escape(prompt[:100])}`\n"
-            f"📸 **Reference:** Used\n"
-            f"🤖 **Model:** {model_name}\n"
-            f"👤 **By:** {message.from_user.mention}"
-        )
-        
-        await message.reply_photo(
-            photo=tmp_path,
-            caption=caption
-        )
-        await status_msg.delete()
+        status_msg = await message.reply("🎨 Generating with reference image... Please wait.")
         
         try:
-            os.unlink(tmp_path)
-            os.unlink(file_path)
-        except:
-            pass
+            settings = await get_user_settings(user_id)
+            prompt_with_ref = f"{prompt} (reference-based generation)"
             
-    except Exception as e:
-        await status_msg.edit(f"❌ Error: {str(e)}")
+            tmp_path, caption = await generate_image(prompt_with_ref, settings, message.from_user.mention, user_id)
+            
+            if not tmp_path:
+                await status_msg.edit(caption)
+                return
+            
+            gen_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_regen")],
+                [InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings")]
+            ])
+            
+            await message.reply_photo(
+                photo=tmp_path,
+                caption=caption + "\n📸 **Reference:** Used",
+                reply_markup=gen_keyboard
+            )
+            await status_msg.delete()
+            
+            # Save to history
+            await save_generation_history(user_id, prompt, settings)
+            
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+                
+        except Exception as e:
+            await status_msg.edit(f"❌ Error: {str(e)}")
+
+
+@app.on_message(filters.text & ~filters.command(["ai", "imagine", "generate", "aimenu", "aisettings", "aihelp", "aistats"]))
+async def handle_text_input(client: Client, message: Message):
+    """Handle text input for negative prompt or seed"""
+    user_id = message.from_user.id
+    
+    # Check if user is waiting for input
+    if user_id not in waiting_for_input:
+        return
+    
+    input_type = waiting_for_input[user_id]
+    text = message.text.strip()
+    
+    if input_type == "negative_prompt":
+        await update_user_settings(user_id, {
+            "negative_prompt": text,
+            "negative_preset": "none"
+        })
+        del waiting_for_input[user_id]
+        
+        await message.reply(
+            f"✅ **Custom Negative Prompt Set**\n\n`{text}`\n\nThis will be applied to all generations.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings")
+            ]])
+        )
+    
+    elif input_type == "seed":
+        try:
+            seed_value = int(text)
+            if 1 <= seed_value <= 99999999:
+                await update_user_settings(user_id, {"seed": seed_value})
+                del waiting_for_input[user_id]
+                
+                await message.reply(
+                    f"✅ **Seed Set:** {seed_value}\n\nAll generations will use this seed until changed.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings")
+                    ]])
+                )
+            else:
+                await message.reply("❌ Seed must be between 1 and 99999999. Please try again.")
+        except ValueError:
+            await message.reply("❌ Invalid number. Please send a valid seed number.")
 
 
 @app.on_message(filters.command(["aimenu", "aicontrol"]))
@@ -840,13 +890,14 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
         await callback.message.edit_text(text, reply_markup=get_settings_keyboard(settings, 2))
     
     elif data == "ai_neg_custom":
+        waiting_for_input[user_id] = "negative_prompt"
         await callback.message.edit_text(
             "**✏️ Custom Negative Prompt**\n\n"
-            "Reply to this message with your custom negative prompt.\n\n"
-            "Example: `blurry, low quality, watermark`\n\n"
+            "Please reply to this message with your custom negative prompt.\n\n"
+            "**Example:** `blurry, low quality, watermark, ugly`\n\n"
             "⏱️ You have 5 minutes to reply.",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ Cancel", callback_data="ai_settings_page_2")
+                InlineKeyboardButton("❌ Cancel", callback_data="ai_cancel_input")
             ]])
         )
     
@@ -893,7 +944,6 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
         )
     
     elif data == "ai_seed_lock":
-        import random
         new_seed = random.randint(1000000, 9999999)
         await update_user_settings(user_id, {"seed": new_seed})
         await callback.answer(f"✅ Seed locked: {new_seed}")
@@ -916,12 +966,14 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
         )
     
     elif data == "ai_seed_custom":
+        waiting_for_input[user_id] = "seed"
         await callback.message.edit_text(
             "**✏️ Custom Seed**\n\n"
-            "Reply with a number (1-99999999).\n\n"
+            "Please reply with a number between 1 and 99999999.\n\n"
+            "**Example:** `12345678`\n\n"
             "⏱️ You have 5 minutes to reply.",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ Cancel", callback_data="ai_setting_seed")
+                InlineKeyboardButton("❌ Cancel", callback_data="ai_cancel_input")
             ]])
         )
     
@@ -989,9 +1041,10 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
             "cute cat in a cozy room",
             "epic dragon flying over mountains",
             "mystical forest with glowing plants",
+            "steampunk airship in the sky",
+            "underwater coral reef with colorful fish",
         ]
         
-        import random
         prompt = random.choice(random_templates)
         
         await callback.answer("🎲 Generating random image...")
@@ -999,32 +1052,130 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
         status_msg = await callback.message.edit_text("🎨 Generating random image... Please wait.")
         
         try:
-            url = build_pollinations_url(prompt, settings)
+            tmp_path, caption = await generate_image(prompt, settings, callback.from_user.mention, user_id)
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
-                    if resp.status != 200:
-                        await status_msg.edit("⚠️ Failed to generate image.")
-                        return
-                    img_data = await resp.read()
+            if not tmp_path:
+                await status_msg.edit(caption)
+                return
             
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                tmp_file.write(img_data)
-                tmp_path = tmp_file.name
-            
-            model_name = MODELS.get(settings.get("model", "flux"), "Flux")
-            caption = (
-                f"🎲 **Random Generation**\n"
-                f"🎨 **Prompt:** `{prompt}`\n"
-                f"🤖 **Model:** {model_name}\n"
-                f"👤 **By:** {callback.from_user.mention}"
-            )
+            gen_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_random")],
+                [InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings")]
+            ])
             
             await callback.message.reply_photo(
                 photo=tmp_path,
-                caption=caption
+                caption=f"🎲 **Random Generation**\n\n{caption}",
+                reply_markup=gen_keyboard
             )
             await status_msg.delete()
+            
+            await save_generation_history(user_id, prompt, settings)
+            
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+                
+        except Exception as e:
+            await status_msg.edit(f"❌ Error: {str(e)}")
+    
+    elif data == "ai_regen":
+        # Get last generation from history
+        last_gen = await user_history_collection.find_one(
+            {"user_id": user_id},
+            sort=[("_id", -1)]
+        )
+        
+        if not last_gen:
+            await callback.answer("❌ No previous generation found!", show_alert=True)
+            return
+        
+        prompt = last_gen.get("prompt", "")
+        if not prompt:
+            await callback.answer("❌ Cannot regenerate without prompt!", show_alert=True)
+            return
+        
+        await callback.answer("🔄 Regenerating...")
+        
+        status_msg = await callback.message.reply("🎨 Regenerating image... Please wait.")
+        
+        try:
+            tmp_path, caption = await generate_image(prompt, settings, callback.from_user.mention, user_id)
+            
+            if not tmp_path:
+                await status_msg.edit(caption)
+                return
+            
+            gen_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_regen")],
+                [InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings"),
+                 InlineKeyboardButton("🎲 Variation", callback_data="ai_variation")]
+            ])
+            
+            await callback.message.reply_photo(
+                photo=tmp_path,
+                caption=caption,
+                reply_markup=gen_keyboard
+            )
+            await status_msg.delete()
+            
+            await save_generation_history(user_id, prompt, settings)
+            
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+                
+        except Exception as e:
+            await status_msg.edit(f"❌ Error: {str(e)}")
+    
+    elif data == "ai_variation":
+        # Get last generation and create variation with random seed
+        last_gen = await user_history_collection.find_one(
+            {"user_id": user_id},
+            sort=[("_id", -1)]
+        )
+        
+        if not last_gen:
+            await callback.answer("❌ No previous generation found!", show_alert=True)
+            return
+        
+        prompt = last_gen.get("prompt", "")
+        if not prompt:
+            await callback.answer("❌ Cannot create variation without prompt!", show_alert=True)
+            return
+        
+        await callback.answer("🎲 Creating variation...")
+        
+        # Temporarily set random seed for variation
+        original_seed = settings.get("seed")
+        variation_settings = settings.copy()
+        variation_settings["seed"] = random.randint(1000000, 9999999)
+        
+        status_msg = await callback.message.reply("🎨 Creating variation... Please wait.")
+        
+        try:
+            tmp_path, caption = await generate_image(prompt, variation_settings, callback.from_user.mention, user_id)
+            
+            if not tmp_path:
+                await status_msg.edit(caption)
+                return
+            
+            gen_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Regenerate", callback_data=f"ai_regen")],
+                [InlineKeyboardButton("⚙️ Settings", callback_data="ai_settings"),
+                 InlineKeyboardButton("🎲 Variation", callback_data="ai_variation")]
+            ])
+            
+            await callback.message.reply_photo(
+                photo=tmp_path,
+                caption=f"🎲 **Variation**\n\n{caption}",
+                reply_markup=gen_keyboard
+            )
+            await status_msg.delete()
+            
+            await save_generation_history(user_id, prompt, variation_settings)
             
             try:
                 os.unlink(tmp_path)
@@ -1038,6 +1189,13 @@ async def ai_callback_handler(client: Client, callback: CallbackQuery):
         if user_id in reference_cache:
             del reference_cache[user_id]
         await callback.message.edit_text("❌ Reference mode cancelled.")
+        await callback.answer("Cancelled")
+    
+    elif data == "ai_cancel_input":
+        if user_id in waiting_for_input:
+            del waiting_for_input[user_id]
+        await callback.message.edit_text("❌ Input cancelled.")
+        await callback.answer("Cancelled")
 
 
 @app.on_message(filters.command("aihelp"))
@@ -1049,7 +1207,8 @@ async def ai_help_command(client: Client, message: Message):
         "`/ai <prompt>` - Generate image\n"
         "`/ai <prompt> --ref` - Use reference image\n"
         "`/aimenu` - Control panel\n"
-        "`/aisettings` - Configure settings\n\n"
+        "`/aisettings` - Configure settings\n"
+        "`/aistats` - Your statistics\n\n"
         "**✨ Features:**\n"
         "• **Models:** Flux, Flux Realism, Anime, 3D, Turbo\n"
         "• **LoRA Styles:** 10+ artistic styles\n"
@@ -1075,7 +1234,6 @@ async def ai_help_command(client: Client, message: Message):
     await message.reply(help_text, reply_markup=get_main_keyboard())
 
 
-# Add stats command
 @app.on_message(filters.command("aistats"))
 async def ai_stats_command(client: Client, message: Message):
     """Show user statistics"""
