@@ -44,7 +44,7 @@ RARITY_DISPLAY = {
     Rarity.AMV: "🎥 Amv", Rarity.TINY: "👼 Tiny"
 }
 
-OWNER_IDS = {8420981179, 5147822244}
+OWNER_IDS = [8420981179, 5147822244]  # Changed to list
 GLOBAL_ID = "global_raid"
 
 @dataclass
@@ -193,7 +193,6 @@ class RaidExecutor:
             roll = random.randint(1, 100)
             threshold = 0
             
-            # Critical hit
             if roll <= (threshold := config.crit_chance):
                 char = await self._get_char(config.rarities)
                 coins = random.randint(config.coin_min, config.coin_max)
@@ -206,7 +205,6 @@ class RaidExecutor:
                     await self.usr.update_balance(uid, coins * 2)
                     results.append({"uid": uid, "type": "coins", "coins": coins * 2, "double": True})
             
-            # Character
             elif roll <= (threshold := threshold + config.char_chance):
                 char = await self._get_char(config.rarities)
                 if char:
@@ -218,19 +216,16 @@ class RaidExecutor:
                     await self.usr.update_balance(uid, coins)
                     results.append({"uid": uid, "type": "coins", "coins": coins})
             
-            # Coins
             elif roll <= (threshold := threshold + config.coin_chance):
                 coins = random.randint(config.coin_min, config.coin_max)
                 await self.usr.update_balance(uid, coins)
                 results.append({"uid": uid, "type": "coins", "coins": coins})
             
-            # Loss
             elif roll <= (threshold := threshold + config.loss_chance):
                 loss = random.randint(config.loss_min, config.loss_max)
                 await self.usr.update_balance(uid, -loss)
                 results.append({"uid": uid, "type": "loss", "coins": loss})
             
-            # Nothing
             else:
                 results.append({"uid": uid, "type": "nothing"})
         
@@ -308,6 +303,70 @@ class RaidExecutor:
 db_mgr = RaidDatabase()
 usr_mgr = UserManager()
 executor = RaidExecutor(db_mgr, usr_mgr)
+
+@shivuu.on_message(filters.command("setraidloss") & filters.user(OWNER_IDS))
+async def set_loss(_, m: Message):
+    if len(m.command) < 3:
+        return await m.reply_text("Usage: /setraidloss <min> <max>")
+    try:
+        loss_min, loss_max = int(m.command[1]), int(m.command[2])
+        if loss_min >= loss_max:
+            return await m.reply_text("❌ ᴍɪɴ ᴍᴜsᴛ ʙᴇ ʟᴇss ᴛʜᴀɴ ᴍᴀx")
+        await db_mgr.update_config(loss_min=loss_min, loss_max=loss_max)
+        await m.reply_text(f"✅ ʟᴏss ʀᴀɴɢᴇ: <code>{loss_min}</code> - <code>{loss_max}</code>")
+    except ValueError:
+        await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇs")
+
+@shivuu.on_message(filters.command("setraidduration") & filters.user(OWNER_IDS))
+async def set_duration(_, m: Message):
+    if len(m.command) < 2:
+        return await m.reply_text("Usage: /setraidduration <seconds>")
+    try:
+        duration = int(m.command[1])
+        if duration < 10 or duration > 300:
+            return await m.reply_text("❌ ᴅᴜʀᴀᴛɪᴏɴ ᴍᴜsᴛ ʙᴇ ʙᴇᴛᴡᴇᴇɴ 10-300 sᴇᴄᴏɴᴅs")
+        await db_mgr.update_config(duration=duration)
+        await m.reply_text(f"✅ ᴅᴜʀᴀᴛɪᴏɴ sᴇᴛ ᴛᴏ: <code>{duration}</code> sᴇᴄᴏɴᴅs")
+    except ValueError:
+        await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇ")
+
+@shivuu.on_message(filters.command("raidsettings") & filters.user(OWNER_IDS))
+async def show_settings(_, m: Message):
+    config = await db_mgr.get_config()
+    rarity_names = [RARITY_DISPLAY.get(r, f"R{r}") for r in config.rarities]
+    
+    text = (
+        f"<blockquote>🌐 <b>ɢʟᴏʙᴀʟ ʀᴀɪᴅ sᴇᴛᴛɪɴɢs</b></blockquote>\n\n"
+        f"<b>⚙️ ʙᴀsɪᴄ sᴇᴛᴛɪɴɢs:</b>\n"
+        f"💰 ᴄʜᴀʀɢᴇ: <code>{config.charge}</code> ᴄᴏɪɴs\n"
+        f"⏱ ᴅᴜʀᴀᴛɪᴏɴ: <code>{config.duration}</code> sᴇᴄᴏɴᴅs\n"
+        f"⏳ ᴄᴏᴏʟᴅᴏᴡɴ: <code>{config.cooldown}</code> ᴍɪɴᴜᴛᴇs\n\n"
+        f"<b>💎 ʀᴇᴡᴀʀᴅ ʀᴀɴɢᴇs:</b>\n"
+        f"💰 ᴄᴏɪɴs: <code>{config.coin_min}</code> - <code>{config.coin_max}</code>\n"
+        f"💀 ʟᴏss: <code>{config.loss_min}</code> - <code>{config.loss_max}</code>\n\n"
+        f"<b>🎲 ᴘʀᴏʙᴀʙɪʟɪᴛɪᴇs:</b>\n"
+        f"🎴 ᴄʜᴀʀᴀᴄᴛᴇʀ: <code>{config.char_chance}%</code>\n"
+        f"💰 ᴄᴏɪɴs: <code>{config.coin_chance}%</code>\n"
+        f"💀 ʟᴏss: <code>{config.loss_chance}%</code>\n"
+        f"❌ ɴᴏᴛʜɪɴɢ: <code>{config.nothing_chance}%</code>\n"
+        f"💥 ᴄʀɪᴛɪᴄᴀʟ: <code>{config.crit_chance}%</code>\n\n"
+        f"<b>✨ ᴀᴠᴀɪʟᴀʙʟᴇ ʀᴀʀɪᴛɪᴇs:</b> <code>{len(rarity_names)}</code>\n"
+    )
+    
+    for i, rarity in enumerate(rarity_names[:10], 1):
+        text += f"{i}. {rarity}\n"
+    
+    if len(rarity_names) > 10:
+        text += f"<i>... ᴀɴᴅ {len(rarity_names) - 10} ᴍᴏʀᴇ</i>\n"
+    
+    text += f"\n<i>ᴘᴏᴡᴇʀᴇᴅ ʙʏ</i> <a href='https://t.me/siyaprobot'>sɪʏᴀ</a>"
+    
+    await m.reply_text(text, disable_web_page_preview=True)
+
+@shivuu.on_message(filters.command("resetraidsettings") & filters.user(OWNER_IDS))
+async def reset_settings(_, m: Message):
+    await db_mgr.update_config(**asdict(RaidConfig()))
+    await m.reply_text("✅ ʀᴀɪᴅ sᴇᴛᴛɪɴɢs ʀᴇsᴇᴛ ᴛᴏ ᴅᴇғᴀᴜʟᴛ")
 
 @shivuu.on_message(filters.command("raid") & filters.group)
 async def start_raid(client: Client, message: Message):
@@ -421,18 +480,20 @@ async def set_charge(_, m: Message):
     if len(m.command) < 2:
         return await m.reply_text("Usage: /setraidcharge <amount>")
     try:
-        await db_mgr.update_config(charge=int(m.command[1]))
-        await m.reply_text(f"✅ ᴄʜᴀʀɢᴇ sᴇᴛ ᴛᴏ: <code>{m.command[1]}</code> ᴄᴏɪɴs")
+        amount = int(m.command[1])
+        await db_mgr.update_config(charge=amount)
+        await m.reply_text(f"✅ ᴄʜᴀʀɢᴇ sᴇᴛ ᴛᴏ: <code>{amount}</code> ᴄᴏɪɴs")
     except ValueError:
         await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ")
 
 @shivuu.on_message(filters.command("setraidcooldown") & filters.user(OWNER_IDS))
-async def set_cooldown(_, m: Message):
+async def set_cooldown_cmd(_, m: Message):
     if len(m.command) < 2:
         return await m.reply_text("Usage: /setraidcooldown <minutes>")
     try:
-        await db_mgr.update_config(cooldown=int(m.command[1]))
-        await m.reply_text(f"✅ ᴄᴏᴏʟᴅᴏᴡɴ sᴇᴛ ᴛᴏ: <code>{m.command[1]}</code> ᴍɪɴᴜᴛᴇs")
+        minutes = int(m.command[1])
+        await db_mgr.update_config(cooldown=minutes)
+        await m.reply_text(f"✅ ᴄᴏᴏʟᴅᴏᴡɴ sᴇᴛ ᴛᴏ: <code>{minutes}</code> ᴍɪɴᴜᴛᴇs")
     except ValueError:
         await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇ")
 
@@ -479,105 +540,3 @@ async def set_coins(_, m: Message):
         await m.reply_text(f"✅ ᴄᴏɪɴ ʀᴀɴɢᴇ: <code>{coin_min}</code> - <code>{coin_max}</code>")
     except ValueError:
         await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇs")
-
-@shivuu.on_message(filters.command("setraidloss") & filters.user(OWNER_IDS))
-async def set_loss(_, m: Message):
-    if len(m.command) < 3:
-        return await m.reply_text("Usage: /setraidloss <min> <max>")
-    try:
-        loss_min, loss_max = int(m.command[1]), int(m.command[2])
-        if loss_min >= loss_max:
-            return await m.reply_text("❌ ᴍɪɴ ᴍᴜsᴛ ʙᴇ ʟᴇss ᴛʜᴀɴ ᴍᴀx")
-        await db_mgr.update_config(loss_min=loss_min, loss_max=loss_max)
-        await m.reply_text(f"✅ ʟᴏss ʀᴀɴɢᴇ: <code>{loss_min}</code> - <code>{loss_max}</code>")
-    except ValueError:
-        await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇs")
-
-@shivuu.on_message(filters.command("setraidduration") & filters.user(OWNER_IDS))
-async def set_duration(_, m: Message):
-    if len(m.command) < 2:
-        return await m.reply_text("Usage: /setraidduration <seconds>")
-    try:
-        duration = int(m.command[1])
-        if duration < 10 or duration > 300:
-            return await m.reply_text("❌ ᴅᴜʀᴀᴛɪᴏɴ ᴍᴜsᴛ ʙᴇ ʙᴇᴛᴡᴇᴇɴ 10-300 sᴇᴄᴏɴᴅs")
-        await db_mgr.update_config(duration=duration)
-        await m.reply_text(f"✅ ᴅᴜʀᴀᴛɪᴏɴ sᴇᴛ ᴛᴏ: <code>{duration}</code> sᴇᴄᴏɴᴅs")
-    except ValueError:
-        await m.reply_text("❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇ")
-
-@shivuu.on_message(filters.command("raidsettings") & filters.user(OWNER_IDS))
-async def show_settings(_, m: Message):
-    config = await db_mgr.get_config()
-    rarity_names = [RARITY_DISPLAY.get(r, f"R{r}") for r in config.rarities]
-    
-    text = (
-        f"<blockquote>🌐 <b>ɢʟᴏʙᴀʟ ʀᴀɪᴅ sᴇᴛᴛɪɴɢs</b></blockquote>\n\n"
-        f"<b>⚙️ ʙᴀsɪᴄ sᴇᴛᴛɪɴɢs:</b>\n"
-        f"💰 ᴄʜᴀʀɢᴇ: <code>{config.charge}</code> ᴄᴏɪɴs\n"
-        f"⏱ ᴅᴜʀᴀᴛɪᴏɴ: <code>{config.duration}</code> sᴇᴄᴏɴᴅs\n"
-        f"⏳ ᴄᴏᴏʟᴅᴏᴡɴ: <code>{config.cooldown}</code> ᴍɪɴᴜᴛᴇs\n\n"
-        f"<b>💎 ʀᴇᴡᴀʀᴅ ʀᴀɴɢᴇs:</b>\n"
-        f"💰 ᴄᴏɪɴs: <code>{config.coin_min}</code> - <code>{config.coin_max}</code>\n"
-        f"💀 ʟᴏss: <code>{config.loss_min}</code> - <code>{config.loss_max}</code>\n\n"
-        f"<b>🎲 ᴘʀᴏʙᴀʙɪʟɪᴛɪᴇs:</b>\n"
-        f"🎴 ᴄʜᴀʀᴀᴄᴛᴇʀ: <code>{config.char_chance}%</code>\n"
-        f"💰 ᴄᴏɪɴs: <code>{config.coin_chance}%</code>\n"
-        f"💀 ʟᴏss: <code>{config.loss_chance}%</code>\n"
-        f"❌ ɴᴏᴛʜɪɴɢ: <code>{config.nothing_chance}%</code>\n"
-        f"💥 ᴄʀɪᴛɪᴄᴀʟ: <code>{config.crit_chance}%</code>\n\n"
-        f"<b>✨ ᴀᴠᴀɪʟᴀʙʟᴇ ʀᴀʀɪᴛɪᴇs:</b> <code>{len(rarity_names)}</code>\n"
-    )
-    
-    for i, rarity in enumerate(rarity_names[:10], 1):
-        text += f"{i}. {rarity}\n"
-    
-    if len(rarity_names) > 10:
-        text += f"<i>... ᴀɴᴅ {len(rarity_names) - 10} ᴍᴏʀᴇ</i>\n"
-    
-    text += f"\n<i>ᴘᴏᴡᴇʀᴇᴅ ʙʏ</i> <a href='https://t.me/siyaprobot'>sɪʏᴀ</a>"
-    
-    await m.reply_text(text, disable_web_page_preview=True)
-
-@shivuu.on_message(filters.command("resetraidsettings") & filters.user(OWNER_IDS))
-async def reset_settings(_, m: Message):
-    await db_mgr.update_config(**asdict(RaidConfig()))
-    await m.reply_text("✅ ʀᴀɪᴅ sᴇᴛᴛɪɴɢs ʀᴇsᴇᴛ ᴛᴏ ᴅᴇғᴀᴜʟᴛ")
-
-@shivuu.on_message(filters.command("raidhelp"))
-async def raid_help(_, m: Message):
-    text = (
-        f"<blockquote>⚔️ <b>ʀᴀɪᴅ sʏsᴛᴇᴍ ʜᴇʟᴘ</b></blockquote>\n\n"
-        f"<b>👥 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs:</b>\n"
-        f"• /raid - sᴛᴀʀᴛ ᴀ ɴᴇᴡ ʀᴀɪᴅ\n"
-        f"• /raidhelp - sʜᴏᴡ ᴛʜɪs ʜᴇʟᴘ\n\n"
-        f"<b>🎮 ʜᴏᴡ ᴛᴏ ᴘʟᴀʏ:</b>\n"
-        f"1️⃣ sᴛᴀʀᴛ ᴀ ʀᴀɪᴅ ᴡɪᴛʜ /raid\n"
-        f"2️⃣ ᴏᴛʜᴇʀs ᴄᴀɴ ᴊᴏɪɴ ʙʏ ᴄʟɪᴄᴋɪɴɢ ᴛʜᴇ ʙᴜᴛᴛᴏɴ\n"
-        f"3️⃣ ᴡᴀɪᴛ ғᴏʀ ᴛʜᴇ ʀᴀɪᴅ ᴛᴏ ᴇɴᴅ\n"
-        f"4️⃣ ɢᴇᴛ ʏᴏᴜʀ ʀᴇᴡᴀʀᴅs!\n\n"
-        f"<b>🎁 ᴘᴏssɪʙʟᴇ ʀᴇᴡᴀʀᴅs:</b>\n"
-        f"💥 ᴄʀɪᴛɪᴄᴀʟ - ᴄʜᴀʀᴀᴄᴛᴇʀ + ᴄᴏɪɴs\n"
-        f"🎴 ᴄʜᴀʀᴀᴄᴛᴇʀ - ʀᴀɴᴅᴏᴍ ᴄʜᴀʀᴀᴄᴛᴇʀ\n"
-        f"💰 ᴄᴏɪɴs - ʀᴀɴᴅᴏᴍ ᴀᴍᴏᴜɴᴛ\n"
-        f"💀 ʟᴏss - ʟᴏsᴇ sᴏᴍᴇ ᴄᴏɪɴs\n"
-        f"❌ ɴᴏᴛʜɪɴɢ - ɴᴏ ʀᴇᴡᴀʀᴅ\n"
-    )
-    
-    if m.from_user.id in OWNER_IDS:
-        text += (
-            f"\n<b>👑 ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:</b>\n"
-            f"• /raidsettings - ᴠɪᴇᴡ sᴇᴛᴛɪɴɢs\n"
-            f"• /setraidcharge <amount>\n"
-            f"• /setraidcooldown <minutes>\n"
-            f"• /setraidduration <seconds>\n"
-            f"• /setraidrarities <1,2,3...>\n"
-            f"• /setraidchances <char> <coin> <loss> <nothing> <crit>\n"
-            f"• /setraidcoins <min> <max>\n"
-            f"• /setraidloss <min> <max>\n"
-            f"• /resetraidsettings\n"
-        )
-    
-    text += f"\n<i>ᴘᴏᴡᴇʀᴇᴅ ʙʏ</i> <a href='https://t.me/siyaprobot'>sɪʏᴀ</a>"
-    
-    await m.reply_text(text, disable_web_page_preview=True)
