@@ -189,6 +189,14 @@ async def ai_image_command(client: Client, message: Message):
                     return
                 img_data = await resp.read()
         
+        # Save to temporary file
+        import tempfile
+        import os
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+            tmp_file.write(img_data)
+            tmp_path = tmp_file.name
+        
         model_name = MODELS.get(settings.get("model", "flux"), "Flux")
         caption = (
             f"🎨 **Prompt:** `{escape(prompt)}`\n"
@@ -202,17 +210,23 @@ async def ai_image_command(client: Client, message: Message):
             # Send to user privately
             await client.send_photo(
                 chat_id=user_id,
-                photo=img_data,
+                photo=tmp_path,
                 caption=caption
             )
             await status_msg.edit("✅ Image sent to your private chat!")
         else:
             # Send to current chat
             await message.reply_photo(
-                photo=img_data,
+                photo=tmp_path,
                 caption=caption
             )
             await status_msg.delete()
+        
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
             
     except Exception as e:
         await status_msg.edit(f"❌ Error: {str(e)}")
