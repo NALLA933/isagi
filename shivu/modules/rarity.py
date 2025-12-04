@@ -37,7 +37,7 @@ DEFAULT_RARITIES = {
     '👼': {'name': 'Tiny', 'enabled': True, 'chance': 0.1},
 }
 
-OWNER_ID = [8420981179, 5147822244, 6863917190]
+OWNER_ID = 6863917190
 
 EMOJI_TO_NAME = {
     '🟢': 'common', '🟣': 'rare', '🟡': 'legendary', '💮': 'special',
