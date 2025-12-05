@@ -1,4 +1,4 @@
-""" v3 using siya method """
+""" v3 using siya method with image quality enhancement """
 
 import io
 import asyncio
@@ -18,6 +18,7 @@ from telegram import Update, InputFile, Message
 from telegram.ext import CommandHandler, ContextTypes
 from telegram.error import TelegramError, NetworkError, TimedOut
 from motor.motor_asyncio import AsyncIOMotorCollection
+from PIL import Image, ImageEnhance, ImageFilter
 
 from shivu import application, collection, db, CHARA_CHANNEL_ID, SUPPORT_CHAT, sudo_users
 
@@ -101,6 +102,153 @@ class Config:
     CONNECTION_LIMIT: int = 100
     CATBOX_API: str = "https://catbox.moe/user/api.php"
     ALLOWED_EXTENSIONS: tuple = ('.jpg', '.jpeg', '.png', '.gif', '.mp4', '.avi', '.mov', '.mkv', '.webm')
+    
+    # Image enhancement settings
+    ENHANCE_IMAGES: bool = True
+    ENHANCE_SHARPNESS: float = 1.3  # 1.0 = no change, >1.0 = sharper
+    ENHANCE_CONTRAST: float = 1.15  # 1.0 = no change, >1.0 = more contrast
+    ENHANCE_COLOR: float = 1.1  # 1.0 = no change, >1.0 = more vibrant
+    ENHANCE_BRIGHTNESS: float = 1.05  # 1.0 = no change, >1.0 = brighter
+    JPEG_QUALITY: int = 95  # Quality for JPEG compression (1-100)
+    PNG_OPTIMIZE: bool = True  # Optimize PNG files
+    MAX_IMAGE_DIMENSION: int = 4096  # Max width/height before resizing
+
+
+class ImageEnhancer:
+    """Handles image quality enhancement operations"""
+    
+    @staticmethod
+    def enhance_image(image_bytes: bytes, filename: str) -> Tuple[bytes, bool]:
+        """
+        Enhance image quality with sharpening, contrast, and color adjustments
+        Returns: (enhanced_bytes, was_enhanced)
+        """
+        try:
+            # Open image
+            img = Image.open(io.BytesIO(image_bytes))
+            
+            # Convert RGBA to RGB if necessary (for JPEG)
+            if img.mode == 'RGBA':
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[3])
+                img = background
+            elif img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            
+            original_format = img.format or 'JPEG'
+            
+            # Resize if too large
+            img = ImageEnhancer._resize_if_needed(img)
+            
+            # Apply enhancements
+            img = ImageEnhancer._apply_sharpness(img)
+            img = ImageEnhancer._apply_contrast(img)
+            img = ImageEnhancer._apply_color(img)
+            img = ImageEnhancer._apply_brightness(img)
+            
+            # Apply subtle unsharp mask for extra clarity
+            img = ImageEnhancer._apply_unsharp_mask(img)
+            
+            # Save enhanced image
+            output = io.BytesIO()
+            save_format = 'PNG' if filename.lower().endswith('.png') else 'JPEG'
+            
+            if save_format == 'JPEG':
+                img.save(
+                    output,
+                    format='JPEG',
+                    quality=Config.JPEG_QUALITY,
+                    optimize=True,
+                    progressive=True
+                )
+            else:
+                img.save(
+                    output,
+                    format='PNG',
+                    optimize=Config.PNG_OPTIMIZE,
+                    compress_level=6
+                )
+            
+            enhanced_bytes = output.getvalue()
+            return enhanced_bytes, True
+            
+        except Exception as e:
+            print(f"Image enhancement failed: {type(e).__name__}: {e}")
+            return image_bytes, False
+    
+    @staticmethod
+    def _resize_if_needed(img: Image.Image) -> Image.Image:
+        """Resize image if dimensions exceed maximum"""
+        max_dim = Config.MAX_IMAGE_DIMENSION
+        width, height = img.size
+        
+        if width <= max_dim and height <= max_dim:
+            return img
+        
+        # Calculate new dimensions maintaining aspect ratio
+        if width > height:
+            new_width = max_dim
+            new_height = int((max_dim / width) * height)
+        else:
+            new_height = max_dim
+            new_width = int((max_dim / height) * width)
+        
+        return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    @staticmethod
+    def _apply_sharpness(img: Image.Image) -> Image.Image:
+        """Enhance image sharpness"""
+        if Config.ENHANCE_SHARPNESS != 1.0:
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(Config.ENHANCE_SHARPNESS)
+        return img
+    
+    @staticmethod
+    def _apply_contrast(img: Image.Image) -> Image.Image:
+        """Enhance image contrast"""
+        if Config.ENHANCE_CONTRAST != 1.0:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(Config.ENHANCE_CONTRAST)
+        return img
+    
+    @staticmethod
+    def _apply_color(img: Image.Image) -> Image.Image:
+        """Enhance color vibrancy"""
+        if Config.ENHANCE_COLOR != 1.0:
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(Config.ENHANCE_COLOR)
+        return img
+    
+    @staticmethod
+    def _apply_brightness(img: Image.Image) -> Image.Image:
+        """Enhance brightness"""
+        if Config.ENHANCE_BRIGHTNESS != 1.0:
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(Config.ENHANCE_BRIGHTNESS)
+        return img
+    
+    @staticmethod
+    def _apply_unsharp_mask(img: Image.Image) -> Image.Image:
+        """Apply unsharp mask for extra sharpness"""
+        try:
+            return img.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
+        except Exception:
+            return img
+    
+    @staticmethod
+    def should_enhance(media_type: MediaType, mime_type: str) -> bool:
+        """Check if file should be enhanced"""
+        if not Config.ENHANCE_IMAGES:
+            return False
+        
+        if media_type != MediaType.IMAGE:
+            return False
+        
+        # Don't enhance GIFs or animations
+        if mime_type and 'gif' in mime_type.lower():
+            return False
+        
+        return True
 
 
 @dataclass
@@ -112,6 +260,7 @@ class MediaFile:
     mime_type: Optional[str] = None
     size: int = 0
     hash: str = field(default="")
+    was_enhanced: bool = False
 
     def __post_init__(self):
         if not self.filename:
@@ -168,6 +317,25 @@ class MediaFile:
     @property
     def is_valid_size(self) -> bool:
         return self.size <= Config.MAX_FILE_SIZE
+    
+    def enhance_if_applicable(self) -> None:
+        """Enhance image quality if applicable"""
+        if not self.file_bytes:
+            return
+        
+        if not ImageEnhancer.should_enhance(self.media_type, self.mime_type):
+            return
+        
+        enhanced_bytes, was_enhanced = ImageEnhancer.enhance_image(
+            self.file_bytes,
+            self.filename
+        )
+        
+        if was_enhanced:
+            object.__setattr__(self, 'file_bytes', enhanced_bytes)
+            object.__setattr__(self, 'size', len(enhanced_bytes))
+            object.__setattr__(self, 'hash', hashlib.sha256(enhanced_bytes).hexdigest())
+            object.__setattr__(self, 'was_enhanced', True)
 
 
 @dataclass
@@ -198,6 +366,7 @@ class Character:
             'file_unique_id': self.file_unique_id,
             'media_type': self.media_file.media_type.value,
             'file_hash': self.media_file.hash,
+            'was_enhanced': self.media_file.was_enhanced,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }
@@ -212,11 +381,13 @@ class Character:
         
         action = "𝑼𝒑𝒅𝒂𝒕𝒆𝒅" if is_update else "𝑴𝒂𝒅𝒆"
         
+        quality_badge = " ✨ Enhanced" if self.media_file.was_enhanced else ""
+        
         return (
             f'<b>{self.character_id}:</b> {self.name}\n'
             f'<b>{self.anime}</b>\n'
             f'<b>{self.rarity.emoji} 𝙍𝘼𝙍𝙄𝙏𝙔:</b> {self.rarity.display_name[2:]}\n'
-            f'<b>Type:</b> {media_type}\n\n'
+            f'<b>Type:</b> {media_type}{quality_badge}\n\n'
             f'{action} 𝑩𝒚 ➥ <a href="tg://user?id={self.uploader_id}">{self.uploader_name}</a>'
         )
 
@@ -495,10 +666,12 @@ class TelegramUploader:
         TelegramUploader._update_character_from_message(character, message)
         await collection.insert_one(character.to_dict())
         
+        enhanced_note = " (✨ Quality Enhanced)" if character.media_file.was_enhanced else ""
+        
         return UploadResult(
             success=True,
             message=(
-                f'✅ Character added successfully!\n'
+                f'✅ Character added successfully!{enhanced_note}\n'
                 f'🆔 ID: {character.character_id}\n'
                 f'📁 Type: {character.media_file.media_type.value.title()}\n'
                 f'💾 Size: {character.media_file.size / 1024:.2f} KB'
@@ -748,6 +921,11 @@ class CharacterUploadHandler:
             )
             return
         
+        # Enhance image quality if applicable
+        if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
+            await processing_msg.edit_text('✨ Enhancing image quality...')
+            media_file.enhance_if_applicable()
+        
         progress = ProgressTracker(processing_msg)
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
         
@@ -865,6 +1043,11 @@ class CharacterUploadHandler:
                 f'❌ File exceeds {Config.MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit!'
             )
             return
+        
+        # Enhance image quality if applicable
+        if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
+            await processing_msg.edit_text('✨ Enhancing image quality...')
+            media_file.enhance_if_applicable()
         
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
         
@@ -1063,10 +1246,17 @@ class CharacterUpdateHandler:
                 await processing_msg.edit_text('❌ File size exceeds limit.')
                 return None
             
+            # Enhance image quality if applicable
+            was_enhanced = False
+            if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
+                await processing_msg.edit_text('✨ Enhancing image quality...')
+                media_file.enhance_if_applicable()
+                was_enhanced = media_file.was_enhanced
+            
             await processing_msg.edit_text('⏳ Uploading to Catbox...')
             
             catbox_url = await CatboxUploader.upload_with_progress(
-                file_bytes,
+                media_file.file_bytes,
                 media_file.filename,
                 progress.update
             )
@@ -1075,13 +1265,15 @@ class CharacterUpdateHandler:
                 await processing_msg.edit_text('❌ Catbox upload failed.')
                 return None
             
-            await processing_msg.edit_text('✅ Re-uploaded to Catbox!')
+            enhanced_note = " (✨ Enhanced)" if was_enhanced else ""
+            await processing_msg.edit_text(f'✅ Re-uploaded to Catbox!{enhanced_note}')
             
             return {
                 'img_url': catbox_url,
                 'is_video': media_file.is_video,
                 'media_type': media_file.media_type.value,
-                'file_hash': media_file.hash
+                'file_hash': media_file.hash,
+                'was_enhanced': was_enhanced
             }
         
         return None
@@ -1101,6 +1293,7 @@ class CharacterUpdateHandler:
         
         is_video_file = character_data.get('is_video', False)
         media_type = character_data.get('media_type', 'image')
+        was_enhanced = character_data.get('was_enhanced', False)
         
         media_type_display = {
             'video': '🎥 Video',
@@ -1109,6 +1302,8 @@ class CharacterUpdateHandler:
             'document': '📄 Document'
         }.get(media_type, '🖼 Image')
         
+        quality_badge = " ✨ Enhanced" if was_enhanced else ""
+        
         rarity_text = character_data['rarity']
         emoji = rarity_text.split()[0]
         
@@ -1116,7 +1311,7 @@ class CharacterUpdateHandler:
             f'<b>{character_data["id"]}:</b> {character_data["name"]}\n'
             f'<b>{character_data["anime"]}</b>\n'
             f'<b>{emoji} 𝙍𝘼𝙍𝙄𝙏𝙔:</b> {rarity_text[2:]}\n'
-            f'<b>Type:</b> {media_type_display}\n\n'
+            f'<b>Type:</b> {media_type_display}{quality_badge}\n\n'
             f'𝑼𝒑𝒅𝒂𝒕𝒆𝒅 𝑩𝒚 ➥ <a href="tg://user?id={user.id}">{user.first_name}</a>'
         )
         
