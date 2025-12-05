@@ -3,14 +3,11 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple
 from cachetools import TTLCache
 
-from pyrogram import Client, filters
-from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.constants import ParseMode
 
-from shivu import shivuu as app
-from shivu import db
-
-collection = db['anime_characters_lol']
-user_collection = db['user_collection_lmaoooo']
+from shivu import application, collection, user_collection
 
 character_cache = TTLCache(maxsize=2000, ttl=600)
 anime_cache = TTLCache(maxsize=1000, ttl=900)
@@ -18,6 +15,7 @@ user_cache = TTLCache(maxsize=500, ttl=300)
 
 USERS_PER_PAGE = 10
 MAX_RESULTS_DISPLAY = 20
+
 
 @dataclass
 class CharacterData:
@@ -39,6 +37,7 @@ class CharacterData:
             is_video=data.get('is_video', False)
         )
 
+
 @dataclass
 class UserOwnership:
     id: int
@@ -56,6 +55,7 @@ class UserOwnership:
             count=count
         )
 
+
 @dataclass
 class RarityInfo:
     emoji: str
@@ -71,6 +71,7 @@ class RarityInfo:
             )
         return RarityInfo(emoji='🟢', text='Common')
 
+
 @dataclass
 class SearchResult:
     characters: List[Dict]
@@ -79,6 +80,7 @@ class SearchResult:
     name_counts: Dict[str, int]
     char_data: Dict[str, Dict]
     rarity_breakdown: Dict[str, int] = field(default_factory=dict)
+
 
 class CharacterRepository:
     @staticmethod
@@ -137,6 +139,7 @@ class CharacterRepository:
         except:
             return 0
 
+
 class UserRepository:
     @staticmethod
     async def get_owners(character_id: str) -> List[UserOwnership]:
@@ -163,6 +166,7 @@ class UserRepository:
         except:
             return []
 
+
 class SearchProcessor:
     @staticmethod
     def process_search_results(characters: List[Dict]) -> SearchResult:
@@ -188,6 +192,7 @@ class SearchProcessor:
             char_data=char_data,
             rarity_breakdown=rarity_breakdown
         )
+
 
 class CardFormatter:
     @staticmethod
@@ -315,6 +320,7 @@ class CardFormatter:
         response += "<b>━━━━━━━━━━━━━━━━━</b>\n<i>ᴜsᴇ /check [id] ғᴏʀ ᴍᴏʀᴇ ᴅᴇᴛᴀɪʟs</i>"
         return response
 
+
 class KeyboardBuilder:
     @staticmethod
     def build_pagination(
@@ -349,132 +355,153 @@ class KeyboardBuilder:
         
         return InlineKeyboardMarkup(keyboard)
 
+
 class MediaSender:
     @staticmethod
     async def send(
-        message: Message,
+        update: Update,
         character: CharacterData,
         caption: str,
         keyboard: InlineKeyboardMarkup
     ) -> None:
         if character.is_video:
-            await message.reply_video(
+            await update.message.reply_video(
                 video=character.img_url,
                 caption=caption,
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
             )
         else:
-            await message.reply_photo(
+            await update.message.reply_photo(
                 photo=character.img_url,
                 caption=caption,
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
             )
 
-@app.on_message(filters.command(["check"]))
-async def check_character(client: Client, message: Message):
+
+async def check_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        if len(message.command) < 2:
-            return await message.reply_text(
+        if len(context.args) < 1:
+            return await update.message.reply_text(
                 "<b>ɪɴᴄᴏʀʀᴇᴄᴛ ғᴏʀᴍᴀᴛ</b>\n\n"
                 "ᴜsᴀɢᴇ: <code>/check character_id</code>\n"
-                "ᴇxᴀᴍᴘʟᴇ: <code>/check 01</code>"
+                "ᴇxᴀᴍᴘʟᴇ: <code>/check 01</code>",
+                parse_mode=ParseMode.HTML
             )
 
-        character_id = message.command[1]
+        character_id = context.args[0]
         character = await CharacterRepository.get_by_id(character_id)
 
         if not character:
-            return await message.reply_text(
+            return await update.message.reply_text(
                 f"<b>❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b>\n\n"
-                f"ɪᴅ <code>{character_id}</code> ᴅᴏᴇs ɴᴏᴛ ᴇxɪsᴛ"
+                f"ɪᴅ <code>{character_id}</code> ᴅᴏᴇs ɴᴏᴛ ᴇxɪsᴛ",
+                parse_mode=ParseMode.HTML
             )
 
         global_count = await CharacterRepository.get_global_count(character_id)
         caption = CardFormatter.format_basic_card(character, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, 0, 1)
 
-        await MediaSender.send(message, character, caption, keyboard)
+        await MediaSender.send(update, character, caption, keyboard)
 
     except Exception as e:
         print(f"Error in check_character: {e}")
-        await message.reply_text(f"<b>❌ ᴇʀʀᴏʀ</b>\n{escape(str(e))}")
+        await update.message.reply_text(
+            f"<b>❌ ᴇʀʀᴏʀ</b>\n{escape(str(e))}",
+            parse_mode=ParseMode.HTML
+        )
 
-@app.on_message(filters.command(["find"]))
-async def find_character(client: Client, message: Message):
+
+async def find_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        if len(message.command) < 2:
-            return await message.reply_text(
+        if len(context.args) < 1:
+            return await update.message.reply_text(
                 "<b>ᴜsᴀɢᴇ</b> <code>/find name</code>\n"
-                "ᴇxᴀᴍᴘʟᴇ: <code>/find naruto</code>"
+                "ᴇxᴀᴍᴘʟᴇ: <code>/find naruto</code>",
+                parse_mode=ParseMode.HTML
             )
 
-        char_name = ' '.join(message.command[1:])
+        char_name = ' '.join(context.args)
         characters = await CharacterRepository.find_by_name(char_name)
 
         if not characters:
-            return await message.reply_text(
-                f"<b>❌ ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ɴᴀᴍᴇ</b> <code>{escape(char_name)}</code>"
+            return await update.message.reply_text(
+                f"<b>❌ ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ɴᴀᴍᴇ</b> <code>{escape(char_name)}</code>",
+                parse_mode=ParseMode.HTML
             )
 
         result = SearchProcessor.process_search_results(characters)
         response = CardFormatter.format_search_results(char_name, result)
         response = await CardFormatter.append_character_list(response, result)
 
-        await message.reply_text(response)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
 
     except Exception as e:
         print(f"Error in find_character: {e}")
-        await message.reply_text(f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}")
+        await update.message.reply_text(
+            f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}",
+            parse_mode=ParseMode.HTML
+        )
 
-@app.on_message(filters.command(["anime"]))
-async def find_anime(client: Client, message: Message):
+
+async def find_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        if len(message.command) < 2:
-            return await message.reply_text(
+        if len(context.args) < 1:
+            return await update.message.reply_text(
                 "<b>ᴜsᴀɢᴇ</b> <code>/anime anime_name</code>\n"
-                "ᴇxᴀᴍᴘʟᴇ: <code>/anime naruto</code>"
+                "ᴇxᴀᴍᴘʟᴇ: <code>/anime naruto</code>",
+                parse_mode=ParseMode.HTML
             )
 
-        anime_name = " ".join(message.command[1:])
+        anime_name = " ".join(context.args)
         characters = await CharacterRepository.find_by_anime(anime_name)
         
         if not characters:
-            return await message.reply_text(
-                f"<b>❌ ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ғʀᴏᴍ ᴀɴɪᴍᴇ</b> <code>{escape(anime_name)}</code>"
+            return await update.message.reply_text(
+                f"<b>❌ ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ғʀᴏᴍ ᴀɴɪᴍᴇ</b> <code>{escape(anime_name)}</code>",
+                parse_mode=ParseMode.HTML
             )
 
         result = SearchProcessor.process_search_results(characters)
         response = CardFormatter.format_anime_results(anime_name, result)
         response = await CardFormatter.append_character_list(response, result)
 
-        await message.reply_text(response)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
 
     except Exception as e:
         print(f"Error in find_anime: {e}")
-        await message.reply_text(f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}")
+        await update.message.reply_text(
+            f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}",
+            parse_mode=ParseMode.HTML
+        )
 
-@app.on_message(filters.command(["pfind"]))
-async def find_users_with_character(client: Client, message: Message):
+
+async def find_users_with_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        if len(message.command) < 2:
-            return await message.reply_text(
+        if len(context.args) < 1:
+            return await update.message.reply_text(
                 "<b>ᴜsᴀɢᴇ</b> <code>/pfind character_id</code>\n"
-                "ᴇxᴀᴍᴘʟᴇ: <code>/pfind 01</code>"
+                "ᴇxᴀᴍᴘʟᴇ: <code>/pfind 01</code>",
+                parse_mode=ParseMode.HTML
             )
 
-        character_id = message.command[1]
+        character_id = context.args[0]
         character = await CharacterRepository.get_by_id(character_id)
 
         if not character:
-            return await message.reply_text(
-                f"<b>❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b> <code>{character_id}</code>"
+            return await update.message.reply_text(
+                f"<b>❌ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ</b> <code>{character_id}</code>",
+                parse_mode=ParseMode.HTML
             )
 
         owners = await UserRepository.get_owners(character_id)
 
         if not owners:
-            return await message.reply_text(
-                f"<b>ɴᴏ ᴜsᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ᴄʜᴀʀᴀᴄᴛᴇʀ</b> <code>{character_id}</code>"
+            return await update.message.reply_text(
+                f"<b>ɴᴏ ᴜsᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ᴄʜᴀʀᴀᴄᴛᴇʀ</b> <code>{character_id}</code>",
+                parse_mode=ParseMode.HTML
             )
 
         global_count = await CharacterRepository.get_global_count(character_id)
@@ -483,14 +510,18 @@ async def find_users_with_character(client: Client, message: Message):
         caption = CardFormatter.format_owners_card(character, owners, 0, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, 0, total_pages, show_back=True)
 
-        await MediaSender.send(message, character, caption, keyboard)
+        await MediaSender.send(update, character, caption, keyboard)
 
     except Exception as e:
         print(f"Error in pfind: {e}")
-        await message.reply_text(f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}")
+        await update.message.reply_text(
+            f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}",
+            parse_mode=ParseMode.HTML
+        )
 
-@app.on_callback_query(filters.regex(r"^owners_"))
-async def handle_owners_pagination(client: Client, query: CallbackQuery):
+
+async def handle_owners_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
     await query.answer()
 
     try:
@@ -512,14 +543,19 @@ async def handle_owners_pagination(client: Client, query: CallbackQuery):
         caption = CardFormatter.format_owners_card(character, owners, page, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, page, total_pages, show_back=True)
 
-        await query.edit_message_caption(caption=caption, reply_markup=keyboard)
+        await query.edit_message_caption(
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
+        )
 
     except Exception as e:
         print(f"Error in pagination: {e}")
         await query.answer("ᴇʀʀᴏʀ", show_alert=True)
 
-@app.on_callback_query(filters.regex(r"^back_"))
-async def handle_back_to_card(client: Client, query: CallbackQuery):
+
+async def handle_back_to_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
     await query.answer()
 
     try:
@@ -533,8 +569,20 @@ async def handle_back_to_card(client: Client, query: CallbackQuery):
         caption = CardFormatter.format_basic_card(character, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, 0, 1)
 
-        await query.edit_message_caption(caption=caption, reply_markup=keyboard)
+        await query.edit_message_caption(
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
+        )
 
     except Exception as e:
         print(f"Error going back: {e}")
         await query.answer("ᴇʀʀᴏʀ", show_alert=True)
+
+
+application.add_handler(CommandHandler("check", check_character, block=False))
+application.add_handler(CommandHandler("find", find_character, block=False))
+application.add_handler(CommandHandler("anime", find_anime, block=False))
+application.add_handler(CommandHandler("pfind", find_users_with_character, block=False))
+application.add_handler(CallbackQueryHandler(handle_owners_pagination, pattern=r"^owners_", block=False))
+application.add_handler(CallbackQueryHandler(handle_back_to_card, pattern=r"^back_", block=False))
