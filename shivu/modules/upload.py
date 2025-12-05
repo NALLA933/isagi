@@ -1,9 +1,10 @@
-""" v3 using siya method with image quality enhancement """
+""" v3 with AI-powered image enhancement """
 
 import io
 import asyncio
 import hashlib
-from dataclasses import dataclass, field, asdict
+import base64
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple, Dict, List, Union, Any
 from pathlib import Path
@@ -18,7 +19,7 @@ from telegram import Update, InputFile, Message
 from telegram.ext import CommandHandler, ContextTypes
 from telegram.error import TelegramError, NetworkError, TimedOut
 from motor.motor_asyncio import AsyncIOMotorCollection
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageStat
 
 from shivu import application, collection, db, CHARA_CHANNEL_ID, SUPPORT_CHAT, sudo_users
 
@@ -103,78 +104,392 @@ class Config:
     CATBOX_API: str = "https://catbox.moe/user/api.php"
     ALLOWED_EXTENSIONS: tuple = ('.jpg', '.jpeg', '.png', '.gif', '.mp4', '.avi', '.mov', '.mkv', '.webm')
     
-    # Image enhancement settings
-    ENHANCE_IMAGES: bool = True
-    ENHANCE_SHARPNESS: float = 1.3  # 1.0 = no change, >1.0 = sharper
-    ENHANCE_CONTRAST: float = 1.15  # 1.0 = no change, >1.0 = more contrast
-    ENHANCE_COLOR: float = 1.1  # 1.0 = no change, >1.0 = more vibrant
-    ENHANCE_BRIGHTNESS: float = 1.05  # 1.0 = no change, >1.0 = brighter
-    JPEG_QUALITY: int = 95  # Quality for JPEG compression (1-100)
-    PNG_OPTIMIZE: bool = True  # Optimize PNG files
-    MAX_IMAGE_DIMENSION: int = 4096  # Max width/height before resizing
+    # AI Enhancement settings
+    USE_AI_ENHANCEMENT: bool = True
+    AI_ENHANCEMENT_THRESHOLD: float = 0.6  # Only enhance if quality score < 0.6
+    
+    # API Keys (set these in your environment or config)
+    CLIPDROP_API_KEY: str = ""  # https://clipdrop.co/apis
+    DEEPAI_API_KEY: str = ""    # https://deepai.org/
+    
+    # Fallback enhancement settings
+    ENHANCE_SHARPNESS: float = 1.3
+    ENHANCE_CONTRAST: float = 1.15
+    ENHANCE_COLOR: float = 1.1
+    ENHANCE_BRIGHTNESS: float = 1.05
+    JPEG_QUALITY: int = 95
+    PNG_OPTIMIZE: bool = True
+    MAX_IMAGE_DIMENSION: int = 4096
+
+
+@dataclass
+class ImageQualityMetrics:
+    """Stores image quality analysis metrics"""
+    sharpness_score: float = 0.0
+    contrast_score: float = 0.0
+    brightness_score: float = 0.0
+    color_variance: float = 0.0
+    overall_quality: float = 0.0
+    needs_enhancement: bool = False
+    recommended_enhancements: List[str] = field(default_factory=list)
+    
+    def __str__(self) -> str:
+        return (
+            f"Quality: {self.overall_quality:.2f} | "
+            f"Sharpness: {self.sharpness_score:.2f} | "
+            f"Contrast: {self.contrast_score:.2f}"
+        )
+
+
+class ImageQualityAnalyzer:
+    """Analyzes image quality to determine if enhancement is needed"""
+    
+    @staticmethod
+    def analyze_image(image_bytes: bytes) -> ImageQualityMetrics:
+        """
+        Analyzes image quality and returns metrics
+        """
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            
+            # Convert to RGB if needed
+            if img.mode != 'RGB':
+                if img.mode == 'RGBA':
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[3])
+                    img = background
+                else:
+                    img = img.convert('RGB')
+            
+            metrics = ImageQualityMetrics()
+            
+            # Calculate sharpness (Laplacian variance)
+            metrics.sharpness_score = ImageQualityAnalyzer._calculate_sharpness(img)
+            
+            # Calculate contrast
+            metrics.contrast_score = ImageQualityAnalyzer._calculate_contrast(img)
+            
+            # Calculate brightness
+            metrics.brightness_score = ImageQualityAnalyzer._calculate_brightness(img)
+            
+            # Calculate color variance
+            metrics.color_variance = ImageQualityAnalyzer._calculate_color_variance(img)
+            
+            # Overall quality score (weighted average)
+            metrics.overall_quality = (
+                metrics.sharpness_score * 0.35 +
+                metrics.contrast_score * 0.30 +
+                metrics.brightness_score * 0.20 +
+                metrics.color_variance * 0.15
+            )
+            
+            # Determine if enhancement is needed
+            metrics.needs_enhancement = metrics.overall_quality < Config.AI_ENHANCEMENT_THRESHOLD
+            
+            # Recommend specific enhancements
+            if metrics.sharpness_score < 0.5:
+                metrics.recommended_enhancements.append("sharpness")
+            if metrics.contrast_score < 0.5:
+                metrics.recommended_enhancements.append("contrast")
+            if metrics.brightness_score < 0.4 or metrics.brightness_score > 0.8:
+                metrics.recommended_enhancements.append("brightness")
+            if metrics.color_variance < 0.3:
+                metrics.recommended_enhancements.append("color")
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Quality analysis failed: {e}")
+            # Return default metrics that suggest enhancement
+            return ImageQualityMetrics(
+                overall_quality=0.5,
+                needs_enhancement=True,
+                recommended_enhancements=["general"]
+            )
+    
+    @staticmethod
+    def _calculate_sharpness(img: Image.Image) -> float:
+        """Calculate image sharpness using Laplacian variance"""
+        try:
+            # Convert to grayscale
+            gray = img.convert('L')
+            # Apply Laplacian filter
+            edges = gray.filter(ImageFilter.FIND_EDGES)
+            # Calculate variance
+            stat = ImageStat.Stat(edges)
+            variance = stat.var[0]
+            # Normalize to 0-1 (typical variance range: 0-10000)
+            return min(variance / 10000.0, 1.0)
+        except:
+            return 0.5
+    
+    @staticmethod
+    def _calculate_contrast(img: Image.Image) -> float:
+        """Calculate image contrast"""
+        try:
+            stat = ImageStat.Stat(img.convert('L'))
+            # Standard deviation indicates contrast
+            stddev = stat.stddev[0]
+            # Normalize (typical range: 0-128)
+            return min(stddev / 128.0, 1.0)
+        except:
+            return 0.5
+    
+    @staticmethod
+    def _calculate_brightness(img: Image.Image) -> float:
+        """Calculate image brightness"""
+        try:
+            stat = ImageStat.Stat(img.convert('L'))
+            # Mean brightness (0-255)
+            brightness = stat.mean[0]
+            # Normalize to 0-1
+            return brightness / 255.0
+        except:
+            return 0.5
+    
+    @staticmethod
+    def _calculate_color_variance(img: Image.Image) -> float:
+        """Calculate color variance/saturation"""
+        try:
+            hsv = img.convert('HSV')
+            stat = ImageStat.Stat(hsv)
+            # Saturation channel variance
+            sat_variance = stat.var[1] if len(stat.var) > 1 else 0
+            # Normalize
+            return min(sat_variance / 10000.0, 1.0)
+        except:
+            return 0.5
+
+
+class AIImageEnhancer:
+    """Uses AI APIs to enhance images intelligently"""
+    
+    @staticmethod
+    async def enhance_with_clipdrop(image_bytes: bytes) -> Optional[bytes]:
+        """
+        Enhance image using Clipdrop Image Upscaler API
+        https://clipdrop.co/apis/docs/image-upscaling
+        """
+        if not Config.CLIPDROP_API_KEY:
+            return None
+        
+        try:
+            async with SessionManager.get_session() as session:
+                form = aiohttp.FormData()
+                form.add_field('image_file', image_bytes, 
+                             filename='image.jpg',
+                             content_type='image/jpeg')
+                form.add_field('target_width', '2048')
+                form.add_field('target_height', '2048')
+                
+                headers = {'x-api-key': Config.CLIPDROP_API_KEY}
+                
+                async with session.post(
+                    'https://clipdrop-api.co/image-upscaling/v1/upscale',
+                    data=form,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        print(f"Clipdrop API error: {response.status}")
+                        return None
+        except Exception as e:
+            print(f"Clipdrop enhancement failed: {e}")
+            return None
+    
+    @staticmethod
+    async def enhance_with_deepai(image_bytes: bytes) -> Optional[bytes]:
+        """
+        Enhance image using DeepAI Image Super Resolution
+        https://deepai.org/machine-learning-model/torch-srgan
+        """
+        if not Config.DEEPAI_API_KEY:
+            return None
+        
+        try:
+            async with SessionManager.get_session() as session:
+                form = aiohttp.FormData()
+                form.add_field('image', image_bytes,
+                             filename='image.jpg',
+                             content_type='image/jpeg')
+                
+                headers = {'api-key': Config.DEEPAI_API_KEY}
+                
+                async with session.post(
+                    'https://api.deepai.org/api/torch-srgan',
+                    data=form,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        output_url = result.get('output_url')
+                        
+                        if output_url:
+                            # Download enhanced image
+                            async with session.get(output_url) as img_response:
+                                if img_response.status == 200:
+                                    return await img_response.read()
+                    return None
+        except Exception as e:
+            print(f"DeepAI enhancement failed: {e}")
+            return None
+    
+    @staticmethod
+    async def enhance_with_replicate(image_bytes: bytes) -> Optional[bytes]:
+        """
+        Enhance using Replicate Real-ESRGAN
+        Free alternative using public API
+        """
+        try:
+            # Convert to base64
+            b64_image = base64.b64encode(image_bytes).decode('utf-8')
+            
+            async with SessionManager.get_session() as session:
+                payload = {
+                    "version": "42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
+                    "input": {
+                        "image": f"data:image/jpeg;base64,{b64_image}",
+                        "scale": 2,
+                        "face_enhance": False
+                    }
+                }
+                
+                # This is a simplified example - you'd need proper Replicate API integration
+                # For now, we'll skip this as it requires API token
+                return None
+        except Exception as e:
+            print(f"Replicate enhancement failed: {e}")
+            return None
 
 
 class ImageEnhancer:
-    """Handles image quality enhancement operations"""
+    """Handles intelligent image enhancement with AI and fallback methods"""
     
     @staticmethod
-    def enhance_image(image_bytes: bytes, filename: str) -> Tuple[bytes, bool]:
+    async def enhance_image_smart(
+        image_bytes: bytes, 
+        filename: str,
+        progress_callback=None
+    ) -> Tuple[bytes, bool, str]:
         """
-        Enhance image quality with sharpening, contrast, and color adjustments
-        Returns: (enhanced_bytes, was_enhanced)
+        Intelligently enhance image based on quality analysis
+        Returns: (enhanced_bytes, was_enhanced, enhancement_method)
         """
         try:
-            # Open image
-            img = Image.open(io.BytesIO(image_bytes))
+            # Step 1: Analyze image quality
+            if progress_callback:
+                await progress_callback("🔍 Analyzing image quality...")
             
-            # Convert RGBA to RGB if necessary (for JPEG)
-            if img.mode == 'RGBA':
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[3])
-                img = background
-            elif img.mode not in ('RGB', 'L'):
-                img = img.convert('RGB')
+            metrics = ImageQualityAnalyzer.analyze_image(image_bytes)
+            print(f"Image Quality Metrics: {metrics}")
             
-            original_format = img.format or 'JPEG'
+            # Step 2: If image is already high quality, skip enhancement
+            if not metrics.needs_enhancement and not Config.USE_AI_ENHANCEMENT:
+                return image_bytes, False, "none"
             
-            # Resize if too large
-            img = ImageEnhancer._resize_if_needed(img)
+            # Step 3: Try AI enhancement if quality is low
+            if Config.USE_AI_ENHANCEMENT and metrics.needs_enhancement:
+                # Try Clipdrop first (best quality)
+                if Config.CLIPDROP_API_KEY:
+                    if progress_callback:
+                        await progress_callback("🤖 AI Enhancement (Clipdrop)...")
+                    
+                    enhanced = await AIImageEnhancer.enhance_with_clipdrop(image_bytes)
+                    if enhanced:
+                        return enhanced, True, "ai-clipdrop"
+                
+                # Try DeepAI as fallback
+                if Config.DEEPAI_API_KEY:
+                    if progress_callback:
+                        await progress_callback("🤖 AI Enhancement (DeepAI)...")
+                    
+                    enhanced = await AIImageEnhancer.enhance_with_deepai(image_bytes)
+                    if enhanced:
+                        return enhanced, True, "ai-deepai"
             
-            # Apply enhancements
-            img = ImageEnhancer._apply_sharpness(img)
-            img = ImageEnhancer._apply_contrast(img)
-            img = ImageEnhancer._apply_color(img)
-            img = ImageEnhancer._apply_brightness(img)
+            # Step 4: Fallback to PIL-based enhancement
+            if progress_callback:
+                await progress_callback("✨ Applying standard enhancement...")
             
-            # Apply subtle unsharp mask for extra clarity
-            img = ImageEnhancer._apply_unsharp_mask(img)
-            
-            # Save enhanced image
-            output = io.BytesIO()
-            save_format = 'PNG' if filename.lower().endswith('.png') else 'JPEG'
-            
-            if save_format == 'JPEG':
-                img.save(
-                    output,
-                    format='JPEG',
-                    quality=Config.JPEG_QUALITY,
-                    optimize=True,
-                    progressive=True
-                )
-            else:
-                img.save(
-                    output,
-                    format='PNG',
-                    optimize=Config.PNG_OPTIMIZE,
-                    compress_level=6
-                )
-            
-            enhanced_bytes = output.getvalue()
-            return enhanced_bytes, True
+            enhanced = ImageEnhancer._enhance_with_pil(
+                image_bytes, 
+                filename, 
+                metrics
+            )
+            return enhanced, True, "pil-enhanced"
             
         except Exception as e:
-            print(f"Image enhancement failed: {type(e).__name__}: {e}")
-            return image_bytes, False
+            print(f"Image enhancement failed: {e}")
+            return image_bytes, False, "failed"
+    
+    @staticmethod
+    def _enhance_with_pil(
+        image_bytes: bytes, 
+        filename: str,
+        metrics: ImageQualityMetrics
+    ) -> bytes:
+        """
+        Traditional PIL-based enhancement with adaptive parameters
+        based on quality metrics
+        """
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert RGBA to RGB
+        if img.mode == 'RGBA':
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3])
+            img = background
+        elif img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        
+        # Resize if needed
+        img = ImageEnhancer._resize_if_needed(img)
+        
+        # Adaptive enhancements based on metrics
+        if "sharpness" in metrics.recommended_enhancements:
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(1.4)  # More aggressive
+        elif metrics.sharpness_score < 0.7:
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(Config.ENHANCE_SHARPNESS)
+        
+        if "contrast" in metrics.recommended_enhancements:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.25)
+        elif metrics.contrast_score < 0.7:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(Config.ENHANCE_CONTRAST)
+        
+        if "color" in metrics.recommended_enhancements:
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(1.2)
+        
+        if "brightness" in metrics.recommended_enhancements:
+            if metrics.brightness_score < 0.4:
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(1.15)
+            elif metrics.brightness_score > 0.8:
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(0.95)
+        
+        # Apply unsharp mask for final touch
+        img = img.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
+        
+        # Save with optimal settings
+        output = io.BytesIO()
+        save_format = 'PNG' if filename.lower().endswith('.png') else 'JPEG'
+        
+        if save_format == 'JPEG':
+            img.save(output, format='JPEG', quality=Config.JPEG_QUALITY, 
+                    optimize=True, progressive=True)
+        else:
+            img.save(output, format='PNG', optimize=Config.PNG_OPTIMIZE, 
+                    compress_level=6)
+        
+        return output.getvalue()
     
     @staticmethod
     def _resize_if_needed(img: Image.Image) -> Image.Image:
@@ -185,7 +500,6 @@ class ImageEnhancer:
         if width <= max_dim and height <= max_dim:
             return img
         
-        # Calculate new dimensions maintaining aspect ratio
         if width > height:
             new_width = max_dim
             new_height = int((max_dim / width) * height)
@@ -196,55 +510,11 @@ class ImageEnhancer:
         return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
     @staticmethod
-    def _apply_sharpness(img: Image.Image) -> Image.Image:
-        """Enhance image sharpness"""
-        if Config.ENHANCE_SHARPNESS != 1.0:
-            enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(Config.ENHANCE_SHARPNESS)
-        return img
-    
-    @staticmethod
-    def _apply_contrast(img: Image.Image) -> Image.Image:
-        """Enhance image contrast"""
-        if Config.ENHANCE_CONTRAST != 1.0:
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(Config.ENHANCE_CONTRAST)
-        return img
-    
-    @staticmethod
-    def _apply_color(img: Image.Image) -> Image.Image:
-        """Enhance color vibrancy"""
-        if Config.ENHANCE_COLOR != 1.0:
-            enhancer = ImageEnhance.Color(img)
-            img = enhancer.enhance(Config.ENHANCE_COLOR)
-        return img
-    
-    @staticmethod
-    def _apply_brightness(img: Image.Image) -> Image.Image:
-        """Enhance brightness"""
-        if Config.ENHANCE_BRIGHTNESS != 1.0:
-            enhancer = ImageEnhance.Brightness(img)
-            img = enhancer.enhance(Config.ENHANCE_BRIGHTNESS)
-        return img
-    
-    @staticmethod
-    def _apply_unsharp_mask(img: Image.Image) -> Image.Image:
-        """Apply unsharp mask for extra sharpness"""
-        try:
-            return img.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
-        except Exception:
-            return img
-    
-    @staticmethod
     def should_enhance(media_type: MediaType, mime_type: str) -> bool:
         """Check if file should be enhanced"""
-        if not Config.ENHANCE_IMAGES:
-            return False
-        
         if media_type != MediaType.IMAGE:
             return False
         
-        # Don't enhance GIFs or animations
         if mime_type and 'gif' in mime_type.lower():
             return False
         
@@ -261,6 +531,8 @@ class MediaFile:
     size: int = 0
     hash: str = field(default="")
     was_enhanced: bool = False
+    enhancement_method: str = "none"
+    quality_metrics: Optional[ImageQualityMetrics] = None
 
     def __post_init__(self):
         if not self.filename:
@@ -318,17 +590,18 @@ class MediaFile:
     def is_valid_size(self) -> bool:
         return self.size <= Config.MAX_FILE_SIZE
     
-    def enhance_if_applicable(self) -> None:
-        """Enhance image quality if applicable"""
+    async def enhance_if_applicable(self, progress_callback=None) -> None:
+        """Enhance image quality if applicable using AI"""
         if not self.file_bytes:
             return
         
         if not ImageEnhancer.should_enhance(self.media_type, self.mime_type):
             return
         
-        enhanced_bytes, was_enhanced = ImageEnhancer.enhance_image(
+        enhanced_bytes, was_enhanced, method = await ImageEnhancer.enhance_image_smart(
             self.file_bytes,
-            self.filename
+            self.filename,
+            progress_callback
         )
         
         if was_enhanced:
@@ -336,6 +609,7 @@ class MediaFile:
             object.__setattr__(self, 'size', len(enhanced_bytes))
             object.__setattr__(self, 'hash', hashlib.sha256(enhanced_bytes).hexdigest())
             object.__setattr__(self, 'was_enhanced', True)
+            object.__setattr__(self, 'enhancement_method', method)
 
 
 @dataclass
@@ -367,27 +641,35 @@ class Character:
             'media_type': self.media_file.media_type.value,
             'file_hash': self.media_file.hash,
             'was_enhanced': self.media_file.was_enhanced,
+            'enhancement_method': self.media_file.enhancement_method,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }
 
     def get_caption(self, is_update: bool = False) -> str:
-        media_type = {
+        media_type_icons = {
             MediaType.VIDEO: "🎥 Video",
             MediaType.IMAGE: "🖼 Image",
             MediaType.ANIMATION: "🎬 Animation",
             MediaType.DOCUMENT: "📄 Document"
-        }.get(self.media_file.media_type, "🖼 Image")
+        }
+        media_display = media_type_icons.get(self.media_file.media_type, "🖼 Image")
+        
+        # Enhanced badge based on method
+        quality_badge = ""
+        if self.media_file.was_enhanced:
+            if "ai-" in self.media_file.enhancement_method:
+                quality_badge = " 🤖 AI Enhanced"
+            else:
+                quality_badge = " ✨ Enhanced"
         
         action = "𝑼𝒑𝒅𝒂𝒕𝒆𝒅" if is_update else "𝑴𝒂𝒅𝒆"
-        
-        quality_badge = " ✨ Enhanced" if self.media_file.was_enhanced else ""
         
         return (
             f'<b>{self.character_id}:</b> {self.name}\n'
             f'<b>{self.anime}</b>\n'
             f'<b>{self.rarity.emoji} 𝙍𝘼𝙍𝙄𝙏𝙔:</b> {self.rarity.display_name[2:]}\n'
-            f'<b>Type:</b> {media_type}{quality_badge}\n\n'
+            f'<b>Type:</b> {media_display}{quality_badge}\n\n'
             f'{action} 𝑩𝒚 ➥ <a href="tg://user?id={self.uploader_id}">{self.uploader_name}</a>'
         )
 
@@ -483,16 +765,12 @@ class FileDownloader:
     @staticmethod
     def _get_headers(url: str) -> Dict[str, str]:
         return {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Referer': url,
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'max-age=0'
         }
 
     @staticmethod
@@ -517,7 +795,7 @@ class FileDownloader:
                     
                     total_size += len(chunk)
                     if total_size > Config.MAX_FILE_SIZE:
-                        raise ValueError(f"File size exceeds {Config.MAX_FILE_SIZE} bytes")
+                        raise ValueError(f"File size exceeds limit")
                     
                     chunks.append(chunk)
                 
@@ -666,12 +944,17 @@ class TelegramUploader:
         TelegramUploader._update_character_from_message(character, message)
         await collection.insert_one(character.to_dict())
         
-        enhanced_note = " (✨ Quality Enhanced)" if character.media_file.was_enhanced else ""
+        enhancement_note = ""
+        if character.media_file.was_enhanced:
+            if "ai-" in character.media_file.enhancement_method:
+                enhancement_note = " (🤖 AI Enhanced)"
+            else:
+                enhancement_note = " (✨ Enhanced)"
         
         return UploadResult(
             success=True,
             message=(
-                f'✅ Character added successfully!{enhanced_note}\n'
+                f'✅ Character added successfully!{enhancement_note}\n'
                 f'🆔 ID: {character.character_id}\n'
                 f'📁 Type: {character.media_file.media_type.value.title()}\n'
                 f'💾 Size: {character.media_file.size / 1024:.2f} KB'
@@ -878,6 +1161,13 @@ class ProgressTracker:
         except Exception:
             pass
     
+    async def update_text(self, text: str):
+        """Update with custom text"""
+        try:
+            await self.message.edit_text(text)
+        except Exception:
+            pass
+    
     @staticmethod
     def _create_progress_bar(percent: float, length: int = 10) -> str:
         filled = int(length * percent / 100)
@@ -921,10 +1211,10 @@ class CharacterUploadHandler:
             )
             return
         
-        # Enhance image quality if applicable
+        # Enhance image quality with AI if applicable
         if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
-            await processing_msg.edit_text('✨ Enhancing image quality...')
-            media_file.enhance_if_applicable()
+            progress = ProgressTracker(processing_msg)
+            await media_file.enhance_if_applicable(progress.update_text)
         
         progress = ProgressTracker(processing_msg)
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
@@ -1044,15 +1334,15 @@ class CharacterUploadHandler:
             )
             return
         
-        # Enhance image quality if applicable
+        # Enhance image quality with AI if applicable
         if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
-            await processing_msg.edit_text('✨ Enhancing image quality...')
-            media_file.enhance_if_applicable()
+            progress = ProgressTracker(processing_msg)
+            await media_file.enhance_if_applicable(progress.update_text)
         
         await processing_msg.edit_text('⏳ Uploading to Catbox...')
         
         catbox_url = await CatboxUploader.upload_with_progress(
-            file_bytes,
+            media_file.file_bytes,
             media_file.filename,
             progress.update
         )
@@ -1101,36 +1391,20 @@ class CharacterDeletionHandler:
             await processing_msg.edit_text(f'❌ Character {char_id} not found.')
             return
         
-        deletion_tasks = []
-        
         if character.get('message_id'):
-            deletion_tasks.append(
-                CharacterDeletionHandler._delete_channel_message(
-                    context,
-                    character['message_id']
+            try:
+                await context.bot.delete_message(
+                    chat_id=CHARA_CHANNEL_ID,
+                    message_id=character['message_id']
                 )
-            )
-        
-        await asyncio.gather(*deletion_tasks, return_exceptions=True)
+            except Exception as e:
+                print(f"Channel message deletion failed: {type(e).__name__}")
         
         await processing_msg.edit_text(
             f'✅ Character deleted successfully!\n'
             f'🆔 ID: {char_id}\n'
             f'📝 Name: {character.get("name", "Unknown")}'
         )
-
-    @staticmethod
-    async def _delete_channel_message(
-        context: ContextTypes.DEFAULT_TYPE,
-        message_id: int
-    ) -> None:
-        try:
-            await context.bot.delete_message(
-                chat_id=CHARA_CHANNEL_ID,
-                message_id=message_id
-            )
-        except Exception as e:
-            print(f"Channel message deletion failed: {type(e).__name__}")
 
 
 class CharacterUpdateHandler:
@@ -1246,12 +1520,10 @@ class CharacterUpdateHandler:
                 await processing_msg.edit_text('❌ File size exceeds limit.')
                 return None
             
-            # Enhance image quality if applicable
-            was_enhanced = False
+            # Enhance image quality with AI if applicable
             if ImageEnhancer.should_enhance(media_file.media_type, media_file.mime_type):
-                await processing_msg.edit_text('✨ Enhancing image quality...')
-                media_file.enhance_if_applicable()
-                was_enhanced = media_file.was_enhanced
+                progress = ProgressTracker(processing_msg)
+                await media_file.enhance_if_applicable(progress.update_text)
             
             await processing_msg.edit_text('⏳ Uploading to Catbox...')
             
@@ -1265,15 +1537,21 @@ class CharacterUpdateHandler:
                 await processing_msg.edit_text('❌ Catbox upload failed.')
                 return None
             
-            enhanced_note = " (✨ Enhanced)" if was_enhanced else ""
-            await processing_msg.edit_text(f'✅ Re-uploaded to Catbox!{enhanced_note}')
+            enhancement_note = ""
+            if media_file.was_enhanced:
+                if "ai-" in media_file.enhancement_method:
+                    enhancement_note = " (🤖 AI Enhanced)"
+                else:
+                    enhancement_note = " (✨ Enhanced)"
+            await processing_msg.edit_text(f'✅ Re-uploaded to Catbox!{enhancement_note}')
             
             return {
                 'img_url': catbox_url,
                 'is_video': media_file.is_video,
                 'media_type': media_file.media_type.value,
                 'file_hash': media_file.hash,
-                'was_enhanced': was_enhanced
+                'was_enhanced': media_file.was_enhanced,
+                'enhancement_method': media_file.enhancement_method
             }
         
         return None
@@ -1291,9 +1569,9 @@ class CharacterUpdateHandler:
         if not character_data:
             return
         
-        is_video_file = character_data.get('is_video', False)
         media_type = character_data.get('media_type', 'image')
         was_enhanced = character_data.get('was_enhanced', False)
+        enhancement_method = character_data.get('enhancement_method', 'none')
         
         media_type_display = {
             'video': '🎥 Video',
@@ -1302,7 +1580,12 @@ class CharacterUpdateHandler:
             'document': '📄 Document'
         }.get(media_type, '🖼 Image')
         
-        quality_badge = " ✨ Enhanced" if was_enhanced else ""
+        quality_badge = ""
+        if was_enhanced:
+            if "ai-" in enhancement_method:
+                quality_badge = " 🤖 AI Enhanced"
+            else:
+                quality_badge = " ✨ Enhanced"
         
         rarity_text = character_data['rarity']
         emoji = rarity_text.split()[0]
@@ -1317,11 +1600,43 @@ class CharacterUpdateHandler:
         
         try:
             if field == 'img_url':
-                await CharacterUpdateHandler._replace_channel_media(
-                    character_data,
+                # Delete old message and send new one
+                try:
+                    await context.bot.delete_message(
+                        chat_id=CHARA_CHANNEL_ID,
+                        message_id=character_data['message_id']
+                    )
+                except Exception:
+                    pass
+                
+                new_url = character_data['img_url']
+                media_type_enum = MediaType(media_type)
+                
+                message = await TelegramUploader._send_media_url(
+                    new_url,
+                    media_type_enum,
                     caption,
-                    context,
-                    char_id
+                    context
+                )
+                
+                update_fields = {'message_id': message.message_id}
+                
+                if message.video:
+                    update_fields['file_id'] = message.video.file_id
+                    update_fields['file_unique_id'] = message.video.file_unique_id
+                elif message.photo:
+                    update_fields['file_id'] = message.photo[-1].file_id
+                    update_fields['file_unique_id'] = message.photo[-1].file_unique_id
+                elif message.animation:
+                    update_fields['file_id'] = message.animation.file_id
+                    update_fields['file_unique_id'] = message.animation.file_unique_id
+                elif message.document:
+                    update_fields['file_id'] = message.document.file_id
+                    update_fields['file_unique_id'] = message.document.file_unique_id
+                
+                await collection.find_one_and_update(
+                    {'id': char_id},
+                    {'$set': update_fields}
                 )
             else:
                 await context.bot.edit_message_caption(
@@ -1343,51 +1658,6 @@ class CharacterUpdateHandler:
                 f'Error: {type(e).__name__}'
             )
 
-    @staticmethod
-    async def _replace_channel_media(
-        character_data: Dict,
-        caption: str,
-        context: ContextTypes.DEFAULT_TYPE,
-        char_id: str
-    ) -> None:
-        try:
-            await context.bot.delete_message(
-                chat_id=CHARA_CHANNEL_ID,
-                message_id=character_data['message_id']
-            )
-        except Exception:
-            pass
-        
-        new_url = character_data['img_url']
-        media_type = MediaType(character_data.get('media_type', 'image'))
-        
-        message = await TelegramUploader._send_media_url(
-            new_url,
-            media_type,
-            caption,
-            context
-        )
-        
-        update_fields = {'message_id': message.message_id}
-        
-        if message.video:
-            update_fields['file_id'] = message.video.file_id
-            update_fields['file_unique_id'] = message.video.file_unique_id
-        elif message.photo:
-            update_fields['file_id'] = message.photo[-1].file_id
-            update_fields['file_unique_id'] = message.photo[-1].file_unique_id
-        elif message.animation:
-            update_fields['file_id'] = message.animation.file_id
-            update_fields['file_unique_id'] = message.animation.file_unique_id
-        elif message.document:
-            update_fields['file_id'] = message.document.file_id
-            update_fields['file_unique_id'] = message.document.file_unique_id
-        
-        await collection.find_one_and_update(
-            {'id': char_id},
-            {'$set': update_fields}
-        )
-
 
 def require_sudo(func):
     @wraps(func)
@@ -1406,6 +1676,13 @@ def require_sudo(func):
 
 @require_sudo
 async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Upload character with AI-powered image enhancement
+    
+    Usage:
+    - Reply to image: /upload character-name anime-name rarity
+    - From URL: /upload URL character-name anime-name rarity
+    """
     try:
         if update.message.reply_to_message:
             await CharacterUploadHandler.handle_reply_upload(update, context)
@@ -1423,6 +1700,7 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @require_sudo
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete a character by ID"""
     try:
         await CharacterDeletionHandler.delete_character(update, context)
     except Exception as e:
@@ -1433,6 +1711,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @require_sudo
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Update character fields with AI enhancement for images"""
     try:
         await CharacterUpdateHandler.update_character(update, context)
     except Exception as e:
@@ -1441,6 +1720,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 
+# Register command handlers
 application.add_handler(CommandHandler('upload', upload_command, block=False))
 application.add_handler(CommandHandler('delete', delete_command, block=False))
 application.add_handler(CommandHandler('update', update_command, block=False))
