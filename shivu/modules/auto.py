@@ -1,20 +1,16 @@
 import io
-import base64
-import json
-import re
 import aiohttp
 from PIL import Image
-from pymongo import ReturnDocument
 from telegram import Update, InputFile
 from telegram.ext import MessageHandler, filters, ContextTypes
+from pymongo import ReturnDocument
 
 from shivu import application, db, collection, CHARA_CHANNEL_ID
 
-AUTHORIZED_USER = 5147822244
+AUTHORIZED = 5147822244  # your ID
 
 
-# ---------------------------- RARITY ----------------------------
-
+# ---------------- RARITY ----------------
 def get_rarity(score: float):
     if score >= 0.90: return "🏵 Mythic"
     if score >= 0.80: return "🔮 Premium"
@@ -26,62 +22,37 @@ def get_rarity(score: float):
     return "🟣 Rare"
 
 
-# ---------------------------- CHARACTER IDENTIFY ----------------------------
-
-async def identify_character(img_bytes: bytes):
-    b64 = base64.b64encode(img_bytes).decode()
-
-    prompt = """Identify this anime character. Return ONLY JSON like:
-{"name":"Gojo Satoru", "anime":"Jujutsu Kaisen"}"""
-
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-            ]
-        }],
-        "max_tokens": 300
-    }
-
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                "https://api.shuttleai.app/v1/chat/completions",
-                json=payload,
-                headers={"Authorization": "Bearer shuttle-free-api-key"},
-                timeout=20
-            ) as r:
-                data = await r.json()
-                content = data["choices"][0]["message"]["content"]
-
-                match = re.search(r"\{.*\}", content)
-                return json.loads(match.group()) if match else None
-
-    except:
-        return None
+# ------------ QUALITY SCORE ------------
+def img_quality(img_bytes):
+    img = Image.open(io.BytesIO(img_bytes)).convert("L")
+    w, h = img.size
+    mp = (w * h) / 1_000_000
+    return min(1.0, round(mp / 2, 2))
 
 
-# ---------------------------- QUALITY SCORE ----------------------------
+# --------- FREE ANIME CHARACTER DETECTION ---------
+async def detect_character(img_bytes: bytes):
+    url = "https://api-inference.huggingface.co/models/kadirnar/Anime-Character-Recognition"
 
-def analyze_quality(img_bytes: bytes):
-    try:
-        img = Image.open(io.BytesIO(img_bytes)).convert("L")
-        w, h = img.size
+    async with aiohttp.ClientSession() as s:
+        async with s.post(
+            url,
+            data=img_bytes,
+            timeout=20
+        ) as r:
+            res = await r.json()
 
-        # Resolution
-        mp = (w * h) / 1_000_000
-        score = min(1.0, mp / 2)
+            # Result looks like:
+            # [{"label": "Satoru Gojo", "score": 0.99}]
+            if isinstance(res, list) and len(res) > 0:
+                name = res[0].get("label")
+                conf = res[0].get("score", 0)
+                return name, conf
 
-        return round(score, 2)
-    except:
-        return 0.4
+    return None, 0.0
 
 
-# ---------------------------- AUTO ID GENERATOR ----------------------------
-
+# ------------ CHARACTER ID GENERATOR ------------
 async def next_id():
     doc = await db.sequences.find_one_and_update(
         {"_id": "character_id"},
@@ -92,42 +63,44 @@ async def next_id():
     return str(doc["sequence_value"]).zfill(4)
 
 
-# ---------------------------- MAIN HANDLER ----------------------------
+# ------------------ MAIN AUTO UPLOADER ------------------
+async def auto_char_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != AUTHORIZED:
+        return
 
-async def auto_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != AUTHORIZED_USER:
-        return await update.message.reply_text("❌ Unauthorized")
-
-    msg = await update.message.reply_text("⏳ Processing...")
+    msg = await update.message.reply_text("⏳ Processing image...")
 
     photo = update.message.photo[-1]
-    file_bytes = bytes(await (await photo.get_file()).download_as_bytearray())
+    file = await photo.get_file()
+    img_bytes = await file.download_as_bytearray()
 
-    # Identify character
-    info = await identify_character(file_bytes)
-    if not info:
-        return await msg.edit_text("❌ Could not detect character")
+    # Detect character name
+    name, conf = await detect_character(img_bytes)
 
-    name = info.get("name", "Unknown")
-    anime = info.get("anime", "Unknown")
+    if not name:
+        return await msg.edit_text("❌ Could not detect character name.\nTry clearer image.")
 
-    # Quality → rarity
-    score = analyze_quality(file_bytes)
-    rarity = get_rarity(score)
+    # Anime is unknown (HuggingFace does only character)
+    anime = "Unknown"
+
+    # Rarity
+    quality_score = img_quality(img_bytes)
+    rarity = get_rarity(quality_score)
 
     # ID
     char_id = await next_id()
 
-    # Upload to Telegram channel
+    # Caption
     caption = (
         f"🆔 <code>{char_id}</code>\n"
         f"👤 {name}\n"
         f"📺 {anime}\n"
         f"{rarity}\n"
-        f"⭐ Quality: {score}"
+        f"⭐ Quality: {quality_score}"
     )
 
-    file_obj = io.BytesIO(file_bytes)
+    # Upload to channel
+    file_obj = io.BytesIO(img_bytes)
     file_obj.name = f"{char_id}.jpg"
 
     sent = await ctx.bot.send_photo(
@@ -137,19 +110,23 @@ async def auto_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-    # Save to DB
+    # Save DB
     await collection.insert_one({
         "id": char_id,
         "name": name,
         "anime": anime,
         "rarity": rarity,
-        "quality": score,
+        "quality": quality_score,
         "file_id": sent.photo[-1].file_id
     })
 
-    await msg.edit_text(f"✅ Uploaded!\nID: <code>{char_id}</code>", parse_mode="HTML")
+    await msg.edit_text(
+        f"✅ **Character Uploaded!**\nID: <code>{char_id}</code>",
+        parse_mode="HTML"
+    )
 
 
-# Register
-application.add_handler(MessageHandler(filters.PHOTO & filters.User(AUTHORIZED_USER), auto_upload))
-print("Auto upload active!")
+# Handler
+application.add_handler(
+    MessageHandler(filters.PHOTO & filters.User(AUTHORIZED), auto_char_upload)
+)
