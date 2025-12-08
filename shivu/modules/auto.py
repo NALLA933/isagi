@@ -1,297 +1,249 @@
 import io
-import asyncio
-import hashlib
-import re
 import base64
+import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Dict, List
-from functools import wraps
+from typing import Optional, Dict
 import aiohttp
 from pymongo import ReturnDocument
-from telegram import Update, InputFile, Message
+from telegram import Update, InputFile
 from telegram.ext import MessageHandler, filters, ContextTypes
 from PIL import Image, ImageFilter, ImageStat
 from shivu import application, collection, db, CHARA_CHANNEL_ID
 
 AUTHORIZED_USER = 5147822244
 
-
 class RarityLevel(Enum):
-    COMMON = (1, "🟢 Common")
     RARE = (2, "🟣 Rare")
     LEGENDARY = (3, "🟡 Legendary")
-    SPECIAL_EDITION = (4, "💮 Special Edition")
+    SPECIAL = (4, "💮 Special Edition")
     NEON = (5, "💫 Neon")
     MANGA = (6, "✨ Manga")
     CELESTIAL = (8, "🎐 Celestial")
-    PREMIUM = (9, "🔮 Premium Edition")
+    PREMIUM = (9, "🔮 Premium")
     MYTHIC = (17, "🏵 Mythic")
 
     def __init__(self, level: int, display: str):
-        self._level = level
-        self._display = display
+        self._level, self._display = level, display
 
     @property
-    def level(self) -> int:
-        return self._level
-
+    def level(self) -> int: return self._level
+    
     @property
-    def display_name(self) -> str:
-        return self._display
-
+    def display_name(self) -> str: return self._display
+    
     @property
-    def emoji(self) -> str:
-        return self._display.split()[0]
-
+    def emoji(self) -> str: return self._display.split()[0]
 
 @dataclass
 class ImageQuality:
-    sharpness: float = 0.0
-    contrast: float = 0.0
-    brightness: float = 0.0
-    color_variance: float = 0.0
-    resolution_score: float = 0.0
-    overall: float = 0.0
-    rarity_level: int = 1
+    overall: float = 0.5
+    rarity_level: int = 2
 
     def calculate_rarity(self):
-        if self.overall >= 0.85:
-            self.rarity_level = 17
-        elif self.overall >= 0.75:
-            self.rarity_level = 9
-        elif self.overall >= 0.65:
-            self.rarity_level = 8
-        elif self.overall >= 0.55:
-            self.rarity_level = 6
-        elif self.overall >= 0.45:
-            self.rarity_level = 4
-        elif self.overall >= 0.35:
-            self.rarity_level = 3
-        else:
-            self.rarity_level = 2
+        s = self.overall
+        self.rarity_level = (17 if s >= 0.85 else 9 if s >= 0.75 else 
+                           8 if s >= 0.65 else 6 if s >= 0.55 else 
+                           5 if s >= 0.45 else 3 if s >= 0.35 else 2)
         return self.rarity_level
-
 
 class QualityAnalyzer:
     @staticmethod
-    def analyze(image_bytes: bytes) -> ImageQuality:
+    def analyze(img_bytes: bytes) -> ImageQuality:
         try:
-            img = Image.open(io.BytesIO(image_bytes))
-            if img.mode != 'RGB':
-                if img.mode == 'RGBA':
-                    bg = Image.new('RGB', img.size, (255, 255, 255))
-                    bg.paste(img, mask=img.split()[3])
-                    img = bg
-                else:
-                    img = img.convert('RGB')
+            img = Image.open(io.BytesIO(img_bytes))
+            if img.mode == 'RGBA':
+                bg = Image.new('RGB', img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            elif img.mode != 'RGB': img = img.convert('RGB')
 
-            quality = ImageQuality()
-            quality.sharpness = QualityAnalyzer._calc_sharpness(img)
-            quality.contrast = QualityAnalyzer._calc_contrast(img)
-            quality.brightness = QualityAnalyzer._calc_brightness(img)
-            quality.color_variance = QualityAnalyzer._calc_color_variance(img)
-            quality.resolution_score = QualityAnalyzer._calc_resolution(img)
+            # Metrics
+            sharpness = min(ImageStat.Stat(img.convert('L').filter(ImageFilter.FIND_EDGES)).var[0] / 8000, 1.0)
+            contrast = min(ImageStat.Stat(img.convert('L')).stddev[0] / 100, 1.0)
+            brightness = max(0, 1 - abs(ImageStat.Stat(img.convert('L')).mean[0] / 255 - 0.55) / 0.55)
+            px = img.size[0] * img.size[1]
+            resolution = 1.0 if px >= 2073600 else 0.85 if px >= 921600 else 0.70 if px >= 518400 else 0.55
             
-            quality.overall = (
-                quality.sharpness * 0.30 + 
-                quality.contrast * 0.25 +
-                quality.brightness * 0.15 + 
-                quality.color_variance * 0.15 +
-                quality.resolution_score * 0.15
-            )
-            
+            overall = sharpness * 0.35 + contrast * 0.25 + brightness * 0.20 + resolution * 0.20
+            quality = ImageQuality(overall=overall)
             quality.calculate_rarity()
             return quality
-        except Exception as e:
-            print(f"Quality error: {e}")
+        except:
             return ImageQuality(overall=0.4, rarity_level=2)
 
-    @staticmethod
-    def _calc_sharpness(img: Image.Image) -> float:
-        try:
-            gray = img.convert('L')
-            edges = gray.filter(ImageFilter.FIND_EDGES)
-            stat = ImageStat.Stat(edges)
-            return min(stat.var[0] / 8000.0, 1.0)
-        except:
-            return 0.5
-
-    @staticmethod
-    def _calc_contrast(img: Image.Image) -> float:
-        try:
-            stat = ImageStat.Stat(img.convert('L'))
-            return min(stat.stddev[0] / 100.0, 1.0)
-        except:
-            return 0.5
-
-    @staticmethod
-    def _calc_brightness(img: Image.Image) -> float:
-        try:
-            stat = ImageStat.Stat(img.convert('L'))
-            brightness = stat.mean[0] / 255.0
-            deviation = abs(brightness - 0.55)
-            return max(0.0, 1.0 - (deviation / 0.55))
-        except:
-            return 0.5
-
-    @staticmethod
-    def _calc_color_variance(img: Image.Image) -> float:
-        try:
-            hsv = img.convert('HSV')
-            h, s, v = hsv.split()
-            s_stat = ImageStat.Stat(s)
-            return min(s_stat.mean[0] / 200.0, 1.0)
-        except:
-            return 0.5
-
-    @staticmethod
-    def _calc_resolution(img: Image.Image) -> float:
-        try:
-            width, height = img.size
-            total_pixels = width * height
-            
-            if total_pixels >= 2073600:
-                return 1.0
-            elif total_pixels >= 921600:
-                return 0.85
-            elif total_pixels >= 518400:
-                return 0.70
-            else:
-                return 0.55
-        except:
-            return 0.5
-
-
 class AIIdentifier:
+    """
+    Free APIs for anime character identification:
+    1. trace.moe - Best for anime scenes (100% free, no key needed)
+    2. ascii2d - Good for artwork (100% free, no key needed)  
+    3. IQDB - Basic but reliable (100% free, no key needed)
+    4. SauceNAO - Requires free API key from saucenao.com/user.php
+    """
+    
+    SAUCENAO_API_KEY = None  # Get free key: https://saucenao.com/user.php (150 searches/day)
+    
     @staticmethod
-    async def identify_character(image_bytes: bytes) -> Dict[str, str]:
+    async def identify(img_bytes: bytes) -> Dict[str, str]:
         methods = [
-            AIIdentifier._try_trace_moe,
-            AIIdentifier._try_saucenao,
-            AIIdentifier._try_iqdb,
+            AIIdentifier._trace_moe,
+            AIIdentifier._ascii2d,
+            AIIdentifier._iqdb,
         ]
+        
+        # Add SauceNAO if API key is configured
+        if AIIdentifier.SAUCENAO_API_KEY:
+            methods.insert(1, AIIdentifier._saucenao)
         
         for method in methods:
             try:
-                result = await method(image_bytes)
-                if result and result['name'] != "Unknown Character":
+                result = await method(img_bytes)
+                if result['name'] != "Unknown Character":
                     return result
             except Exception as e:
-                print(f"{method.__name__} failed: {e}")
-                continue
+                print(f"{method.__name__}: {e}")
         
         return {"name": "Unknown Character", "anime": "Unknown Series"}
 
     @staticmethod
-    async def _try_trace_moe(image_bytes: bytes) -> Dict[str, str]:
+    async def _trace_moe(img_bytes: bytes) -> Dict[str, str]:
+        """100% Free - No API key needed"""
         try:
-            b64_img = base64.b64encode(image_bytes).decode('utf-8')
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            b64 = base64.b64encode(img_bytes).decode()
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
                     "https://api.trace.moe/search",
-                    json={"image": b64_img},
+                    json={"image": b64},
                     timeout=aiohttp.ClientTimeout(total=20)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get('result') and len(data['result']) > 0:
-                            result = data['result'][0]
-                            
-                            if result.get('similarity', 0) < 0.80:
+                ) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        if data.get('result'):
+                            top = data['result'][0]
+                            if top.get('similarity', 0) < 0.70:
                                 return {"name": "Unknown Character", "anime": "Unknown Series"}
                             
-                            anilist = result.get('anilist', {})
-                            anime_title = anilist.get('title', {})
-                            anime_name = (anime_title.get('english') or 
-                                        anime_title.get('romaji') or 
-                                        'Unknown')
+                            anilist = top.get('anilist', {})
+                            title = anilist.get('title', {})
+                            anime = (title.get('english') or title.get('romaji') or 
+                                   title.get('native') or 'Unknown')
                             
-                            filename = result.get('filename', '')
-                            character = AIIdentifier._clean_name(filename)
-                            
-                            return {"name": character, "anime": anime_name}
-        except Exception as e:
-            print(f"TraceMoe error: {e}")
-        
+                            char = AIIdentifier._clean(top.get('filename', ''))
+                            return {"name": char, "anime": anime}
+        except: pass
         return {"name": "Unknown Character", "anime": "Unknown Series"}
 
     @staticmethod
-    async def _try_saucenao(image_bytes: bytes) -> Dict[str, str]:
+    async def _ascii2d(img_bytes: bytes) -> Dict[str, str]:
+        """100% Free - No API key needed"""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as s:
                 data = aiohttp.FormData()
-                data.add_field('file', image_bytes, filename='image.jpg')
+                data.add_field('file', img_bytes, filename='img.jpg')
                 
-                async with session.post(
+                async with s.post(
+                    "https://ascii2d.net/search/file",
+                    data=data,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as r:
+                    if r.status == 200:
+                        html = await r.text()
+                        
+                        # Parse color search results
+                        char_match = re.search(r'<div class="detail-box"[^>]*>.*?<h6>(.*?)</h6>.*?<h6>(.*?)</h6>', html, re.DOTALL)
+                        if char_match:
+                            char_name = char_match.group(1).strip()
+                            anime_name = char_match.group(2).strip()
+                            
+                            if char_name and anime_name:
+                                return {"name": char_name, "anime": anime_name}
+        except: pass
+        return {"name": "Unknown Character", "anime": "Unknown Series"}
+
+    @staticmethod
+    async def _saucenao(img_bytes: bytes) -> Dict[str, str]:
+        """Free tier: 150 searches/day with API key"""
+        if not AIIdentifier.SAUCENAO_API_KEY:
+            return {"name": "Unknown Character", "anime": "Unknown Series"}
+        
+        try:
+            async with aiohttp.ClientSession() as s:
+                data = aiohttp.FormData()
+                data.add_field('file', img_bytes, filename='img.jpg')
+                
+                async with s.post(
                     "https://saucenao.com/search.php",
                     data=data,
-                    params={'output_type': 2, 'db': 999},
+                    params={
+                        'output_type': 2,
+                        'api_key': AIIdentifier.SAUCENAO_API_KEY,
+                        'db': 999  # All databases
+                    },
                     timeout=aiohttp.ClientTimeout(total=20)
-                ) as resp:
-                    if resp.status == 200:
-                        result = await resp.json()
+                ) as r:
+                    if r.status == 200:
+                        result = await r.json()
                         if result.get('results'):
-                            for res in result['results'][:2]:
+                            for res in result['results'][:3]:
                                 similarity = float(res.get('header', {}).get('similarity', 0))
-                                if similarity >= 70:
-                                    data_info = res.get('data', {})
+                                if similarity >= 65:
+                                    info = res.get('data', {})
                                     
-                                    characters = data_info.get('characters', [])
-                                    char_name = characters[0] if characters else "Unknown Character"
+                                    # Try to extract character and anime
+                                    chars = info.get('characters', [])
+                                    char_name = chars[0] if chars else info.get('title', 'Unknown Character')
                                     
-                                    source = data_info.get('source', 'Unknown Series')
+                                    anime = info.get('source') or info.get('material') or 'Unknown Series'
                                     
-                                    return {"name": char_name, "anime": source}
-        except Exception as e:
-            print(f"SauceNAO error: {e}")
-        
+                                    return {"name": char_name, "anime": anime}
+        except: pass
         return {"name": "Unknown Character", "anime": "Unknown Series"}
 
     @staticmethod
-    async def _try_iqdb(image_bytes: bytes) -> Dict[str, str]:
+    async def _iqdb(img_bytes: bytes) -> Dict[str, str]:
+        """100% Free - No API key needed"""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as s:
                 data = aiohttp.FormData()
-                data.add_field('file', image_bytes, filename='image.jpg')
+                data.add_field('file', img_bytes, filename='img.jpg')
                 
-                async with session.post(
+                async with s.post(
                     "https://iqdb.org/",
                     data=data,
                     timeout=aiohttp.ClientTimeout(total=15)
-                ) as resp:
-                    if resp.status == 200:
-                        html = await resp.text()
+                ) as r:
+                    if r.status == 200:
+                        html = await r.text()
                         
-                        match = re.search(r'alt="(.*?)"', html)
+                        # Parse results
+                        match = re.search(r'<td[^>]*class=["\']image["\'][^>]*>.*?alt=["\']([^"\']+)["\']', html, re.DOTALL)
                         if match:
                             text = match.group(1)
                             if '/' in text:
                                 parts = text.split('/')
                                 return {"name": parts[1].strip(), "anime": parts[0].strip()}
-        except Exception as e:
-            print(f"IQDB error: {e}")
-        
+                            
+                        # Fallback: try to find any relevant text
+                        title_match = re.search(r'<td>([^<]+)</td>', html)
+                        if title_match:
+                            text = title_match.group(1).strip()
+                            if len(text) > 5 and len(text) < 100:
+                                return {"name": text, "anime": "Unknown Series"}
+        except: pass
         return {"name": "Unknown Character", "anime": "Unknown Series"}
 
     @staticmethod
-    def _clean_name(filename: str) -> str:
-        if not filename:
-            return "Unknown Character"
-        
-        name = filename.split('.')[0]
-        name = re.sub(r'[\[\]()_-]', ' ', name)
-        parts = [p for p in name.split() if not p.isdigit() and len(p) > 1]
-        
-        return ' '.join(parts[:3]).title() if parts else "Unknown Character"
-
+    def _clean(filename: str) -> str:
+        if not filename: return "Unknown Character"
+        name = re.sub(r'\.[^.]+$', '', filename)
+        name = re.sub(r'[\[\]()_\-\d]', ' ', name)
+        parts = [p.strip().title() for p in name.split() if len(p) > 1]
+        return ' '.join(parts[:3]) if parts else "Unknown Character"
 
 class SequenceGen:
     @staticmethod
     async def get_next_id() -> str:
-        seq_coll = db.sequences
-        doc = await seq_coll.find_one_and_update(
+        doc = await db.sequences.find_one_and_update(
             {'_id': 'character_id'},
             {'$inc': {'sequence_value': 1}},
             return_document=ReturnDocument.AFTER,
@@ -299,37 +251,35 @@ class SequenceGen:
         )
         return str(doc.get('sequence_value', 0)).zfill(2)
 
-
 class Uploader:
     @staticmethod
     async def upload_to_catbox(file_bytes: bytes, filename: str) -> Optional[str]:
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as s:
                 data = aiohttp.FormData()
                 data.add_field('reqtype', 'fileupload')
                 data.add_field('fileToUpload', file_bytes, filename=filename)
                 
-                async with session.post(
-                    "https://catbox.moe/user/api.php", 
+                async with s.post(
+                    "https://catbox.moe/user/api.php",
                     data=data,
                     timeout=aiohttp.ClientTimeout(total=60)
-                ) as resp:
-                    if resp.status == 200:
-                        result = (await resp.text()).strip()
+                ) as r:
+                    if r.status == 200:
+                        result = (await r.text()).strip()
                         if result.startswith('http'):
                             return result
         except Exception as e:
-            print(f"Catbox error: {e}")
+            print(f"Catbox: {e}")
         return None
 
     @staticmethod
-    async def send_to_channel(char_data: Dict, file_bytes: bytes, context: ContextTypes.DEFAULT_TYPE) -> Optional[Message]:
+    async def send_to_channel(char_data: Dict, file_bytes: bytes, context):
         try:
             caption = (
                 f'<b>{char_data["id"]}:</b> {char_data["name"]}\n'
                 f'<b>{char_data["anime"]}</b>\n'
                 f'<b>{char_data["rarity_emoji"]} 𝙍𝘼𝙍𝙄𝙏𝙔:</b> {char_data["rarity_name"]}\n'
-                f'<b>Type:</b> 🖼 Image (🤖 AI Auto)\n'
                 f'<b>Quality:</b> {char_data["quality_score"]}/1.0\n\n'
                 f'𝑨𝒖𝒕𝒐 𝑼𝒑𝒍𝒐𝒂𝒅𝒆𝒅 ➥ <a href="tg://user?id={char_data["uploader_id"]}">{char_data["uploader_name"]}</a>'
             )
@@ -337,94 +287,89 @@ class Uploader:
             fp = io.BytesIO(file_bytes)
             fp.name = f"{char_data['id']}.jpg"
             
-            msg = await context.bot.send_photo(
+            return await context.bot.send_photo(
                 chat_id=CHARA_CHANNEL_ID,
                 photo=InputFile(fp),
                 caption=caption,
                 parse_mode='HTML'
             )
-            return msg
         except Exception as e:
-            print(f"Channel error: {e}")
+            print(f"Channel: {e}")
             return None
-
 
 async def auto_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        if update.effective_user.id != AUTHORIZED_USER:
-            return
-        
-        if not update.message or not update.message.photo:
+        if update.effective_user.id != AUTHORIZED_USER or not update.message.photo:
             return
 
         msg = update.message
         status = await msg.reply_text('🔍 Processing...')
 
+        # Download
         photo = msg.photo[-1]
         file = await photo.get_file()
         file_bytes = bytes(await file.download_as_bytearray())
 
-        await status.edit_text('📊 Analyzing quality...')
+        # Quality
+        await status.edit_text('📊 Analyzing...')
         quality = QualityAnalyzer.analyze(file_bytes)
 
-        await status.edit_text('🤖 Identifying character...')
-        char_info = await AIIdentifier.identify_character(file_bytes)
+        # Identify
+        await status.edit_text('🤖 Identifying...')
+        char_info = await AIIdentifier.identify(file_bytes)
 
-        await status.edit_text('⏳ Uploading to Catbox...')
-        catbox_url = await Uploader.upload_to_catbox(file_bytes, f"char_{photo.file_unique_id}.jpg")
+        # Upload
+        await status.edit_text('⏳ Uploading...')
+        catbox_url = await Uploader.upload_to_catbox(file_bytes, f"c_{photo.file_unique_id}.jpg")
         
         if not catbox_url:
             await status.edit_text('❌ Upload failed')
             return
 
+        # Save
         await status.edit_text('💾 Saving...')
         char_id = await SequenceGen.get_next_id()
-
-        rarity_obj = next((r for r in RarityLevel if r.level == quality.rarity_level), RarityLevel.RARE)
+        rarity = next((r for r in RarityLevel if r.level == quality.rarity_level), RarityLevel.RARE)
         
         char_data = {
             'id': char_id,
             'name': char_info['name'],
             'anime': char_info['anime'],
-            'rarity': rarity_obj.display_name,
-            'rarity_emoji': rarity_obj.emoji,
-            'rarity_name': rarity_obj.display_name[2:],
+            'rarity': rarity.display_name,
+            'rarity_emoji': rarity.emoji,
+            'rarity_name': rarity.display_name[2:],
             'img_url': catbox_url,
-            'is_video': False,
-            'media_type': 'image',
             'uploader_id': str(update.effective_user.id),
             'uploader_name': update.effective_user.first_name,
             'quality_score': round(quality.overall, 2),
             'auto_uploaded': True
         }
 
+        # Channel
         channel_msg = await Uploader.send_to_channel(char_data, file_bytes, context)
         
-        if channel_msg:
+        if channel_msg and channel_msg.photo:
             char_data['message_id'] = channel_msg.message_id
-            if channel_msg.photo:
-                char_data['file_id'] = channel_msg.photo[-1].file_id
-                char_data['file_unique_id'] = channel_msg.photo[-1].file_unique_id
+            char_data['file_id'] = channel_msg.photo[-1].file_id
 
         await collection.insert_one(char_data)
 
         await status.edit_text(
             f'✅ Success!\n\n'
-            f'🆔 ID: {char_id}\n'
+            f'🆔 {char_id}\n'
             f'👤 {char_info["name"]}\n'
             f'📺 {char_info["anime"]}\n'
-            f'{rarity_obj.emoji} {rarity_obj.display_name[2:]}\n'
-            f'⭐ Quality: {quality.overall:.2f}'
+            f'{rarity.emoji} {rarity.display_name[2:]}\n'
+            f'⭐ {quality.overall:.2f}'
         )
 
     except Exception as e:
-        print(f"Handler error: {e}")
+        print(f"Error: {e}")
         try:
             await update.message.reply_text(f'❌ Error: {str(e)}')
-        except:
-            pass
+        except: pass
 
-
+# Register
 application.add_handler(
     MessageHandler(
         filters.PHOTO & filters.User(user_id=AUTHORIZED_USER),
