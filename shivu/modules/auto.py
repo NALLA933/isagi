@@ -2,6 +2,7 @@ import asyncio
 import random
 import time
 import logging
+import json
 from typing import List, Dict, Tuple, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo
 from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext, ContextTypes
@@ -11,6 +12,205 @@ from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# AI Assistant Configuration
+AI_ENABLED = True  # Set to False to disable AI features
+AI_SUGGESTIONS_ENABLED = True  # AI fusion suggestions
+AI_MARKET_ANALYSIS = True  # AI market trend analysis
+AI_PREDICTION_MODEL = True  # AI success prediction
+
+class FusionAI:
+    """AI Assistant for fusion management and predictions"""
+    
+    @staticmethod
+    def analyze_fusion_potential(r1: str, r2: str, user_history: Dict) -> Dict:
+        """Analyze fusion combination and provide AI insights"""
+        r1_norm = norm_rarity(r1)
+        r2_norm = norm_rarity(r2)
+        
+        # Check if it's a special combination
+        combo_key = tuple(sorted([r1_norm, r2_norm]))
+        is_special = combo_key in SPECIAL_FUSIONS
+        
+        # Calculate base success rate
+        stones = 0
+        pity = user_history.get('fusion_pity', 0)
+        base_rate = calc_rate(r1_norm, r2_norm, stones, pity)
+        
+        # Get expected outcomes
+        expected_outcomes = FusionAI.get_expected_outcomes(r1_norm, r2_norm)
+        
+        # AI recommendation
+        recommendation = FusionAI.get_recommendation(r1_norm, r2_norm, base_rate, user_history)
+        
+        # Calculate investment value
+        cost = calc_cost(r1_norm, r2_norm)
+        value_score = FusionAI.calculate_value_score(expected_outcomes, cost)
+        
+        return {
+            'is_special_combo': is_special,
+            'base_success_rate': base_rate,
+            'expected_outcomes': expected_outcomes,
+            'recommendation': recommendation,
+            'value_score': value_score,
+            'cost': cost,
+            'suggested_stones': FusionAI.suggest_stone_count(base_rate, cost),
+            'risk_level': FusionAI.get_risk_level(base_rate, cost)
+        }
+    
+    @staticmethod
+    def get_expected_outcomes(r1: str, r2: str) -> List[Tuple[str, float]]:
+        """Get expected outcome distribution"""
+        combo_key = tuple(sorted([r1, r2]))
+        
+        if combo_key in SPECIAL_FUSIONS:
+            return SPECIAL_FUSIONS[combo_key]
+        
+        # Simulate multiple outcomes
+        tier1 = get_tier(r1)
+        tier2 = get_tier(r2)
+        max_tier = max(tier1, tier2)
+        
+        outcomes = {}
+        for _ in range(100):
+            result = get_result_rarity(r1, r2)
+            outcomes[result] = outcomes.get(result, 0) + 1
+        
+        # Convert to percentages and sort
+        total = sum(outcomes.values())
+        result_list = [(rarity, count/total) for rarity, count in outcomes.items()]
+        result_list.sort(key=lambda x: x[1], reverse=True)
+        
+        return result_list[:5]  # Top 5 outcomes
+    
+    @staticmethod
+    def get_recommendation(r1: str, r2: str, success_rate: float, user_history: Dict) -> str:
+        """Get AI recommendation for the fusion"""
+        combo_key = tuple(sorted([r1, r2]))
+        tier1 = get_tier(r1)
+        tier2 = get_tier(r2)
+        
+        # Check for special combinations
+        if combo_key in SPECIAL_FUSIONS:
+            outcomes = SPECIAL_FUSIONS[combo_key]
+            top_outcome = outcomes[0]
+            
+            if top_outcome[1] >= 0.50 and top_outcome[0] in ["🏵 Mythic", "🎐 Celestial"]:
+                return f"🌟 EXCELLENT! This combo has {top_outcome[1]*100:.0f}% chance for {top_outcome[0]}!"
+            elif top_outcome[1] >= 0.40:
+                return f"✨ GREAT! High chance ({top_outcome[1]*100:.0f}%) for {top_outcome[0]}"
+            else:
+                return f"👍 GOOD! Best outcome: {top_outcome[0]} ({top_outcome[1]*100:.0f}%)"
+        
+        # Seasonal opposites
+        r1_cat = get_rarity_categories(r1)
+        r2_cat = get_rarity_categories(r2)
+        
+        if 'seasonal' in r1_cat and 'seasonal' in r2_cat and r1 != r2:
+            return "🔥 HOT COMBO! Opposite seasons = High Mythic chance!"
+        
+        if 'holiday' in r1_cat and 'holiday' in r2_cat and r1 != r2:
+            return "🎉 FESTIVE POWER! Holiday fusion = Celestial/Mythic boost!"
+        
+        # High tier combination
+        if tier1 >= 6 and tier2 >= 6:
+            return "💎 PREMIUM FUSION! Two high-tier = Excellent results!"
+        
+        # Success rate based
+        if success_rate >= 0.70:
+            return "✅ HIGH SUCCESS! Very safe fusion"
+        elif success_rate >= 0.50:
+            return "⚖️ BALANCED! Moderate risk, good reward"
+        elif success_rate >= 0.30:
+            return "⚠️ RISKY! Consider using fusion stones"
+        else:
+            return "🚨 HIGH RISK! Use 2-3 stones recommended"
+    
+    @staticmethod
+    def calculate_value_score(outcomes: List[Tuple[str, float]], cost: int) -> float:
+        """Calculate investment value score (0-100)"""
+        # Weight outcomes by tier and probability
+        total_value = 0
+        for rarity, chance in outcomes:
+            tier = get_tier(rarity)
+            # Higher tiers are exponentially more valuable
+            tier_value = tier ** 2.5
+            total_value += tier_value * chance
+        
+        # Normalize against cost
+        cost_factor = min(cost / 1000, 10)
+        score = (total_value / cost_factor) * 10
+        
+        return min(max(score, 0), 100)
+    
+    @staticmethod
+    def suggest_stone_count(success_rate: float, cost: int) -> int:
+        """AI suggests optimal stone count"""
+        if success_rate >= 0.70:
+            return 0  # No stones needed
+        elif success_rate >= 0.50:
+            return 1  # Just a small boost
+        elif success_rate >= 0.35:
+            return 2  # Moderate boost needed
+        else:
+            return 3  # Maximum boost recommended
+    
+    @staticmethod
+    def get_risk_level(success_rate: float, cost: int) -> str:
+        """Determine risk level with emoji"""
+        if success_rate >= 0.70:
+            return "🟢 LOW RISK"
+        elif success_rate >= 0.50:
+            return "🟡 MEDIUM RISK"
+        elif success_rate >= 0.35:
+            return "🟠 HIGH RISK"
+        else:
+            return "🔴 VERY HIGH RISK"
+    
+    @staticmethod
+    def get_best_fusions(characters: List[Dict], user_history: Dict, limit: int = 5) -> List[Dict]:
+        """AI analyzes all possible fusions and returns best options"""
+        if len(characters) < 2:
+            return []
+        
+        fusion_scores = []
+        
+        # Analyze all possible pairs
+        for i in range(len(characters)):
+            for j in range(i + 1, len(characters)):
+                c1 = characters[i]
+                c2 = characters[j]
+                
+                r1 = norm_rarity(c1.get('rarity'))
+                r2 = norm_rarity(c2.get('rarity'))
+                
+                analysis = FusionAI.analyze_fusion_potential(r1, r2, user_history)
+                
+                fusion_scores.append({
+                    'char1': c1,
+                    'char2': c2,
+                    'analysis': analysis,
+                    'score': analysis['value_score']
+                })
+        
+        # Sort by score and return top options
+        fusion_scores.sort(key=lambda x: x['score'], reverse=True)
+        return fusion_scores[:limit]
+    
+    @staticmethod
+    def predict_success_with_stones(r1: str, r2: str, stones: int, pity: int) -> Dict:
+        """Predict success rate with different stone counts"""
+        predictions = {}
+        
+        for stone_count in range(0, 4):
+            rate = calc_rate(r1, r2, stone_count, pity)
+            predictions[stone_count] = {
+                'rate': rate,
+                'cost_increase': stone_count * 100,  # Stones cost 100 each
+                'efficiency': rate / (1 + stone_count * 0.1)  # Rate vs cost efficiency
+            }
+        
+        return predictions
 
 RARITY_MAP = {
     "common": "🟢 Common", "rare": "🟣 Rare", "legendary": "🟡 Legendary",
@@ -965,6 +1165,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_shop(query, uid)
             return
         
+        if data == "fai":
+            # Show AI insights
+            await show_ai_insights(query, uid, context)
+            return
+        
+        if data == "fback":
+            # Go back to fusion confirmation from AI insights
+            session = sessions.get(uid)
+            if session:
+                await show_confirm(query.message.chat_id, uid, context)
+            return
+        
         if data.startswith("fb_"):
             amount_str = data[3:]
             if not amount_str.isdigit():
@@ -1117,7 +1329,18 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
         pity = user.get('fusion_pity', 0)
         rate = calc_rate(r1, r2, stones, pity)
         
+        # AI Analysis
+        ai_analysis = None
+        if AI_ENABLED:
+            ai_analysis = FusionAI.analyze_fusion_potential(r1, r2, user)
+            session['ai_analysis'] = ai_analysis  # Store for later use
+        
         buttons = []
+        
+        # AI Insight button at the top if special combo
+        if ai_analysis and ai_analysis['is_special_combo']:
+            buttons.append([InlineKeyboardButton("🤖 AI Insights", callback_data="fai")])
+        
         stone_btns = []
         for i in range(1, 4):
             if user_stones >= i:
@@ -1148,6 +1371,13 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
         pity_text = f' (+{pity*5}% pity)' if pity > 0 else ''
         stone_text = f' (+{stones*15}%)' if stones else ''
         
+        # Add AI recommendation to caption
+        ai_text = ""
+        if ai_analysis:
+            ai_text = f"\n🤖 AI: {ai_analysis['recommendation']}\n"
+            if ai_analysis['is_special_combo']:
+                ai_text += "⭐ SPECIAL COMBO DETECTED!\n"
+        
         caption = (
             f"⚗️ fusion preview\n\n"
             f"1️⃣ {r1} {c1.get('name')}\n"
@@ -1155,7 +1385,8 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
             f"2️⃣ {r2} {c2.get('name')}\n"
             f"     ‖\n"
             f"     ⬇️\n"
-            f"✨ {result_r}\n\n"
+            f"✨ {result_r}\n"
+            f"{ai_text}"
             f"━━━━━━━━━━━━━━\n"
             f"success: {rate*100:.0f}%{pity_text}\n"
             f"cost: {cost:,} 💰\n"
@@ -1382,6 +1613,165 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
         sessions.pop(uid, None)
 
 async def show_shop(query, uid: int):
+    """Display detailed AI analysis of the fusion"""
+    try:
+        session = sessions.get(uid)
+        if not session or 'ai_analysis' not in session:
+            await query.answer("❌ No AI analysis available", show_alert=True)
+            return
+        
+        ai_analysis = session['ai_analysis']
+        c1 = session.get('c1_data')
+        c2 = session.get('c2_data')
+        
+        r1 = norm_rarity(c1.get('rarity'))
+        r2 = norm_rarity(c2.get('rarity'))
+        
+        # Build detailed insight message
+        insights = "🤖 AI FUSION ANALYSIS\n\n"
+        insights += f"📊 Combo: {r1} + {r2}\n\n"
+        
+        # Special combo indicator
+        if ai_analysis['is_special_combo']:
+            insights += "⭐ SPECIAL COMBINATION!\n"
+            insights += "This is a predefined powerful combo\n\n"
+        
+        # Expected outcomes
+        insights += "🎯 Expected Outcomes:\n"
+        for rarity, chance in ai_analysis['expected_outcomes']:
+            bar_length = int(chance * 20)
+            bar = "█" * bar_length + "░" * (20 - bar_length)
+            insights += f"{rarity}\n{bar} {chance*100:.1f}%\n"
+        
+        insights += f"\n💡 Recommendation:\n{ai_analysis['recommendation']}\n\n"
+        
+        # Value analysis
+        insights += f"📈 Value Score: {ai_analysis['value_score']:.1f}/100\n"
+        insights += f"{ai_analysis['risk_level']}\n\n"
+        
+        # Stone recommendation
+        if ai_analysis['suggested_stones'] > 0:
+            insights += f"💎 AI suggests: {ai_analysis['suggested_stones']} stone(s)\n"
+            insights += f"This boosts success by {ai_analysis['suggested_stones']*15}%\n\n"
+        else:
+            insights += "💎 No stones needed for this combo\n\n"
+        
+        # Cost analysis
+        insights += f"💰 Cost: {ai_analysis['cost']:,} coins\n"
+        
+        # Back button
+        buttons = [[InlineKeyboardButton("⬅️ Back to Fusion", callback_data="fback")]]
+        
+        await query.edit_message_text(
+            insights,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        
+    except Exception as e:
+        logger.error(f"Show AI insights error: {e}", exc_info=True)
+        await query.answer("⚠️ Error loading insights", show_alert=True)
+
+
+async def show_best_fusions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """AI analyzes user's characters and suggests best fusion combinations"""
+    try:
+        uid = update.effective_user.id
+        
+        if not AI_SUGGESTIONS_ENABLED:
+            await update.message.reply_text("🤖 AI suggestions are currently disabled")
+            return
+        
+        user = await get_user_safe(uid)
+        chars = user.get('characters', [])
+        
+        if len(chars) < 2:
+            await update.message.reply_text("❌ Need at least 2 characters for AI analysis")
+            return
+        
+        # Show processing message
+        processing_msg = await update.message.reply_text("🤖 AI analyzing all possible fusions...")
+        
+        # Get AI recommendations
+        best_fusions = FusionAI.get_best_fusions(chars, user, limit=5)
+        
+        if not best_fusions:
+            await processing_msg.edit_text("❌ No fusion combinations found")
+            return
+        
+        # Build recommendation message
+        msg = "🤖 AI TOP FUSION RECOMMENDATIONS\n\n"
+        msg += f"Analyzed {len(chars)} characters\n"
+        msg += f"Found {len(best_fusions)} best combinations:\n\n"
+        
+        for idx, fusion in enumerate(best_fusions, 1):
+            c1 = fusion['char1']
+            c2 = fusion['char2']
+            analysis = fusion['analysis']
+            
+            r1 = norm_rarity(c1.get('rarity'))
+            r2 = norm_rarity(c2.get('rarity'))
+            
+            msg += f"{idx}. {r1} {c1.get('name')} + {r2} {c2.get('name')}\n"
+            msg += f"   Value: {analysis['value_score']:.0f}/100 | {analysis['risk_level']}\n"
+            
+            if analysis['expected_outcomes']:
+                top_outcome = analysis['expected_outcomes'][0]
+                msg += f"   Best: {top_outcome[0]} ({top_outcome[1]*100:.0f}%)\n"
+            
+            msg += "\n"
+        
+        msg += "Use /fuse to start fusion with your chosen pair!"
+        
+        await processing_msg.edit_text(msg)
+        
+    except Exception as e:
+        logger.error(f"Show best fusions error: {e}", exc_info=True)
+        await update.message.reply_text("⚠️ Error during AI analysis")
+
+
+async def ai_predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show AI prediction for current fusion session"""
+    try:
+        uid = update.effective_user.id
+        session = sessions.get(uid)
+        
+        if not session or 'c1_data' not in session or 'c2_data' not in session:
+            await update.message.reply_text("❌ No active fusion session\nUse /fuse first")
+            return
+        
+        c1 = session.get('c1_data')
+        c2 = session.get('c2_data')
+        user = await get_user_safe(uid)
+        
+        r1 = norm_rarity(c1.get('rarity'))
+        r2 = norm_rarity(c2.get('rarity'))
+        pity = user.get('fusion_pity', 0)
+        
+        # Get predictions for different stone counts
+        predictions = FusionAI.predict_success_with_stones(r1, r2, 0, pity)
+        
+        msg = "🤖 AI SUCCESS PREDICTION\n\n"
+        msg += f"Fusion: {r1} + {r2}\n\n"
+        
+        for stones, pred in predictions.items():
+            rate = pred['rate']
+            cost = pred['cost_increase']
+            
+            msg += f"💎 {stones} Stone(s):\n"
+            msg += f"  Success: {rate*100:.1f}%\n"
+            msg += f"  Cost: +{cost:,} 💰\n"
+            msg += f"  Efficiency: {pred['efficiency']*100:.1f}%\n\n"
+        
+        # AI recommendation
+        best_stones = max(predictions.items(), key=lambda x: x[1]['efficiency'])[0]
+        msg += f"💡 AI Recommends: {best_stones} stone(s)\n"
+        msg += "This gives best value for success rate!"
+        
+        await update.message.reply_text(msg)
+        
+    except Exception as e:
+        logger.error(f"AI predict error: {e}", exc_info=True)
+        await update.message.reply_text("⚠️ Error during prediction")
     try:
         user = await get_user_safe(uid)
         bal = user.get('balance', 0)
@@ -1492,4 +1882,6 @@ async def buystone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler(['fuse', 'fusion'], fuse_cmd, block=False))
 application.add_handler(CommandHandler(['fusioninfo', 'finfo'], info_cmd, block=False))
 application.add_handler(CommandHandler(['buystone', 'buystones'], buystone_cmd, block=False))
+application.add_handler(CommandHandler(['bestfusions', 'aisuggestions', 'aifuse'], show_best_fusions, block=False))
+application.add_handler(CommandHandler(['aipredict', 'predict'], ai_predict_cmd, block=False))
 application.add_handler(CallbackQueryHandler(callback_handler, pattern='^f', block=False))
