@@ -357,15 +357,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == "fc":
             sessions.pop(uid, None)
             await query.answer()
-            await query.edit_message_text("❌ cancelled")
+            try:
+                await query.edit_message_text("❌ cancelled")
+            except Exception:
+                await query.message.reply_text("❌ cancelled")
             return
         
-        session = sessions.get(uid)
-        if not session or session.get('owner') != uid:
-            await query.answer("❌ not your session", show_alert=True)
-            return
-        
-        await query.answer()
+        # Shop and buy actions don't need active session
+        if data == "fshop" or data.startswith("fb_"):
+            await query.answer()
+            # Continue to shop/buy handlers below
+        else:
+            # Other actions need session validation
+            session = sessions.get(uid)
+            if not session or session.get('owner') != uid:
+                await query.answer("❌ not your session", show_alert=True)
+                return
+            await query.answer()
         
         if data.startswith("fp"):
             parts = data[2:].split('_')
@@ -373,6 +381,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer("❌ invalid data", show_alert=True)
                 return
             
+            session = sessions.get(uid)
             step = int(parts[0])
             page = int(parts[1])
             
@@ -385,6 +394,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if data.startswith("fs1_"):
             cid = data[4:]
+            session = sessions.get(uid)
             user = await get_user_safe(uid)
             chars = user.get('characters', [])
             char1 = next((c for c in chars if str(c.get('id')) == cid), None)
@@ -439,6 +449,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if data.startswith("fs2_"):
             cid = data[4:]
+            session = sessions.get(uid)
             user = await get_user_safe(uid)
             chars = user.get('characters', [])
             char2 = next((c for c in chars if str(c.get('id')) == cid), None)
@@ -498,6 +509,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer("❌ invalid stone count", show_alert=True)
                 return
             
+            session = sessions.get(uid)
             stones = int(stones_str)
             user = await get_user_safe(uid)
             user_stones = user.get('fusion_stones', 0)
@@ -516,6 +528,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         if data == "fconf":
+            session = sessions.get(uid)
             await execute_fusion(query, uid, context)
             return
         
