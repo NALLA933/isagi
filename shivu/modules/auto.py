@@ -252,14 +252,17 @@ async def fuse_cmd(update: Update, context: CallbackContext):
         logger.error(f"Fuse cmd error: {e}")
         await update.message.reply_text("⚠️ error occurred")
 
-async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: int, context: CallbackContext):
+async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: int, context: CallbackContext, is_edit: bool = False):
     try:
         start = page * CHARS_PER_PAGE
         end = start + CHARS_PER_PAGE
         page_chars = chars[start:end]
         
         if not page_chars:
-            await message.reply_text("❌ no characters on this page")
+            if is_edit:
+                await message.edit_text("❌ no characters on this page")
+            else:
+                await message.reply_text("❌ no characters on this page")
             return
         
         buttons = []
@@ -282,12 +285,22 @@ async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: 
         
         text = f"⚗️ select character {step}/2\npage {page+1}/{(len(chars)-1)//CHARS_PER_PAGE+1}"
         
-        if hasattr(message, 'edit_text'):
-            await message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        if is_edit:
+            try:
+                await message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+            except TelegramError as te:
+                if "message can't be edited" in str(te).lower() or "message is not modified" in str(te).lower():
+                    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+                else:
+                    raise
         else:
             await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         logger.error(f"Show char page error: {e}")
+        try:
+            await message.reply_text(f"⚗️ select character {step}/2", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ cancel", callback_data="fc")]]))
+        except:
+            pass
 
 async def callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -316,7 +329,7 @@ async def callback_handler(update: Update, context: CallbackContext):
             user = await get_user_safe(uid)
             chars = user.get('characters', [])
             
-            await show_char_page(query.message, uid, chars, page, step, context)
+            await show_char_page(query.message, uid, chars, page, step, context, is_edit=True)
             return
         
         if data.startswith("fs1_"):
@@ -338,17 +351,17 @@ async def callback_handler(update: Update, context: CallbackContext):
             })
             
             try:
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=char1.get('img_url', ''),
-                        caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
-                    )
-                )
+                await query.delete_message()
             except:
-                await query.edit_message_text(f"✅ {char1.get('name')}\n\nselecting second...")
+                pass
+            
+            msg = await query.message.reply_photo(
+                photo=char1.get('img_url', ''),
+                caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+            )
             
             await asyncio.sleep(0.5)
-            await show_char_page(query.message, uid, chars, 0, 2, context)
+            await show_char_page(msg, uid, chars, 0, 2, context, is_edit=False)
             return
         
         if data.startswith("fs2_"):
@@ -365,17 +378,20 @@ async def callback_handler(update: Update, context: CallbackContext):
             session['c2_data'] = char2
             
             try:
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=char2.get('img_url', ''),
-                        caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
-                    )
+                await query.delete_message()
+            except:
+                pass
+            
+            try:
+                await query.message.reply_photo(
+                    photo=char2.get('img_url', ''),
+                    caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
                 )
             except:
-                await query.edit_message_text(f"✅ {char2.get('name')}\n\npreparing...")
+                await query.message.reply_text(f"✅ {char2.get('name')}\n\npreparing...")
             
             await asyncio.sleep(0.5)
-            await show_confirm(query, uid, context)
+            await show_confirm(query.message, uid, context)
             return
         
         if data.startswith("fst_"):
@@ -388,7 +404,13 @@ async def callback_handler(update: Update, context: CallbackContext):
                 return
             
             session['stones'] = stones
-            await show_confirm(query, uid, context)
+            
+            try:
+                await query.delete_message()
+            except:
+                pass
+            
+            await show_confirm(query.message, uid, context)
             return
         
         if data == "fconf":
@@ -423,7 +445,7 @@ async def callback_handler(update: Update, context: CallbackContext):
         logger.error(f"Callback error: {e}")
         await query.answer("⚠️ error occurred", show_alert=True)
 
-async def show_confirm(query, uid: int, context: CallbackContext):
+async def show_confirm(message, uid: int, context: CallbackContext):
     try:
         session = sessions[uid]
         c1 = session['c1_data']
@@ -473,19 +495,17 @@ async def show_confirm(query, uid: int, context: CallbackContext):
         )
         
         try:
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=c1.get('img_url', ''),
-                    caption=caption
-                ),
+            await message.reply_photo(
+                photo=c1.get('img_url', ''),
+                caption=caption,
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
         except:
-            await query.edit_message_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
+            await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
             
     except Exception as e:
         logger.error(f"Show confirm error: {e}")
-        await query.edit_message_text("⚠️ error preparing fusion")
+        await message.reply_text("⚠️ error preparing fusion")
 
 async def execute_fusion(query, uid: int, context: CallbackContext):
     try:
