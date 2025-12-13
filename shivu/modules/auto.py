@@ -372,21 +372,27 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'page': 0
             })
             
+            # Don't delete, just edit or send new message
             try:
-                await query.delete_message()
-            except Exception as e:
-                logger.warning(f"Could not delete message: {e}")
-            
-            try:
-                msg = await query.message.reply_photo(
-                    photo=char1.get('img_url', ''),
-                    caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
-                )
-            except Exception as e:
-                logger.warning(f"Could not send photo: {e}")
-                msg = await query.message.reply_text(
+                await query.edit_message_text(
                     f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
                 )
+                msg = query.message
+            except Exception as e:
+                logger.warning(f"Could not edit message: {e}")
+                # Send new message if edit fails
+                try:
+                    msg = await context.bot.send_photo(
+                        chat_id=query.message.chat_id,
+                        photo=char1.get('img_url', ''),
+                        caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                    )
+                except Exception as e2:
+                    logger.warning(f"Could not send photo: {e2}")
+                    msg = await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                    )
             
             await asyncio.sleep(0.5)
             await show_char_page(msg, uid, chars, 0, 2, context, is_edit=False)
@@ -411,22 +417,31 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session['c2'] = cid
             session['c2_data'] = char2
             
+            # Edit current message instead of deleting
             try:
-                await query.delete_message()
+                await query.edit_message_text(
+                    f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
+                )
             except Exception as e:
-                logger.warning(f"Could not delete message: {e}")
+                logger.warning(f"Could not edit message: {e}")
             
+            # Send confirmation with photo using context.bot
             try:
-                await query.message.reply_photo(
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
                     photo=char2.get('img_url', ''),
                     caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
                 )
             except Exception as e:
                 logger.warning(f"Could not send photo: {e}")
-                await query.message.reply_text(f"✅ {char2.get('name')}\n\npreparing...")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=f"✅ {char2.get('name')}\n\npreparing..."
+                )
             
             await asyncio.sleep(0.5)
-            await show_confirm(query.message, uid, context)
+            # Use context.bot to send confirmation
+            await show_confirm(query.message.chat_id, uid, context)
             return
         
         if data.startswith("fst_"):
@@ -445,12 +460,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             session['stones'] = stones
             
-            try:
-                await query.delete_message()
-            except Exception as e:
-                logger.warning(f"Could not delete message: {e}")
+            # Don't delete, just notify user
+            await query.answer(f"✅ Using {stones} stones", show_alert=False)
             
-            await show_confirm(query.message, uid, context)
+            # Send confirmation directly
+            await show_confirm(query.message.chat_id, uid, context)
             return
         
         if data == "fconf":
@@ -494,18 +508,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Callback error: {e}", exc_info=True)
         await query.answer("⚠️ error occurred", show_alert=True)
 
-async def show_confirm(message, uid: int, context: ContextTypes.DEFAULT_TYPE):
+async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYPE):
     try:
         session = sessions.get(uid)
         if not session:
-            await message.reply_text("❌ session expired")
+            await context.bot.send_message(chat_id=chat_id, text="❌ session expired")
             return
         
         c1 = session.get('c1_data')
         c2 = session.get('c2_data')
         
         if not c1 or not c2:
-            await message.reply_text("❌ character data missing")
+            await context.bot.send_message(chat_id=chat_id, text="❌ character data missing")
             sessions.pop(uid, None)
             return
         
@@ -569,18 +583,23 @@ async def show_confirm(message, uid: int, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            await message.reply_photo(
+            await context.bot.send_photo(
+                chat_id=chat_id,
                 photo=c1.get('img_url', ''),
                 caption=caption,
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
         except Exception as e:
             logger.warning(f"Could not send photo in confirm: {e}")
-            await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
             
     except Exception as e:
         logger.error(f"Show confirm error: {e}", exc_info=True)
-        await message.reply_text("⚠️ error preparing fusion")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ error preparing fusion")
 
 async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -669,7 +688,8 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
                 await log_fusion(uid, c1.get('name'), c2.get('name'), True, new_char.get('name'))
                 
                 try:
-                    await query.message.reply_photo(
+                    await context.bot.send_photo(
+                        chat_id=query.message.chat_id,
                         photo=new_char.get('img_url', ''),
                         caption=(
                             f"✨ success!\n\n"
@@ -681,8 +701,9 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
                     )
                 except Exception as e:
                     logger.warning(f"Could not send success photo: {e}")
-                    await query.message.reply_text(
-                        f"✨ success!\n\n{result_r}\n{new_char.get('name')}"
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"✨ success!\n\n{result_r}\n{new_char.get('name')}"
                     )
                 
                 await query.edit_message_text("✅ fusion complete!")
