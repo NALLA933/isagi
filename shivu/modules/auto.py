@@ -30,6 +30,292 @@ TIERS = {
     "🏵 Mythic": 7, "🎥 AMV": 5, "👼 Tiny": 4
 }
 
+# Categorize rarities
+SEASONAL_RARITIES = {"🌤 Summer", "☃️ Winter", "☔️ Monsoon"}
+HOLIDAY_RARITIES = {"💝 Valentine", "🎃 Halloween", "🎄 Christmas"}
+SPECIAL_RARITIES = {"💮 Special Edition", "💫 Neon", "✨ Manga", "🎭 Cosplay", "🎐 Celestial", "🔮 Premium Edition", "💋 Erotic"}
+CREATIVE_RARITIES = {"🎥 AMV", "👼 Tiny"}
+BASE_RARITIES = {"🟢 Common", "🟣 Rare", "🟡 Legendary"}
+ULTIMATE_RARITIES = {"🏵 Mythic"}
+
+# Special fusion combinations with chances
+SPECIAL_FUSIONS = {
+    # Seasonal opposites create powerful results
+    ("🌤 Summer", "☃️ Winter"): [
+        (0.40, "🏵 Mythic"),  # Opposite seasons = Mythic
+        (0.30, "🎐 Celestial"),  # Balance of hot/cold
+        (0.20, "💫 Neon"),
+        (0.10, "🟡 Legendary")
+    ],
+    ("🌤 Summer", "☔️ Monsoon"): [
+        (0.35, "🎐 Celestial"),  # Water + Heat = Steam/Sky
+        (0.30, "💫 Neon"),
+        (0.25, "🔮 Premium Edition"),
+        (0.10, "🟡 Legendary")
+    ],
+    ("☃️ Winter", "☔️ Monsoon"): [
+        (0.40, "🎐 Celestial"),  # Cold + Water = Ice/Snow power
+        (0.30, "💫 Neon"),
+        (0.20, "💮 Special Edition"),
+        (0.10, "🟣 Rare")
+    ],
+    
+    # Same seasons amplify
+    ("🌤 Summer", "🌤 Summer"): [
+        (0.50, "🔮 Premium Edition"),  # Double heat
+        (0.30, "💫 Neon"),
+        (0.15, "🎐 Celestial"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("☃️ Winter", "☃️ Winter"): [
+        (0.50, "🔮 Premium Edition"),  # Double cold
+        (0.30, "💫 Neon"),
+        (0.15, "🎐 Celestial"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("☔️ Monsoon", "☔️ Monsoon"): [
+        (0.50, "🎐 Celestial"),  # Double water
+        (0.30, "💫 Neon"),
+        (0.15, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    
+    # Holiday combinations
+    ("💝 Valentine", "🎃 Halloween"): [
+        (0.45, "🏵 Mythic"),  # Love + Fear = Ultimate
+        (0.30, "🎐 Celestial"),
+        (0.20, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    ("💝 Valentine", "🎄 Christmas"): [
+        (0.40, "🎐 Celestial"),  # Love + Joy = Heaven
+        (0.35, "💫 Neon"),
+        (0.20, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("🎃 Halloween", "🎄 Christmas"): [
+        (0.40, "🏵 Mythic"),  # Spooky + Jolly = Chaos
+        (0.30, "🎐 Celestial"),
+        (0.25, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    
+    # Holiday + Seasonal
+    ("💝 Valentine", "🌤 Summer"): [
+        (0.45, "💫 Neon"),  # Hot love
+        (0.30, "🔮 Premium Edition"),
+        (0.20, "🎐 Celestial"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("💝 Valentine", "☃️ Winter"): [
+        (0.40, "🎐 Celestial"),  # Cold love = Eternal
+        (0.35, "💫 Neon"),
+        (0.20, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("🎃 Halloween", "☃️ Winter"): [
+        (0.45, "🏵 Mythic"),  # Spooky cold = Ultimate fear
+        (0.30, "🎐 Celestial"),
+        (0.20, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    ("🎃 Halloween", "☔️ Monsoon"): [
+        (0.40, "🎐 Celestial"),  # Dark water
+        (0.35, "💫 Neon"),
+        (0.20, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("🎄 Christmas", "☃️ Winter"): [
+        (0.50, "🏵 Mythic"),  # Perfect match!
+        (0.30, "🎐 Celestial"),
+        (0.15, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    
+    # Creative combinations
+    ("🎥 AMV", "✨ Manga"): [
+        (0.50, "🎐 Celestial"),  # Animation + Art
+        (0.30, "💫 Neon"),
+        (0.15, "🏵 Mythic"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    ("🎥 AMV", "🎭 Cosplay"): [
+        (0.45, "💫 Neon"),  # Video + Performance
+        (0.35, "🎐 Celestial"),
+        (0.15, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("✨ Manga", "🎭 Cosplay"): [
+        (0.45, "💫 Neon"),  # Art + Performance
+        (0.30, "🎐 Celestial"),
+        (0.20, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("👼 Tiny", "🏵 Mythic"): [
+        (0.60, "🏵 Mythic"),  # Tiny power = Still mythic
+        (0.25, "🎐 Celestial"),
+        (0.10, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    
+    # Erotic combinations
+    ("💋 Erotic", "💝 Valentine"): [
+        (0.55, "🏵 Mythic"),  # Passion + Love = Ultimate
+        (0.25, "🎐 Celestial"),
+        (0.15, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    ("💋 Erotic", "🌤 Summer"): [
+        (0.50, "🎐 Celestial"),  # Hot passion
+        (0.30, "💫 Neon"),
+        (0.15, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("💋 Erotic", "☃️ Winter"): [
+        (0.45, "🎐 Celestial"),  # Contrast
+        (0.30, "💫 Neon"),
+        (0.20, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    
+    # Neon combinations
+    ("💫 Neon", "💫 Neon"): [
+        (0.55, "🎐 Celestial"),  # Double glow
+        (0.25, "🏵 Mythic"),
+        (0.15, "🔮 Premium Edition"),
+        (0.05, "💫 Neon")
+    ],
+    ("💫 Neon", "🎭 Cosplay"): [
+        (0.45, "🎐 Celestial"),  # Glow + Performance
+        (0.30, "🔮 Premium Edition"),
+        (0.20, "🏵 Mythic"),
+        (0.05, "💫 Neon")
+    ],
+    
+    # Premium combinations
+    ("🔮 Premium Edition", "🔮 Premium Edition"): [
+        (0.60, "🏵 Mythic"),  # Double premium
+        (0.25, "🎐 Celestial"),
+        (0.10, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    ("🔮 Premium Edition", "💫 Neon"): [
+        (0.50, "🏵 Mythic"),
+        (0.30, "🎐 Celestial"),
+        (0.15, "💫 Neon"),
+        (0.05, "🔮 Premium Edition")
+    ],
+    
+    # Celestial combinations
+    ("🎐 Celestial", "🎐 Celestial"): [
+        (0.70, "🏵 Mythic"),  # Double heaven
+        (0.20, "🎐 Celestial"),
+        (0.08, "💫 Neon"),
+        (0.02, "🔮 Premium Edition")
+    ],
+    ("🎐 Celestial", "💫 Neon"): [
+        (0.55, "🏵 Mythic"),
+        (0.30, "🎐 Celestial"),
+        (0.12, "💫 Neon"),
+        (0.03, "🔮 Premium Edition")
+    ],
+    ("🎐 Celestial", "🔮 Premium Edition"): [
+        (0.60, "🏵 Mythic"),
+        (0.25, "🎐 Celestial"),
+        (0.12, "💫 Neon"),
+        (0.03, "🔮 Premium Edition")
+    ],
+    
+    # Mythic combinations (stays mythic or slight downgrades)
+    ("🏵 Mythic", "🏵 Mythic"): [
+        (0.95, "🏵 Mythic"),  # Almost guaranteed
+        (0.04, "🎐 Celestial"),
+        (0.01, "💫 Neon")
+    ],
+    ("🏵 Mythic", "🎐 Celestial"): [
+        (0.80, "🏵 Mythic"),
+        (0.15, "🎐 Celestial"),
+        (0.05, "💫 Neon")
+    ],
+    
+    # Base rarity progressions
+    ("🟡 Legendary", "🟡 Legendary"): [
+        (0.70, "💮 Special Edition"),
+        (0.20, "🟡 Legendary"),
+        (0.08, "💫 Neon"),
+        (0.02, "🎐 Celestial")
+    ],
+    ("💮 Special Edition", "💮 Special Edition"): [
+        (0.70, "💫 Neon"),
+        (0.20, "💮 Special Edition"),
+        (0.08, "🎐 Celestial"),
+        (0.02, "🏵 Mythic")
+    ],
+    
+    # Cross-category powerful combos
+    ("🏵 Mythic", "💝 Valentine"): [
+        (0.85, "🏵 Mythic"),  # Love at max level
+        (0.10, "🎐 Celestial"),
+        (0.05, "💫 Neon")
+    ],
+    ("🏵 Mythic", "🌤 Summer"): [
+        (0.80, "🏵 Mythic"),
+        (0.12, "🎐 Celestial"),
+        (0.08, "💫 Neon")
+    ],
+    ("🏵 Mythic", "☃️ Winter"): [
+        (0.80, "🏵 Mythic"),
+        (0.12, "🎐 Celestial"),
+        (0.08, "💫 Neon")
+    ],
+    
+    # Tiny special cases
+    ("👼 Tiny", "👼 Tiny"): [
+        (0.50, "💮 Special Edition"),  # Tiny power doubles
+        (0.30, "💫 Neon"),
+        (0.15, "🎐 Celestial"),
+        (0.05, "🏵 Mythic")
+    ],
+    ("👼 Tiny", "💫 Neon"): [
+        (0.45, "🎐 Celestial"),  # Tiny glow
+        (0.35, "💫 Neon"),
+        (0.15, "🔮 Premium Edition"),
+        (0.05, "🏵 Mythic")
+    ],
+    
+    # Common combos for progression
+    ("🟢 Common", "🟢 Common"): [
+        (0.60, "🟢 Common"),
+        (0.30, "🟣 Rare"),
+        (0.08, "🟡 Legendary"),
+        (0.02, "💮 Special Edition")
+    ],
+    ("🟣 Rare", "🟣 Rare"): [
+        (0.50, "🟣 Rare"),
+        (0.35, "🟡 Legendary"),
+        (0.12, "💮 Special Edition"),
+        (0.03, "💫 Neon")
+    ],
+    ("🟢 Common", "🟣 Rare"): [
+        (0.55, "🟣 Rare"),
+        (0.30, "🟡 Legendary"),
+        (0.12, "🟢 Common"),
+        (0.03, "💮 Special Edition")
+    ],
+    ("🟣 Rare", "🟡 Legendary"): [
+        (0.45, "🟡 Legendary"),
+        (0.35, "💮 Special Edition"),
+        (0.15, "🟣 Rare"),
+        (0.05, "💫 Neon")
+    ],
+    ("🟢 Common", "🟡 Legendary"): [
+        (0.50, "🟣 Rare"),
+        (0.30, "🟡 Legendary"),
+        (0.15, "🟢 Common"),
+        (0.05, "💮 Special Edition")
+    ]
+}
+
 COSTS = {1: 500, 2: 1000, 3: 2000, 4: 3500, 5: 5000, 6: 7500, 7: 10000}
 BASE_RATES = {0: 0.70, 1: 0.55, 2: 0.40, 3: 0.30}
 STONE_BOOST = 0.15
@@ -59,48 +345,191 @@ def calc_rate(r1: str, r2: str, stones: int, pity: int) -> float:
     return min(base + stone_bonus + pity_bonus, 0.95)
 
 def get_result_rarity(r1: str, r2: str) -> str:
-    tier1 = get_tier(r1)
-    tier2 = get_tier(r2)
+    """
+    Advanced fusion system with 1000+ logical possibilities
+    Checks special combinations first, then falls back to tier-based logic
+    """
     
-    # Define rarity progression rules
-    rarity_progression = {
-        # Two Legendary (tier 3) -> Special Edition (tier 4)
-        (3, 3): "💮 Special Edition",
-        # Two Special Edition (tier 4) -> Neon (tier 5)
-        (4, 4): "💫 Neon",
-        # Two Neon (tier 5) -> Celestial (tier 6)
-        (5, 5): "🎐 Celestial",
-        # Two Celestial (tier 6) -> Mythic (tier 7)
-        (6, 6): "🏵 Mythic",
-        # Two Mythic (tier 7) -> Stays Mythic (max tier)
-        (7, 7): "🏵 Mythic"
-    }
+    # Normalize inputs
+    r1_norm = norm_rarity(r1)
+    r2_norm = norm_rarity(r2)
     
-    # Check for exact tier matches (specific progression)
-    tier_pair = tuple(sorted([tier1, tier2]))
-    if tier_pair in rarity_progression:
-        # 70% chance to get the progression rarity, 30% random
-        if random.random() < 0.70:
-            return rarity_progression[tier_pair]
+    # Create sorted tuple for lookup (order doesn't matter)
+    combo_key = tuple(sorted([r1_norm, r2_norm]))
     
-    # 15% chance for completely random rarity from all rarities
-    if random.random() < 0.15:
-        all_rarities = list(TIERS.keys())
-        return random.choice(all_rarities)
+    # Check for special predefined combinations
+    if combo_key in SPECIAL_FUSIONS:
+        outcomes = SPECIAL_FUSIONS[combo_key]
+        roll = random.random()
+        cumulative = 0.0
+        
+        for chance, rarity in outcomes:
+            cumulative += chance
+            if roll <= cumulative:
+                return rarity
     
-    # Standard tier-based fusion logic
+    # If no special combo found, check for reverse order (shouldn't happen with sorted, but safety)
+    reverse_key = (combo_key[1], combo_key[0])
+    if reverse_key in SPECIAL_FUSIONS:
+        outcomes = SPECIAL_FUSIONS[reverse_key]
+        roll = random.random()
+        cumulative = 0.0
+        
+        for chance, rarity in outcomes:
+            cumulative += chance
+            if roll <= cumulative:
+                return rarity
+    
+    # Category-based special logic for undefined combinations
+    r1_categories = get_rarity_categories(r1_norm)
+    r2_categories = get_rarity_categories(r2_norm)
+    
+    # Cross-seasonal fusion (not predefined)
+    if 'seasonal' in r1_categories and 'seasonal' in r2_categories and r1_norm != r2_norm:
+        # Different seasons have high chance for celestial/mythic
+        roll = random.random()
+        if roll < 0.35:
+            return "🏵 Mythic"
+        elif roll < 0.65:
+            return "🎐 Celestial"
+        elif roll < 0.85:
+            return "💫 Neon"
+        else:
+            return "🔮 Premium Edition"
+    
+    # Holiday + Seasonal (not predefined)
+    if 'holiday' in r1_categories and 'seasonal' in r2_categories:
+        roll = random.random()
+        if roll < 0.40:
+            return "🎐 Celestial"
+        elif roll < 0.70:
+            return "💫 Neon"
+        elif roll < 0.90:
+            return "🔮 Premium Edition"
+        else:
+            return "🏵 Mythic"
+    
+    # Two different holidays (not predefined)
+    if 'holiday' in r1_categories and 'holiday' in r2_categories and r1_norm != r2_norm:
+        roll = random.random()
+        if roll < 0.45:
+            return "🏵 Mythic"
+        elif roll < 0.75:
+            return "🎐 Celestial"
+        elif roll < 0.95:
+            return "💫 Neon"
+        else:
+            return "🔮 Premium Edition"
+    
+    # Creative + Special (not predefined)
+    if 'creative' in r1_categories and 'special' in r2_categories:
+        roll = random.random()
+        if roll < 0.45:
+            return "🎐 Celestial"
+        elif roll < 0.75:
+            return "💫 Neon"
+        elif roll < 0.90:
+            return "🔮 Premium Edition"
+        else:
+            return "🏵 Mythic"
+    
+    # Ultimate + anything (not predefined)
+    if 'ultimate' in r1_categories or 'ultimate' in r2_categories:
+        roll = random.random()
+        if roll < 0.75:
+            return "🏵 Mythic"
+        elif roll < 0.90:
+            return "🎐 Celestial"
+        else:
+            return "💫 Neon"
+    
+    # High tier special rarities together
+    if 'special' in r1_categories and 'special' in r2_categories:
+        tier1 = get_tier(r1_norm)
+        tier2 = get_tier(r2_norm)
+        avg_tier = (tier1 + tier2) / 2
+        
+        if avg_tier >= 6:  # Both high tier
+            roll = random.random()
+            if roll < 0.50:
+                return "🏵 Mythic"
+            elif roll < 0.80:
+                return "🎐 Celestial"
+            else:
+                return "💫 Neon"
+    
+    # Random luck - 5% chance for completely random high-tier rarity
+    if random.random() < 0.05:
+        lucky_pool = ["🏵 Mythic", "🎐 Celestial", "💫 Neon", "🔮 Premium Edition", "💋 Erotic"]
+        return random.choice(lucky_pool)
+    
+    # Fallback to tier-based system for standard combinations
+    tier1 = get_tier(r1_norm)
+    tier2 = get_tier(r2_norm)
     max_tier = max(tier1, tier2)
-    roll = random.random()
+    min_tier = min(tier1, tier2)
     
-    if roll < 0.60:
-        result_tier = max_tier
-    elif roll < 0.90:
-        result_tier = min(max_tier + 1, 7)
-    else:
-        result_tier = min(max_tier + 2, 7)
+    # If tiers are very different, bias towards middle
+    tier_diff = abs(tier1 - tier2)
     
+    if tier_diff >= 3:  # Large gap
+        roll = random.random()
+        if roll < 0.50:
+            result_tier = (tier1 + tier2) // 2
+        elif roll < 0.80:
+            result_tier = max_tier
+        else:
+            result_tier = min(max_tier + 1, 7)
+    else:  # Normal tier progression
+        roll = random.random()
+        if roll < 0.50:
+            result_tier = max_tier
+        elif roll < 0.80:
+            result_tier = min(max_tier + 1, 7)
+        else:
+            result_tier = min(max_tier + 2, 7)
+    
+    # Get all rarities of result tier
     candidates = [r for r, t in TIERS.items() if t == result_tier]
-    return random.choice(candidates) if candidates else "🏵 Mythic"
+    
+    if not candidates:
+        return "🏵 Mythic"
+    
+    # Weight candidates based on categories
+    weighted_candidates = []
+    for candidate in candidates:
+        weight = 1
+        cand_categories = get_rarity_categories(candidate)
+        
+        # If input rarities share category with candidate, increase weight
+        if any(cat in cand_categories for cat in r1_categories):
+            weight += 2
+        if any(cat in cand_categories for cat in r2_categories):
+            weight += 2
+        
+        weighted_candidates.extend([candidate] * weight)
+    
+    return random.choice(weighted_candidates) if weighted_candidates else random.choice(candidates)
+
+
+def get_rarity_categories(rarity: str) -> set:
+    """Return which categories a rarity belongs to"""
+    categories = set()
+    
+    if rarity in SEASONAL_RARITIES:
+        categories.add('seasonal')
+    if rarity in HOLIDAY_RARITIES:
+        categories.add('holiday')
+    if rarity in SPECIAL_RARITIES:
+        categories.add('special')
+    if rarity in CREATIVE_RARITIES:
+        categories.add('creative')
+    if rarity in BASE_RARITIES:
+        categories.add('base')
+    if rarity in ULTIMATE_RARITIES:
+        categories.add('ultimate')
+    
+    return categories
 
 async def check_cooldown(uid: int) -> Tuple[bool, int]:
     try:
