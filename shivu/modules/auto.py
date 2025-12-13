@@ -3,7 +3,7 @@ import random
 import time
 import logging
 from typing import List, Dict, Tuple, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo
 from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext, ContextTypes
 from telegram.error import TelegramError
 from shivu import application, user_collection, collection
@@ -18,7 +18,7 @@ RARITY_MAP = {
     "cosplay": "🎭 Cosplay", "celestial": "🎐 Celestial", "premium": "🔮 Premium Edition",
     "erotic": "💋 Erotic", "summer": "🌤 Summer", "winter": "☃️ Winter",
     "monsoon": "☔️ Monsoon", "valentine": "💝 Valentine", "halloween": "🎃 Halloween",
-    "christmas": "🎄 Christmas", "mythic": "🏵 Mythic", "events": "🎗 Special Events",
+    "christmas": "🎄 Christmas", "mythic": "🏵 Mythic",
     "amv": "🎥 AMV", "tiny": "👼 Tiny"
 }
 
@@ -27,7 +27,7 @@ TIERS = {
     "💫 Neon": 5, "✨ Manga": 5, "🎭 Cosplay": 5, "🎐 Celestial": 6,
     "🔮 Premium Edition": 6, "💋 Erotic": 6, "🌤 Summer": 4, "☃️ Winter": 4,
     "☔️ Monsoon": 4, "💝 Valentine": 5, "🎃 Halloween": 5, "🎄 Christmas": 5,
-    "🏵 Mythic": 7, "🎗 Special Events": 6, "🎥 AMV": 5, "👼 Tiny": 4
+    "🏵 Mythic": 7, "🎥 AMV": 5, "👼 Tiny": 4
 }
 
 COSTS = {1: 500, 2: 1000, 3: 2000, 4: 3500, 5: 5000, 6: 7500, 7: 10000}
@@ -380,15 +380,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = query.message
             except Exception as e:
                 logger.warning(f"Could not edit message: {e}")
-                # Send new message if edit fails
+                # Send new message with character 1 media
                 try:
-                    msg = await context.bot.send_photo(
-                        chat_id=query.message.chat_id,
-                        photo=char1.get('img_url', ''),
-                        caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
-                    )
+                    media_url = char1.get('img_url', '')
+                    # Check if AMV (video)
+                    if char1.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
+                        msg = await context.bot.send_video(
+                            chat_id=query.message.chat_id,
+                            video=media_url,
+                            caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                        )
+                    else:
+                        msg = await context.bot.send_photo(
+                            chat_id=query.message.chat_id,
+                            photo=media_url,
+                            caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                        )
                 except Exception as e2:
-                    logger.warning(f"Could not send photo: {e2}")
+                    logger.warning(f"Could not send media: {e2}")
                     msg = await context.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
@@ -425,15 +434,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning(f"Could not edit message: {e}")
             
-            # Send confirmation with photo using context.bot
+            # Send confirmation with character 2 media
             try:
-                await context.bot.send_photo(
-                    chat_id=query.message.chat_id,
-                    photo=char2.get('img_url', ''),
-                    caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
-                )
+                media_url = char2.get('img_url', '')
+                # Check if AMV (video)
+                if char2.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
+                    await context.bot.send_video(
+                        chat_id=query.message.chat_id,
+                        video=media_url,
+                        caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
+                    )
+                else:
+                    await context.bot.send_photo(
+                        chat_id=query.message.chat_id,
+                        photo=media_url,
+                        caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
+                    )
             except Exception as e:
-                logger.warning(f"Could not send photo: {e}")
+                logger.warning(f"Could not send media: {e}")
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=f"✅ {char2.get('name')}\n\npreparing..."
@@ -582,20 +600,63 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
             f"stones: {stones}{stone_text}"
         )
         
+        # Send both character images/videos as a media group
         try:
-            await context.bot.send_photo(
+            media_list = []
+            
+            # Character 1
+            media1_url = c1.get('img_url', '')
+            if c1.get('rarity', '').lower() == 'amv' or media1_url.endswith(('.mp4', '.mov', '.avi')):
+                media_list.append(InputMediaVideo(media=media1_url, caption=f"1️⃣ {r1} {c1.get('name')}"))
+            else:
+                media_list.append(InputMediaPhoto(media=media1_url, caption=f"1️⃣ {r1} {c1.get('name')}"))
+            
+            # Character 2
+            media2_url = c2.get('img_url', '')
+            if c2.get('rarity', '').lower() == 'amv' or media2_url.endswith(('.mp4', '.mov', '.avi')):
+                media_list.append(InputMediaVideo(media=media2_url, caption=f"2️⃣ {r2} {c2.get('name')}"))
+            else:
+                media_list.append(InputMediaPhoto(media=media2_url, caption=f"2️⃣ {r2} {c2.get('name')}"))
+            
+            # Send media group
+            await context.bot.send_media_group(
                 chat_id=chat_id,
-                photo=c1.get('img_url', ''),
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(buttons)
+                media=media_list
             )
-        except Exception as e:
-            logger.warning(f"Could not send photo in confirm: {e}")
+            
+            # Send confirmation message with buttons
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=caption,
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
+            
+        except Exception as e:
+            logger.warning(f"Could not send media group in confirm: {e}")
+            # Fallback to single image
+            try:
+                media_url = c1.get('img_url', '')
+                if c1.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=media_url,
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup(buttons)
+                    )
+                else:
+                    await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=media_url,
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup(buttons)
+                    )
+            except Exception as e2:
+                logger.warning(f"Could not send single media: {e2}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=caption,
+                    reply_markup=InlineKeyboardMarkup(buttons)
+                )
             
     except Exception as e:
         logger.error(f"Show confirm error: {e}", exc_info=True)
@@ -688,19 +749,34 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
                 await log_fusion(uid, c1.get('name'), c2.get('name'), True, new_char.get('name'))
                 
                 try:
-                    await context.bot.send_photo(
-                        chat_id=query.message.chat_id,
-                        photo=new_char.get('img_url', ''),
-                        caption=(
-                            f"✨ success!\n\n"
-                            f"{result_r}\n"
-                            f"{new_char.get('name')}\n"
-                            f"{new_char.get('anime', 'unknown')}\n"
-                            f"id: {new_char.get('id')}"
+                    media_url = new_char.get('img_url', '')
+                    # Check if result is AMV (video)
+                    if new_char.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
+                        await context.bot.send_video(
+                            chat_id=query.message.chat_id,
+                            video=media_url,
+                            caption=(
+                                f"✨ success!\n\n"
+                                f"{result_r}\n"
+                                f"{new_char.get('name')}\n"
+                                f"{new_char.get('anime', 'unknown')}\n"
+                                f"id: {new_char.get('id')}"
+                            )
                         )
-                    )
+                    else:
+                        await context.bot.send_photo(
+                            chat_id=query.message.chat_id,
+                            photo=media_url,
+                            caption=(
+                                f"✨ success!\n\n"
+                                f"{result_r}\n"
+                                f"{new_char.get('name')}\n"
+                                f"{new_char.get('anime', 'unknown')}\n"
+                                f"id: {new_char.get('id')}"
+                            )
+                        )
                 except Exception as e:
-                    logger.warning(f"Could not send success photo: {e}")
+                    logger.warning(f"Could not send success media: {e}")
                     await context.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=f"✨ success!\n\n{result_r}\n{new_char.get('name')}"
