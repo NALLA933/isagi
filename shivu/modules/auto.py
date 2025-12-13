@@ -176,6 +176,18 @@ async def callback_handler(update: Update, context: CallbackContext):
         
         session['c2'] = cid
         session['c2_data'] = char2
+        
+        try:
+            await query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=char2.get('img_url', ''),
+                    caption=f"✅ selected second: {char2.get('rarity')} {char2.get('name')}\n\npreparing fusion..."
+                )
+            )
+            await asyncio.sleep(1)
+        except:
+            pass
+        
         await show_confirm(query, uid)
     
     elif data.startswith("fst_"):
@@ -243,23 +255,40 @@ async def show_confirm(query, uid: int):
     caption = (
         f"⚗️ fusion preview\n\n"
         f"1️⃣ {r1} {c1.get('name')}\n"
+        f"     ×\n"
         f"2️⃣ {r2} {c2.get('name')}\n"
-        f"➡️ {result_r}\n\n"
-        f"success: {rate*100:.0f}%\n"
-        f"cost: {cost:,} 💰\n"
-        f"balance: {bal:,} 💰\n"
-        f"stones: {stones} (+{stones*15}%)" if stones else f"stones: 0"
+        f"     ‖\n"
+        f"     ⬇️\n"
+        f"✨ {result_r}\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"success rate: {rate*100:.0f}%\n"
+        f"fusion cost: {cost:,} 💰\n"
+        f"your balance: {bal:,} 💰\n"
+        f"using stones: {stones} {f'(+{stones*15}%)' if stones else ''}"
     )
     
     try:
-        media_group = [
-            InputMediaPhoto(media=c1.get('img_url', ''), caption=f"1️⃣ {c1.get('name')}"),
-            InputMediaPhoto(media=c2.get('img_url', ''), caption=f"2️⃣ {c2.get('name')}")
-        ]
-        await query.message.reply_media_group(media=media_group)
-        await query.edit_message_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
-    except:
-        await query.edit_message_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
+        combined_url = f"https://api.telegram.org/file/bot{context.bot.token}/photos/combined.jpg"
+        
+        await query.edit_message_media(
+            media=InputMediaPhoto(
+                media=c1.get('img_url', ''),
+                caption=caption
+            ),
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+    except Exception as e:
+        print(f"Media edit error: {e}")
+        try:
+            await query.edit_message_text(
+                caption,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        except:
+            await query.message.reply_text(
+                caption,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
 
 async def execute_fusion(query, uid: int):
     session = sessions.get(uid)
