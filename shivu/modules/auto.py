@@ -4,7 +4,7 @@ import time
 import logging
 from typing import List, Dict, Tuple, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext, ContextTypes
 from telegram.error import TelegramError
 from shivu import application, user_collection, collection
 from datetime import datetime, timedelta
@@ -218,7 +218,7 @@ def cleanup_sessions():
     for k in expired:
         del sessions[k]
 
-async def fuse_cmd(update: Update, context: CallbackContext):
+async def fuse_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         uid = update.effective_user.id
         
@@ -252,24 +252,33 @@ async def fuse_cmd(update: Update, context: CallbackContext):
         logger.error(f"Fuse cmd error: {e}")
         await update.message.reply_text("⚠️ error occurred")
 
-async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: int, context: CallbackContext, is_edit: bool = False):
+async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: int, context: ContextTypes.DEFAULT_TYPE, is_edit: bool = False):
     try:
         start = page * CHARS_PER_PAGE
         end = start + CHARS_PER_PAGE
         page_chars = chars[start:end]
         
         if not page_chars:
+            text = "❌ no characters on this page"
             if is_edit:
-                await message.edit_text("❌ no characters on this page")
+                try:
+                    await message.edit_text(text)
+                except Exception:
+                    await message.reply_text(text)
             else:
-                await message.reply_text("❌ no characters on this page")
+                await message.reply_text(text)
             return
         
         buttons = []
         for c in page_chars:
+            char_name = c.get('name', 'unknown')
+            # Truncate name to avoid callback_data exceeding 64 bytes
+            display_name = char_name[:10] if len(char_name) > 10 else char_name
+            char_id = str(c.get('id', ''))[:20]  # Ensure ID isn't too long
+            
             buttons.append([InlineKeyboardButton(
-                f"{norm_rarity(c.get('rarity', 'common'))} {c.get('name', 'unknown')[:12]}",
-                callback_data=f"fs{step}_{c.get('id')}"
+                f"{norm_rarity(c.get('rarity', 'common'))} {display_name}",
+                callback_data=f"fs{step}_{char_id}"
             )])
         
         nav_btns = []
@@ -289,20 +298,27 @@ async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: 
             try:
                 await message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
             except TelegramError as te:
-                if "message can't be edited" in str(te).lower() or "message is not modified" in str(te).lower():
+                error_str = str(te).lower()
+                if "message can't be edited" in error_str or "message is not modified" in error_str:
                     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
                 else:
-                    raise
+                    logger.error(f"Edit error: {te}")
+                    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
         else:
             await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         logger.error(f"Show char page error: {e}")
         try:
-            await message.reply_text(f"⚗️ select character {step}/2", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ cancel", callback_data="fc")]]))
-        except:
-            pass
+            text = f"⚗️ select character {step}/2"
+            cancel_button = InlineKeyboardMarkup([[InlineKeyboardButton("❌ cancel", callback_data="fc")]])
+            if is_edit:
+                await message.edit_text(text, reply_markup=cancel_button)
+            else:
+                await message.reply_text(text, reply_markup=cancel_button)
+        except Exception as inner_e:
+            logger.error(f"Fallback error: {inner_e}")
 
-async def callback_handler(update: Update, context: CallbackContext):
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = query.from_user.id
     data = query.data
@@ -310,6 +326,7 @@ async def callback_handler(update: Update, context: CallbackContext):
     try:
         if data == "fc":
             sessions.pop(uid, None)
+            await query.answer()
             await query.edit_message_text("❌ cancelled")
             return
         
@@ -322,6 +339,10 @@ async def callback_handler(update: Update, context: CallbackContext):
         
         if data.startswith("fp"):
             parts = data[2:].split('_')
+            if len(parts) < 2:
+                await query.answer("❌ invalid data", show_alert=True)
+                return
+            
             step = int(parts[0])
             page = int(parts[1])
             
@@ -336,10 +357,11 @@ async def callback_handler(update: Update, context: CallbackContext):
             cid = data[4:]
             user = await get_user_safe(uid)
             chars = user.get('characters', [])
-            char1 = next((c for c in chars if c.get('id') == cid), None)
+            char1 = next((c for c in chars if str(c.get('id')) == cid), None)
             
             if not char1:
                 await query.edit_message_text("❌ character not found")
+                sessions.pop(uid, None)
                 return
             
             sessions[uid].update({
@@ -352,13 +374,19 @@ async def callback_handler(update: Update, context: CallbackContext):
             
             try:
                 await query.delete_message()
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not delete message: {e}")
             
-            msg = await query.message.reply_photo(
-                photo=char1.get('img_url', ''),
-                caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
-            )
+            try:
+                msg = await query.message.reply_photo(
+                    photo=char1.get('img_url', ''),
+                    caption=f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                )
+            except Exception as e:
+                logger.warning(f"Could not send photo: {e}")
+                msg = await query.message.reply_text(
+                    f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
+                )
             
             await asyncio.sleep(0.5)
             await show_char_page(msg, uid, chars, 0, 2, context, is_edit=False)
@@ -368,10 +396,16 @@ async def callback_handler(update: Update, context: CallbackContext):
             cid = data[4:]
             user = await get_user_safe(uid)
             chars = user.get('characters', [])
-            char2 = next((c for c in chars if c.get('id') == cid), None)
+            char2 = next((c for c in chars if str(c.get('id')) == cid), None)
             
             if not char2:
                 await query.edit_message_text("❌ character not found")
+                sessions.pop(uid, None)
+                return
+            
+            # Check if user selected the same character
+            if cid == session.get('c1'):
+                await query.answer("❌ cannot select the same character", show_alert=True)
                 return
             
             session['c2'] = cid
@@ -379,15 +413,16 @@ async def callback_handler(update: Update, context: CallbackContext):
             
             try:
                 await query.delete_message()
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not delete message: {e}")
             
             try:
                 await query.message.reply_photo(
                     photo=char2.get('img_url', ''),
                     caption=f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
                 )
-            except:
+            except Exception as e:
+                logger.warning(f"Could not send photo: {e}")
                 await query.message.reply_text(f"✅ {char2.get('name')}\n\npreparing...")
             
             await asyncio.sleep(0.5)
@@ -395,7 +430,12 @@ async def callback_handler(update: Update, context: CallbackContext):
             return
         
         if data.startswith("fst_"):
-            stones = int(data[4])
+            stones_str = data[4:]
+            if not stones_str.isdigit():
+                await query.answer("❌ invalid stone count", show_alert=True)
+                return
+            
+            stones = int(stones_str)
             user = await get_user_safe(uid)
             user_stones = user.get('fusion_stones', 0)
             
@@ -407,8 +447,8 @@ async def callback_handler(update: Update, context: CallbackContext):
             
             try:
                 await query.delete_message()
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not delete message: {e}")
             
             await show_confirm(query.message, uid, context)
             return
@@ -422,9 +462,18 @@ async def callback_handler(update: Update, context: CallbackContext):
             return
         
         if data.startswith("fb_"):
-            amount = int(data[3:])
+            amount_str = data[3:]
+            if not amount_str.isdigit():
+                await query.answer("❌ invalid amount", show_alert=True)
+                return
+            
+            amount = int(amount_str)
             prices = {1: 100, 5: 450, 10: 850, 20: 1600}
             cost = prices.get(amount, 0)
+            
+            if cost == 0:
+                await query.answer("❌ invalid purchase", show_alert=True)
+                return
             
             if not await atomic_balance_deduct(uid, cost):
                 user = await get_user_safe(uid)
@@ -442,14 +491,24 @@ async def callback_handler(update: Update, context: CallbackContext):
             return
             
     except Exception as e:
-        logger.error(f"Callback error: {e}")
+        logger.error(f"Callback error: {e}", exc_info=True)
         await query.answer("⚠️ error occurred", show_alert=True)
 
-async def show_confirm(message, uid: int, context: CallbackContext):
+async def show_confirm(message, uid: int, context: ContextTypes.DEFAULT_TYPE):
     try:
-        session = sessions[uid]
-        c1 = session['c1_data']
-        c2 = session['c2_data']
+        session = sessions.get(uid)
+        if not session:
+            await message.reply_text("❌ session expired")
+            return
+        
+        c1 = session.get('c1_data')
+        c2 = session.get('c2_data')
+        
+        if not c1 or not c2:
+            await message.reply_text("❌ character data missing")
+            sessions.pop(uid, None)
+            return
+        
         stones = session.get('stones', 0)
         
         r1 = norm_rarity(c1.get('rarity'))
@@ -464,20 +523,35 @@ async def show_confirm(message, uid: int, context: CallbackContext):
         rate = calc_rate(r1, r2, stones, pity)
         
         buttons = []
-        stone_btns = [InlineKeyboardButton(
-            f"{'✅' if stones == i else '💎'} {i}",
-            callback_data=f"fst_{i}"
-        ) for i in range(1, 4) if user_stones >= i]
+        stone_btns = []
+        for i in range(1, 4):
+            if user_stones >= i:
+                stone_btns.append(InlineKeyboardButton(
+                    f"{'✅' if stones == i else '💎'} {i}",
+                    callback_data=f"fst_{i}"
+                ))
         
         if stone_btns:
-            buttons.append(stone_btns[:2] if len(stone_btns) > 1 else stone_btns)
-            if len(stone_btns) > 2:
-                buttons.append([stone_btns[2]])
+            if len(stone_btns) > 1:
+                buttons.append(stone_btns[:2])
+                if len(stone_btns) > 2:
+                    buttons.append([stone_btns[2]])
+            else:
+                buttons.append(stone_btns)
+        
+        fuse_text = "✅ fuse" if bal >= cost else "❌ insufficient"
+        fuse_callback = "fconf" if bal >= cost else "fc"
         
         buttons.extend([
-            [InlineKeyboardButton("✅ fuse" if bal >= cost else "❌ insufficient", callback_data="fconf" if bal >= cost else "fc")],
-            [InlineKeyboardButton("💎 buy stones", callback_data="fshop"), InlineKeyboardButton("❌ cancel", callback_data="fc")]
+            [InlineKeyboardButton(fuse_text, callback_data=fuse_callback)],
+            [
+                InlineKeyboardButton("💎 buy stones", callback_data="fshop"),
+                InlineKeyboardButton("❌ cancel", callback_data="fc")
+            ]
         ])
+        
+        pity_text = f' (+{pity*5}% pity)' if pity > 0 else ''
+        stone_text = f' (+{stones*15}%)' if stones else ''
         
         caption = (
             f"⚗️ fusion preview\n\n"
@@ -488,10 +562,10 @@ async def show_confirm(message, uid: int, context: CallbackContext):
             f"     ⬇️\n"
             f"✨ {result_r}\n\n"
             f"━━━━━━━━━━━━━━\n"
-            f"success: {rate*100:.0f}%{f' (+{pity*5}% pity)' if pity > 0 else ''}\n"
+            f"success: {rate*100:.0f}%{pity_text}\n"
             f"cost: {cost:,} 💰\n"
             f"balance: {bal:,} 💰\n"
-            f"stones: {stones}{f' (+{stones*15}%)' if stones else ''}"
+            f"stones: {stones}{stone_text}"
         )
         
         try:
@@ -500,38 +574,58 @@ async def show_confirm(message, uid: int, context: CallbackContext):
                 caption=caption,
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
-        except:
+        except Exception as e:
+            logger.warning(f"Could not send photo in confirm: {e}")
             await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons))
             
     except Exception as e:
-        logger.error(f"Show confirm error: {e}")
+        logger.error(f"Show confirm error: {e}", exc_info=True)
         await message.reply_text("⚠️ error preparing fusion")
 
-async def execute_fusion(query, uid: int, context: CallbackContext):
+async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
     try:
         session = sessions.get(uid)
         if not session:
             await query.edit_message_text("❌ session expired")
             return
         
-        c1, c2 = session['c1_data'], session['c2_data']
+        c1 = session.get('c1_data')
+        c2 = session.get('c2_data')
+        
+        if not c1 or not c2:
+            await query.edit_message_text("❌ character data missing")
+            sessions.pop(uid, None)
+            return
+        
         stones = session.get('stones', 0)
-        r1, r2 = norm_rarity(c1.get('rarity')), norm_rarity(c2.get('rarity'))
+        r1 = norm_rarity(c1.get('rarity'))
+        r2 = norm_rarity(c2.get('rarity'))
         cost = calc_cost(r1, r2)
         
+        # Deduct balance
         if not await atomic_balance_deduct(uid, cost):
             await query.edit_message_text("❌ insufficient balance")
+            sessions.pop(uid, None)
             return
         
+        # Deduct stones if used
         if stones > 0 and not await atomic_stone_use(uid, stones):
+            # Refund balance
             await user_collection.update_one({'id': uid}, {'$inc': {'balance': cost}})
             await query.edit_message_text("❌ insufficient stones (refunded)")
+            sessions.pop(uid, None)
             return
         
-        for i in range(5):
-            await query.edit_message_text(f"{'⚡🌀✨💫🔮'[i]} fusing... {i*25}%")
-            await asyncio.sleep(0.8)
+        # Animate fusion process
+        animation_frames = ['⚡', '🌀', '✨', '💫', '🔮']
+        for i, frame in enumerate(animation_frames):
+            try:
+                await query.edit_message_text(f"{frame} fusing... {(i+1)*20}%")
+                await asyncio.sleep(0.8)
+            except Exception as e:
+                logger.warning(f"Animation frame error: {e}")
         
+        # Calculate success
         user = await get_user_safe(uid)
         pity = user.get('fusion_pity', 0)
         rate = calc_rate(r1, r2, stones, pity)
@@ -539,42 +633,76 @@ async def execute_fusion(query, uid: int, context: CallbackContext):
         
         if success:
             result_r = get_result_rarity(r1, r2)
+            
+            # Find matching rarity in database (handle both formats)
+            result_rarity_raw = None
+            for key, value in RARITY_MAP.items():
+                if value == result_r:
+                    result_rarity_raw = key
+                    break
+            
+            # Try both formats
+            match_query = {'$or': [
+                {'rarity': result_r},
+                {'rarity': result_rarity_raw} if result_rarity_raw else {'rarity': result_r}
+            ]}
+            
             new_chars = await collection.aggregate([
-                {'$match': {'rarity': result_r}},
+                {'$match': match_query},
                 {'$sample': {'size': 1}}
             ]).to_list(length=1)
             
             if new_chars:
                 new_char = new_chars[0]
                 
+                # Swap characters atomically
                 if not await atomic_char_swap(uid, [session['c1'], session['c2']], new_char):
+                    # Refund on failure
                     await user_collection.update_one(
                         {'id': uid},
                         {'$inc': {'balance': cost, 'fusion_stones': stones}}
                     )
                     await query.edit_message_text("❌ fusion failed (refunded)")
+                    sessions.pop(uid, None)
                     return
                 
                 await log_fusion(uid, c1.get('name'), c2.get('name'), True, new_char.get('name'))
                 
-                await query.message.reply_photo(
-                    photo=new_char.get('img_url', ''),
-                    caption=f"✨ success!\n\n{result_r}\n{new_char.get('name')}\n{new_char.get('anime', 'unknown')}\nid: {new_char.get('id')}"
-                )
+                try:
+                    await query.message.reply_photo(
+                        photo=new_char.get('img_url', ''),
+                        caption=(
+                            f"✨ success!\n\n"
+                            f"{result_r}\n"
+                            f"{new_char.get('name')}\n"
+                            f"{new_char.get('anime', 'unknown')}\n"
+                            f"id: {new_char.get('id')}"
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not send success photo: {e}")
+                    await query.message.reply_text(
+                        f"✨ success!\n\n{result_r}\n{new_char.get('name')}"
+                    )
+                
                 await query.edit_message_text("✅ fusion complete!")
             else:
+                # Refund if no character found
                 await user_collection.update_one(
                     {'id': uid},
                     {'$inc': {'balance': cost, 'fusion_stones': stones}}
                 )
                 await query.edit_message_text("❌ no result available (refunded)")
         else:
+            # Failure - remove both characters
             if not await atomic_char_remove(uid, [session['c1'], session['c2']]):
+                # Refund on error
                 await user_collection.update_one(
                     {'id': uid},
                     {'$inc': {'balance': cost, 'fusion_stones': stones}}
                 )
                 await query.edit_message_text("❌ fusion error (refunded)")
+                sessions.pop(uid, None)
                 return
             
             await log_fusion(uid, c1.get('name'), c2.get('name'), False)
@@ -586,8 +714,12 @@ async def execute_fusion(query, uid: int, context: CallbackContext):
         sessions.pop(uid, None)
         
     except Exception as e:
-        logger.error(f"Execute fusion error: {e}")
-        await query.edit_message_text("⚠️ fusion error occurred")
+        logger.error(f"Execute fusion error: {e}", exc_info=True)
+        try:
+            await query.edit_message_text("⚠️ fusion error occurred")
+        except Exception:
+            await query.message.reply_text("⚠️ fusion error occurred")
+        sessions.pop(uid, None)
 
 async def show_shop(query, uid: int):
     try:
@@ -596,21 +728,40 @@ async def show_shop(query, uid: int):
         stones = user.get('fusion_stones', 0)
         
         buttons = [
-            [InlineKeyboardButton("💎 1 - 100", callback_data="fb_1"), InlineKeyboardButton("💎 5 - 450", callback_data="fb_5")],
-            [InlineKeyboardButton("💎 10 - 850", callback_data="fb_10"), InlineKeyboardButton("💎 20 - 1600", callback_data="fb_20")],
+            [
+                InlineKeyboardButton("💎 1 - 100", callback_data="fb_1"),
+                InlineKeyboardButton("💎 5 - 450", callback_data="fb_5")
+            ],
+            [
+                InlineKeyboardButton("💎 10 - 850", callback_data="fb_10"),
+                InlineKeyboardButton("💎 20 - 1600", callback_data="fb_20")
+            ],
             [InlineKeyboardButton("⬅️ back", callback_data="fc")]
         ]
         
+        shop_text = (
+            f"💎 stone shop\n\n"
+            f"balance: {bal:,} 💰\n"
+            f"stones: {stones}\n\n"
+            f"1 = 100 💰\n"
+            f"5 = 450 💰 (10% off)\n"
+            f"10 = 850 💰 (15% off)\n"
+            f"20 = 1600 💰 (20% off)\n\n"
+            f"+15% success per stone (max 3)"
+        )
+        
         await query.edit_message_text(
-            f"💎 stone shop\n\nbalance: {bal:,} 💰\nstones: {stones}\n\n"
-            f"1 = 100 💰\n5 = 450 💰 (10% off)\n10 = 850 💰 (15% off)\n20 = 1600 💰 (20% off)\n\n"
-            f"+15% success per stone (max 3)",
+            shop_text,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
     except Exception as e:
-        logger.error(f"Show shop error: {e}")
+        logger.error(f"Show shop error: {e}", exc_info=True)
+        try:
+            await query.answer("⚠️ error loading shop", show_alert=True)
+        except Exception:
+            pass
 
-async def info_cmd(update: Update, context: CallbackContext):
+async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         uid = update.effective_user.id
         user = await get_user_safe(uid)
@@ -624,7 +775,7 @@ async def info_cmd(update: Update, context: CallbackContext):
         success = user.get('fusion_success', 0)
         rate = (success / total * 100) if total > 0 else 0
         
-        await update.message.reply_text(
+        info_text = (
             f"⚗️ fusion stats\n\n"
             f"balance: {user.get('balance', 0):,} 💰\n"
             f"stones: {user.get('fusion_stones', 0)} 💎\n"
@@ -633,32 +784,51 @@ async def info_cmd(update: Update, context: CallbackContext):
             f"total fusions: {total}\n"
             f"success rate: {rate:.1f}%\n"
             f"pity bonus: +{pity*5}%\n\n"
-            f"/fuse - start fusion\n/buystone - shop"
+            f"/fuse - start fusion\n"
+            f"/buystone - shop"
         )
+        
+        await update.message.reply_text(info_text)
     except Exception as e:
-        logger.error(f"Info cmd error: {e}")
+        logger.error(f"Info cmd error: {e}", exc_info=True)
         await update.message.reply_text("⚠️ error occurred")
 
-async def buystone_cmd(update: Update, context: CallbackContext):
+async def buystone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         uid = update.effective_user.id
         user = await get_user_safe(uid)
         
         buttons = [
-            [InlineKeyboardButton("💎 1 - 100", callback_data="fb_1"), InlineKeyboardButton("💎 5 - 450", callback_data="fb_5")],
-            [InlineKeyboardButton("💎 10 - 850", callback_data="fb_10"), InlineKeyboardButton("💎 20 - 1600", callback_data="fb_20")],
+            [
+                InlineKeyboardButton("💎 1 - 100", callback_data="fb_1"),
+                InlineKeyboardButton("💎 5 - 450", callback_data="fb_5")
+            ],
+            [
+                InlineKeyboardButton("💎 10 - 850", callback_data="fb_10"),
+                InlineKeyboardButton("💎 20 - 1600", callback_data="fb_20")
+            ],
             [InlineKeyboardButton("❌ close", callback_data="fc")]
         ]
         
+        shop_text = (
+            f"💎 stone shop\n\n"
+            f"balance: {user.get('balance', 0):,} 💰\n"
+            f"stones: {user.get('fusion_stones', 0)}\n\n"
+            f"1 = 100 💰\n"
+            f"5 = 450 💰 (save 50)\n"
+            f"10 = 850 💰 (save 150)\n"
+            f"20 = 1600 💰 (save 400)"
+        )
+        
         await update.message.reply_text(
-            f"💎 stone shop\n\nbalance: {user.get('balance', 0):,} 💰\nstones: {user.get('fusion_stones', 0)}\n\n"
-            f"1 = 100 💰\n5 = 450 💰 (save 50)\n10 = 850 💰 (save 150)\n20 = 1600 💰 (save 400)",
+            shop_text,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
     except Exception as e:
-        logger.error(f"Buystone cmd error: {e}")
+        logger.error(f"Buystone cmd error: {e}", exc_info=True)
         await update.message.reply_text("⚠️ error occurred")
 
+# Register handlers
 application.add_handler(CommandHandler(['fuse', 'fusion'], fuse_cmd, block=False))
 application.add_handler(CommandHandler(['fusioninfo', 'finfo'], info_cmd, block=False))
 application.add_handler(CommandHandler(['buystone', 'buystones'], buystone_cmd, block=False))
