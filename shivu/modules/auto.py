@@ -59,7 +59,37 @@ def calc_rate(r1: str, r2: str, stones: int, pity: int) -> float:
     return min(base + stone_bonus + pity_bonus, 0.95)
 
 def get_result_rarity(r1: str, r2: str) -> str:
-    max_tier = max(get_tier(r1), get_tier(r2))
+    tier1 = get_tier(r1)
+    tier2 = get_tier(r2)
+    
+    # Define rarity progression rules
+    rarity_progression = {
+        # Two Legendary (tier 3) -> Special Edition (tier 4)
+        (3, 3): "💮 Special Edition",
+        # Two Special Edition (tier 4) -> Neon (tier 5)
+        (4, 4): "💫 Neon",
+        # Two Neon (tier 5) -> Celestial (tier 6)
+        (5, 5): "🎐 Celestial",
+        # Two Celestial (tier 6) -> Mythic (tier 7)
+        (6, 6): "🏵 Mythic",
+        # Two Mythic (tier 7) -> Stays Mythic (max tier)
+        (7, 7): "🏵 Mythic"
+    }
+    
+    # Check for exact tier matches (specific progression)
+    tier_pair = tuple(sorted([tier1, tier2]))
+    if tier_pair in rarity_progression:
+        # 70% chance to get the progression rarity, 30% random
+        if random.random() < 0.70:
+            return rarity_progression[tier_pair]
+    
+    # 15% chance for completely random rarity from all rarities
+    if random.random() < 0.15:
+        all_rarities = list(TIERS.keys())
+        return random.choice(all_rarities)
+    
+    # Standard tier-based fusion logic
+    max_tier = max(tier1, tier2)
     roll = random.random()
     
     if roll < 0.60:
@@ -478,11 +508,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             session['stones'] = stones
             
-            # Don't delete, just notify user
+            # Just update the message text, don't send new confirmation
             await query.answer(f"✅ Using {stones} stones", show_alert=False)
             
-            # Send confirmation directly
-            await show_confirm(query.message.chat_id, uid, context)
+            # Update the existing message with new stone selection
+            await update_confirm_message(query, uid, context)
             return
         
         if data == "fconf":
@@ -525,6 +555,97 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Callback error: {e}", exc_info=True)
         await query.answer("⚠️ error occurred", show_alert=True)
+
+async def update_confirm_message(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
+    """Update only the confirmation text without resending images"""
+    try:
+        session = sessions.get(uid)
+        if not session:
+            await query.answer("❌ session expired", show_alert=True)
+            return
+        
+        c1 = session.get('c1_data')
+        c2 = session.get('c2_data')
+        
+        if not c1 or not c2:
+            await query.answer("❌ character data missing", show_alert=True)
+            return
+        
+        stones = session.get('stones', 0)
+        
+        r1 = norm_rarity(c1.get('rarity'))
+        r2 = norm_rarity(c2.get('rarity'))
+        result_r = get_result_rarity(r1, r2)
+        cost = calc_cost(r1, r2)
+        
+        user = await get_user_safe(uid)
+        bal = user.get('balance', 0)
+        user_stones = user.get('fusion_stones', 0)
+        pity = user.get('fusion_pity', 0)
+        rate = calc_rate(r1, r2, stones, pity)
+        
+        buttons = []
+        stone_btns = []
+        for i in range(1, 4):
+            if user_stones >= i:
+                stone_btns.append(InlineKeyboardButton(
+                    f"{'✅' if stones == i else '💎'} {i}",
+                    callback_data=f"fst_{i}"
+                ))
+        
+        if stone_btns:
+            if len(stone_btns) > 1:
+                buttons.append(stone_btns[:2])
+                if len(stone_btns) > 2:
+                    buttons.append([stone_btns[2]])
+            else:
+                buttons.append(stone_btns)
+        
+        fuse_text = "✅ fuse" if bal >= cost else "❌ insufficient"
+        fuse_callback = "fconf" if bal >= cost else "fc"
+        
+        buttons.extend([
+            [InlineKeyboardButton(fuse_text, callback_data=fuse_callback)],
+            [
+                InlineKeyboardButton("💎 buy stones", callback_data="fshop"),
+                InlineKeyboardButton("❌ cancel", callback_data="fc")
+            ]
+        ])
+        
+        pity_text = f' (+{pity*5}% pity)' if pity > 0 else ''
+        stone_text = f' (+{stones*15}%)' if stones else ''
+        
+        caption = (
+            f"⚗️ fusion preview\n\n"
+            f"1️⃣ {r1} {c1.get('name')}\n"
+            f"     ×\n"
+            f"2️⃣ {r2} {c2.get('name')}\n"
+            f"     ‖\n"
+            f"     ⬇️\n"
+            f"✨ {result_r}\n\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"success: {rate*100:.0f}%{pity_text}\n"
+            f"cost: {cost:,} 💰\n"
+            f"balance: {bal:,} 💰\n"
+            f"stones: {stones}{stone_text}"
+        )
+        
+        # Just edit the existing message text and buttons
+        try:
+            await query.edit_message_text(
+                text=caption,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        except TelegramError as e:
+            error_str = str(e).lower()
+            if "message is not modified" in error_str:
+                # Message is the same, just ignore
+                pass
+            else:
+                logger.warning(f"Could not update confirm message: {e}")
+                
+    except Exception as e:
+        logger.error(f"Update confirm message error: {e}", exc_info=True)
 
 async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYPE):
     try:
