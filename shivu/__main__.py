@@ -12,6 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
+from autofix_system import create_autofix_system, apply_autofix_to_handlers
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -37,12 +38,20 @@ group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
+autofix = create_autofix_system(shivuu, LOGGER)
+
 for module_name in ALL_MODULES:
     try:
-        importlib.import_module("shivu.modules." + module_name)
-        LOGGER.info(f"✅ Module loaded: {module_name}")
+        loaded_module = importlib.import_module("shivu.modules." + module_name)
+        autofix.wrap_module(loaded_module)
+        LOGGER.info(f"✅ Module loaded with auto-fix: {module_name}")
     except Exception as e:
         LOGGER.error(f"❌ Module failed: {module_name} - {e}")
+        asyncio.create_task(autofix.handle_error(
+            error=e,
+            module_name=module_name,
+            function_name="module_import"
+        ))
 
 try:
     from shivu.modules.rarity import (
@@ -56,6 +65,11 @@ try:
     LOGGER.info("✅ Rarity system loaded")
 except Exception as e:
     LOGGER.warning(f"⚠️ Rarity system not available: {e}")
+    asyncio.create_task(autofix.handle_error(
+        error=e,
+        module_name="rarity",
+        function_name="rarity_import"
+    ))
 
 try:
     from shivu.modules.backup import setup_backup_handlers
@@ -63,8 +77,14 @@ try:
     LOGGER.info("✅ Backup system initialized")
 except Exception as e:
     LOGGER.warning(f"⚠️ Backup system not available: {e}")
+    asyncio.create_task(autofix.handle_error(
+        error=e,
+        module_name="backup",
+        function_name="backup_import"
+    ))
 
 
+@autofix.wrap_handler(module_name="main")
 async def is_character_allowed(character, chat_id=None):
     try:
         if character.get('removed', False):
@@ -121,6 +141,7 @@ async def is_character_allowed(character, chat_id=None):
         return True
 
 
+@autofix.wrap_handler(module_name="main")
 async def get_chat_message_frequency(chat_id):
     try:
         chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
@@ -137,6 +158,7 @@ async def get_chat_message_frequency(chat_id):
         return MESSAGE_FREQUENCY
 
 
+@autofix.wrap_handler(module_name="main")
 async def update_grab_task(user_id: int):
     try:
         user = await user_collection.find_one({'id': user_id})
@@ -149,6 +171,7 @@ async def update_grab_task(user_id: int):
         LOGGER.error(f"Error in update_grab_task: {e}")
 
 
+@autofix.wrap_handler(module_name="main")
 async def despawn_character(chat_id, message_id, character, context):
     try:
         await asyncio.sleep(DESPAWN_TIME)
@@ -211,6 +234,7 @@ async def despawn_character(chat_id, message_id, character, context):
         LOGGER.error(traceback.format_exc())
 
 
+@autofix.wrap_handler(module_name="main")
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
         if update.effective_chat.type not in ['group', 'supergroup']:
@@ -277,6 +301,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
+@autofix.wrap_handler(module_name="main")
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
 
@@ -445,6 +470,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         currently_spawning[str(chat_id)] = False
 
 
+@autofix.wrap_handler(module_name="main")
 async def guess(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
@@ -628,11 +654,13 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-    LOGGER.info("Bot starting...")
+    apply_autofix_to_handlers(application, autofix)
+
+    LOGGER.info("🚀 Bot starting with auto-fix protection...")
     application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
     shivuu.start()
-    LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+    LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ ᴡɪᴛʜ ᴀᴜᴛᴏ-ғɪx sʏsᴛᴇᴍ")
     main()
