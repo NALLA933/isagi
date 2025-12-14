@@ -136,36 +136,12 @@ class AuctionUI:
         
         caption_lines.extend([
             "│",
+            "│ 💬 Use: <code>/bid [amount]</code>",
+            "│",
             "╰─────────"
         ])
         
         return "\n".join(caption_lines)
-    
-    @staticmethod
-    def build_keyboard(auction: Auction, user_id: int) -> InlineKeyboardMarkup:
-        keyboard = []
-        
-        if auction.is_active:
-            if auction.highest_bidder != user_id:
-                keyboard.append([
-                    InlineKeyboardButton("🔨 PLACE BID", callback_data=f"a7b9_{auction.character_id}"),
-                    InlineKeyboardButton("📊 History", callback_data=f"h3st_{auction.character_id}")
-                ])
-            else:
-                keyboard.append([
-                    InlineKeyboardButton("👑 YOU'RE WINNING", callback_data="w5nn"),
-                    InlineKeyboardButton("📊 History", callback_data=f"h3st_{auction.character_id}")
-                ])
-            
-            keyboard.append([
-                InlineKeyboardButton("🔄 Refresh", callback_data="r6fr")
-            ])
-        else:
-            keyboard.append([
-                InlineKeyboardButton("⏰ AUCTION ENDED", callback_data="e4nd")
-            ])
-        
-        return InlineKeyboardMarkup(keyboard)
 
 
 class AuctionManager:
@@ -314,14 +290,12 @@ async def render_auction(message, context: CallbackContext,
     
     character = Character.from_db(character_data)
     caption = AuctionUI.build_caption(character, auction)
-    keyboard = AuctionUI.build_keyboard(auction, user_id)
     
     try:
         if edit:
             await message.edit_caption(
                 caption=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard
+                parse_mode="HTML"
             )
         else:
             send_func = message.reply_video if character.is_video else message.reply_photo
@@ -329,12 +303,11 @@ async def render_auction(message, context: CallbackContext,
             await send_func(
                 **{media_param: character.img_url},
                 caption=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard
+                parse_mode="HTML"
             )
     except BadRequest:
         if not edit:
-            await message.reply_text(caption, parse_mode="HTML", reply_markup=keyboard)
+            await message.reply_text(caption, parse_mode="HTML")
 
 
 async def auction_start_command(update: Update, context: CallbackContext):
@@ -414,47 +387,10 @@ async def auction_callback_handler(update: Update, context: CallbackContext):
             await render_auction(query.message, context, auction_data, user_id, edit=True)
         else:
             await query.answer("⏰ Auction ended", show_alert=True)
-    
-    elif data.startswith("a7b9_"):
-        auction_data = await AuctionManager.get_active_auction()
-        if auction_data:
-            auction = Auction.from_db(auction_data)
-            await query.answer(
-                f"💰 Place bid via: /bid {auction.min_next_bid}\n"
-                f"⚠️ Minimum: {auction.min_next_bid:,} gold",
-                show_alert=True
-            )
-        else:
-            await query.answer("⏰ Auction ended", show_alert=True)
-    
-    elif data.startswith("h3st_"):
-        char_id = data.split("_", 1)[1]
-        auction_data = await auction_collection.find_one({"character_id": char_id})
-        
-        if auction_data:
-            bids = await bid_collection.find(
-                {"auction_id": auction_data["_id"]}
-            ).sort("timestamp", -1).limit(5).to_list(5)
-            
-            if bids:
-                history = "📊 Recent Bids:\n\n"
-                for i, bid in enumerate(bids, 1):
-                    history += f"{i}. {bid['amount']:,} gold\n"
-                await query.answer(history, show_alert=True)
-            else:
-                await query.answer("No bids yet", show_alert=False)
-        else:
-            await query.answer("Auction not found", show_alert=False)
-    
-    elif data == "w5nn":
-        await query.answer("👑 You're currently winning!", show_alert=False)
-    
-    elif data == "e4nd":
-        await query.answer("⏰ This auction has ended", show_alert=False)
 
 
 application.add_handler(CommandHandler("auction", auction_view_command, block=False))
 application.add_handler(CommandHandler("astart", auction_start_command, block=False))
 application.add_handler(CommandHandler("aend", auction_end_command, block=False))
 application.add_handler(CommandHandler("bid", bid_command, block=False))
-application.add_handler(CallbackQueryHandler(auction_callback_handler, pattern=r"^(a7b9_|h3st_|r6fr|w5nn|e4nd)", block=False))
+application.add_handler(CallbackQueryHandler(auction_callback_handler, pattern=r"^r6fr$", block=False))
