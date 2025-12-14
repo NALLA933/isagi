@@ -271,6 +271,7 @@ async def hstyle_preview(update: Update, context: CallbackContext):
     user = await user_collection.find_one({'id': user_id})
     current_style = user.get('harem_style', 'classic') if user else 'classic'
     style_template = DEFAULT_STYLES.get(current_style, DEFAULT_STYLES['classic'])
+    display_options = user.get('harem_display_options', {}) if user else {}
     
     user_name = escape(query.from_user.first_name)
     preview = style_template['header'].format(
@@ -295,6 +296,13 @@ async def hstyle_preview(update: Update, context: CallbackContext):
         count=2
     )
     
+    # Add preview image/video URL if enabled
+    if display_options.get('preview_image', False):
+        preview += '<a href="https://graph.org/file/sample-image.jpg">&#8203;</a>'
+    
+    if display_options.get('show_url', False):
+        preview += "  🔗 https://graph.org/file/sample-image.jpg\n"
+    
     preview += style_template['character'].format(
         id="002",
         rarity="🟣",
@@ -303,15 +311,24 @@ async def hstyle_preview(update: Update, context: CallbackContext):
         count=1
     )
     
+    # Add video preview if enabled
+    if display_options.get('video_support', False):
+        preview += '<a href="https://telegra.ph/file/sample-video.mp4">&#8203;</a>'
+    
+    if display_options.get('show_url', False):
+        preview += "  🎥 https://telegra.ph/file/sample-video.mp4\n"
+    
     preview += style_template['footer']
     
     keyboard = [[InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="hstyle_back")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Send with link preview enabled for images/videos
     await query.edit_message_text(
         text=f"<b>📺 PREVIEW: {style_template['name']}</b>\n\n{preview}",
         reply_markup=reply_markup,
-        parse_mode='HTML'
+        parse_mode='HTML',
+        disable_web_page_preview=False
     )
 
 
@@ -444,6 +461,7 @@ async def hstyle_callback(update: Update, context: CallbackContext):
 
 
 async def get_user_style_template(user_id):
+    """Get user's selected style template"""
     user = await user_collection.find_one({'id': user_id})
     if user:
         style_key = user.get('harem_style', 'classic')
@@ -452,10 +470,118 @@ async def get_user_style_template(user_id):
 
 
 async def get_user_display_options(user_id):
+    """Get user's display options"""
     user = await user_collection.find_one({'id': user_id})
     if user:
         return user.get('harem_display_options', {})
     return {}
+
+
+def format_character_with_media(character_text, image_url=None, video_url=None, display_options=None):
+    """
+    Format character entry with media preview using HTML trick
+    
+    Args:
+        character_text: The formatted character text
+        image_url: URL to character image (if available)
+        video_url: URL to character video/AMV (if available)
+        display_options: User's display options dict
+    
+    Returns:
+        Formatted text with invisible link preview
+    """
+    if not display_options:
+        display_options = {}
+    
+    result = character_text
+    
+    # Add invisible link for image preview (Telegram will show preview)
+    if display_options.get('preview_image', False) and image_url:
+        # Zero-width space with link - Telegram shows preview but doesn't show link text
+        result += f'<a href="{escape(image_url)}">&#8203;</a>'
+    
+    # Add invisible link for video preview
+    if display_options.get('video_support', False) and video_url:
+        result += f'<a href="{escape(video_url)}">&#8203;</a>'
+    
+    # Optionally show URLs as text
+    if display_options.get('show_url', False):
+        if image_url:
+            result += f"\n  🔗 {escape(image_url)}"
+        if video_url:
+            result += f"\n  🎥 {escape(video_url)}"
+    
+    return result
+
+
+async def format_harem_page(user_id, user_name, characters_data, page, total_pages):
+    """
+    Format a harem page with user's style and display options
+    
+    Args:
+        user_id: User's Telegram ID
+        user_name: User's display name
+        characters_data: List of character dicts with keys: id, name, rarity, anime, count, is_fav, img_url, video_url
+        page: Current page number
+        total_pages: Total number of pages
+    
+    Returns:
+        Formatted HTML text for the harem page
+    """
+    style = await get_user_style_template(user_id)
+    options = await get_user_display_options(user_id)
+    
+    # Start with header
+    text = style['header'].format(
+        user_name=escape(user_name),
+        page=page,
+        total_pages=total_pages
+    )
+    
+    # Group characters by anime
+    anime_groups = {}
+    for char in characters_data:
+        anime = char.get('anime', 'Unknown')
+        if anime not in anime_groups:
+            anime_groups[anime] = []
+        anime_groups[anime].append(char)
+    
+    # Format each anime group
+    for anime, chars in anime_groups.items():
+        # Anime header
+        text += style['anime_header'].format(
+            anime=escape(anime),
+            user_count=len(chars),
+            total_count=char.get('total_in_anime', len(chars))
+        )
+        
+        text += style['separator']
+        
+        # Format each character
+        for char in chars:
+            fav_marker = " [🍁]" if char.get('is_fav', False) else ""
+            
+            char_text = style['character'].format(
+                id=char.get('id', '???'),
+                rarity=char.get('rarity', '⚪'),
+                name=escape(char.get('name', 'Unknown')),
+                fav=fav_marker,
+                count=char.get('count', 1)
+            )
+            
+            # Add media preview if options are enabled
+            char_text = format_character_with_media(
+                char_text,
+                image_url=char.get('img_url'),
+                video_url=char.get('video_url'),
+                display_options=options
+            )
+            
+            text += char_text
+        
+        text += style['footer']
+    
+    return text
 
 
 application.add_handler(CommandHandler("hstyle", hstyle, block=False))
