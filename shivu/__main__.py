@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
-from shivu.autofix_system import create_autofix_system, apply_autofix_to_handlers
+from autofix_system import create_autofix_system, apply_autofix_to_handlers
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -47,11 +47,6 @@ for module_name in ALL_MODULES:
         LOGGER.info(f"✅ Module loaded with auto-fix: {module_name}")
     except Exception as e:
         LOGGER.error(f"❌ Module failed: {module_name} - {e}")
-        asyncio.create_task(autofix.handle_error(
-            error=e,
-            module_name=module_name,
-            function_name="module_import"
-        ))
 
 try:
     from shivu.modules.rarity import (
@@ -65,11 +60,6 @@ try:
     LOGGER.info("✅ Rarity system loaded")
 except Exception as e:
     LOGGER.warning(f"⚠️ Rarity system not available: {e}")
-    asyncio.create_task(autofix.handle_error(
-        error=e,
-        module_name="rarity",
-        function_name="rarity_import"
-    ))
 
 try:
     from shivu.modules.backup import setup_backup_handlers
@@ -77,11 +67,6 @@ try:
     LOGGER.info("✅ Backup system initialized")
 except Exception as e:
     LOGGER.warning(f"⚠️ Backup system not available: {e}")
-    asyncio.create_task(autofix.handle_error(
-        error=e,
-        module_name="backup",
-        function_name="backup_import"
-    ))
 
 
 @autofix.wrap_handler(module_name="main")
