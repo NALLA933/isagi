@@ -86,12 +86,6 @@ class DisplayOptions:
     show_rarity_full: bool = False
     compact_mode: bool = False
     show_id_bottom: bool = False
-    
-    @classmethod
-    def from_dict(cls, data: Optional[Dict[str, bool]]) -> 'DisplayOptions':
-        if not data:
-            return cls()
-        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 
 @dataclass
@@ -146,7 +140,7 @@ class MediaHelper:
             display_options = DisplayOptions()
 
         if display_options.show_url and media_url:
-            caption += f"\n\n🔗 <code>{escape(media_url)}</code>"
+            caption += f"\n\n🔗 <code>{media_url}</code>"
 
         if not display_options.video_support:
             is_video = False
@@ -157,8 +151,7 @@ class MediaHelper:
             return await message.reply_text(
                 text=caption,
                 reply_markup=reply_markup,
-                parse_mode='HTML',
-                disable_web_page_preview=True
+                parse_mode='HTML'
             )
 
         try:
@@ -193,32 +186,19 @@ class MediaHelper:
             return await message.reply_text(
                 text=caption,
                 reply_markup=reply_markup,
-                parse_mode='HTML',
-                disable_web_page_preview=True
+                parse_mode='HTML'
             )
 
 
 class HaremMessageBuilder:
     def __init__(self, user_collection: UserCollection, page: int, total_pages: int,
-                 style_template, display_options: DisplayOptions, user_name: str):
+                 style_template: Dict, display_options: DisplayOptions, user_name: str):
         self.collection = user_collection
         self.page = page
         self.total_pages = total_pages
-        self.style = style_template if isinstance(style_template, dict) else self._template_to_dict(style_template)
+        self.style = style_template
         self.options = display_options
         self.user_name = user_name
-    
-    @staticmethod
-    def _template_to_dict(template) -> Dict[str, str]:
-        if hasattr(template, 'to_dict'):
-            return template.to_dict()
-        return {
-            'header': template.header,
-            'anime_header': template.anime_header,
-            'separator': template.separator,
-            'character': template.character,
-            'footer': template.footer
-        }
 
     def build_message(self, characters: List[Character], anime_counts: Dict[str, int]) -> str:
         message = self.style['header'].format(
@@ -281,26 +261,6 @@ class HaremMessageBuilder:
                 fav=fav_marker,
                 count=count
             )
-        
-        char_line = self._add_media_preview(char_line, char)
-        
-        return char_line
-    
-    def _add_media_preview(self, char_line: str, char: Character) -> str:
-        if not char.img_url:
-            return char_line
-        
-        is_video = char.is_video or MediaHelper.is_video_url(char.img_url)
-        
-        if self.options.preview_image or (self.options.video_support and is_video):
-            char_line += f'<a href="{escape(char.img_url)}">&#8203;</a>'
-        
-        if self.options.show_url:
-            if is_video:
-                char_line += f"\n  🎥 <code>{escape(char.img_url)}</code>"
-            else:
-                char_line += f"\n  🔗 <code>{escape(char.img_url)}</code>"
-        
         return char_line
 
 
@@ -388,7 +348,7 @@ class HaremHandler:
 
             style_template = await get_user_style_template(user_id)
             display_options_dict = await get_user_display_options(user_id)
-            display_options = DisplayOptions.from_dict(display_options_dict)
+            display_options = DisplayOptions(**display_options_dict) if display_options_dict else DisplayOptions()
 
             anime_list = list(set(char.anime for char in current_chars))
             anime_counts = await self.get_anime_counts(anime_list)
@@ -421,12 +381,18 @@ class HaremHandler:
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            has_favorite_media = (collection.favorite and collection.favorite.img_url)
-            
-            if has_favorite_media and display_options.preview_image:
+            display_media = None
+            is_video_display = False
+
+            if collection.favorite and collection.favorite.img_url:
                 display_media = collection.favorite.img_url
                 is_video_display = collection.favorite.is_video or MediaHelper.is_video_url(display_media)
-                
+            elif filtered_chars:
+                random_char = random.choice(filtered_chars)
+                display_media = random_char.img_url
+                is_video_display = random_char.is_video or MediaHelper.is_video_url(display_media)
+
+            if display_media:
                 if edit:
                     try:
                         await message.edit_caption(
@@ -450,15 +416,13 @@ class HaremHandler:
                     await message.edit_text(
                         text=harem_message,
                         reply_markup=reply_markup,
-                        parse_mode='HTML',
-                        disable_web_page_preview=False
+                        parse_mode='HTML'
                     )
                 else:
                     await message.reply_text(
                         text=harem_message,
                         reply_markup=reply_markup,
-                        parse_mode='HTML',
-                        disable_web_page_preview=False
+                        parse_mode='HTML'
                     )
         except Exception as e:
             print(f"Error in show_harem: {e}")
@@ -683,7 +647,7 @@ class UnfavHandler:
             reply_markup = InlineKeyboardMarkup(buttons)
 
             display_options_dict = await get_user_display_options(user_id)
-            display_options = DisplayOptions.from_dict(display_options_dict)
+            display_options = DisplayOptions(**display_options_dict) if display_options_dict else DisplayOptions()
 
             caption = (
                 f"<b>💔 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜɪs ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
