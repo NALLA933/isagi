@@ -200,13 +200,25 @@ class MediaHelper:
 
 class HaremMessageBuilder:
     def __init__(self, user_collection: UserCollection, page: int, total_pages: int,
-                 style_template: Dict, display_options: DisplayOptions, user_name: str):
+                 style_template, display_options: DisplayOptions, user_name: str):
         self.collection = user_collection
         self.page = page
         self.total_pages = total_pages
-        self.style = style_template
+        self.style = style_template if isinstance(style_template, dict) else self._template_to_dict(style_template)
         self.options = display_options
         self.user_name = user_name
+    
+    @staticmethod
+    def _template_to_dict(template) -> Dict[str, str]:
+        if hasattr(template, 'to_dict'):
+            return template.to_dict()
+        return {
+            'header': template.header,
+            'anime_header': template.anime_header,
+            'separator': template.separator,
+            'character': template.character,
+            'footer': template.footer
+        }
 
     def build_message(self, characters: List[Character], anime_counts: Dict[str, int]) -> str:
         message = self.style['header'].format(
