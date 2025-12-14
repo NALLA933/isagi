@@ -3,12 +3,23 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from html import escape 
 import random
 import math
+import logging
 from shivu import db, application
 from hstyle import get_user_style_template, get_user_display_options
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Database collections
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 
+# Constants
+CHARACTERS_PER_PAGE = 10
+MAX_CAPTION_LENGTH = 1024
+
+# Rarity mapping
 HAREM_MODE_MAPPING = {
     "common": "🟢 Common",
     "rare": "🟣 Rare",
@@ -35,6 +46,7 @@ HAREM_MODE_MAPPING = {
 
 
 def is_video_url(url):
+    """Check if URL points to a video file"""
     if not url:
         return False
 
@@ -92,7 +104,7 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
                     write_timeout=120
                 )
             except Exception as video_error:
-                print(f"Failed to send as video: {video_error}")
+                logger.warning(f"Failed to send as video: {video_error}")
                 return await message.reply_photo(
                     photo=media_url,
                     caption=caption,
@@ -107,7 +119,7 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
                 parse_mode='HTML'
             )
     except Exception as e:
-        print(f"Failed to send media: {e}")
+        logger.error(f"Failed to send media: {e}")
         return await message.reply_text(
             text=caption,
             reply_markup=reply_markup,
@@ -116,9 +128,11 @@ async def send_media_message(message, media_url, caption, reply_markup, is_video
 
 
 async def harem(update: Update, context: CallbackContext, page=0, edit=False) -> None:
+    """Display user's character collection"""
     user_id = update.effective_user.id
 
     try:
+        # Fetch user data
         user = await user_collection.find_one({'id': user_id})
         if not user:
             message = update.message or update.callback_query.message
@@ -131,8 +145,8 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             await message.reply_text("📭 You don't have any characters yet! Use /grab to catch some.")
             return
 
+        # Validate favorite character
         fav_character = user.get('favorites', None)
-
         if fav_character and isinstance(fav_character, dict):
             fav_id = fav_character.get('id')
             still_owns_fav = any(
@@ -149,8 +163,10 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         else:
             fav_character = None
 
+        # Get filter mode
         hmode = user.get('smode', 'default')
 
+        # Filter characters by rarity
         if hmode == "default" or hmode is None:
             filtered_chars = [char for char in characters if isinstance(char, dict)]
             rarity_filter = "All"
@@ -174,15 +190,18 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             )
             return
 
+        # Sort characters
         filtered_chars = sorted(filtered_chars, key=lambda x: (x.get('anime', ''), x.get('id', '')))
 
+        # Count duplicates
         character_counts = {}
         for char in filtered_chars:
             char_id = char.get('id')
             if char_id:
                 character_counts[char_id] = character_counts.get(char_id, 0) + 1
 
-        total_pages = math.ceil(len(filtered_chars) / 10)
+        # Pagination
+        total_pages = math.ceil(len(filtered_chars) / CHARACTERS_PER_PAGE)
         if page < 0 or page >= total_pages:
             page = 0
 
@@ -194,19 +213,20 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         compact_mode = display_options.get('compact_mode', False)
         show_id_bottom = display_options.get('show_id_bottom', False)
 
+        # Build message
         user_name = escape(update.effective_user.first_name)
         
-        # Use style template for header
         harem_message = style_template['header'].format(
             user_name=user_name,
             page=page + 1,
             total_pages=total_pages
         )
 
-        start_idx = page * 10
-        end_idx = start_idx + 10
+        start_idx = page * CHARACTERS_PER_PAGE
+        end_idx = start_idx + CHARACTERS_PER_PAGE
         current_chars = filtered_chars[start_idx:end_idx]
 
+        # Group by anime
         grouped = {}
         for char in current_chars:
             anime = char.get('anime', 'Unknown')
@@ -224,7 +244,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
 
             total_anime_count = await collection.count_documents({"anime": anime})
 
-            # Use style template for anime header
+            # Anime header
             harem_message += style_template['anime_header'].format(
                 anime=escape(anime),
                 user_count=user_anime_count,
@@ -242,7 +262,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     name = char.get('name', 'Unknown')
                     rarity = char.get('rarity', '🟢 Common')
 
-                    # Handle rarity display based on options
+                    # Handle rarity display
                     if show_rarity_full:
                         rarity_display = rarity
                     else:
@@ -255,9 +275,8 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     if fav_character and char_id == fav_character.get('id'):
                         fav_marker = " [🍁]"
 
-                    # Handle ID position based on options
+                    # Handle ID position
                     if show_id_bottom:
-                        # Character format with ID at bottom
                         char_line = style_template['character'].replace(
                             '{id}', ''
                         ).format(
@@ -269,7 +288,6 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                         )
                         char_line += f"    └─ ID: <code>{char_id}</code>\n"
                     else:
-                        # Normal character format
                         char_line = style_template['character'].format(
                             id=char_id,
                             rarity=rarity_display,
@@ -281,7 +299,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     harem_message += char_line
                     included.add(char_id)
 
-            # Add footer if not in compact mode
+            # Add footer
             if not compact_mode:
                 harem_message += style_template['footer']
             else:
@@ -290,6 +308,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         total_char_count = len(filtered_chars)
         unique_char_count = len(character_counts)
 
+        # Build keyboard
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -315,6 +334,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
 
+        # Select display media
         display_media = None
         is_video_display = False
 
@@ -326,6 +346,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
             display_media = random_char.get('img_url')
             is_video_display = random_char.get('is_video', False) or is_video_url(display_media)
 
+        # Send message
         if display_media:
             if edit:
                 try:
@@ -335,7 +356,7 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                         parse_mode='HTML'
                     )
                 except Exception as edit_error:
-                    print(f"Could not edit caption: {edit_error}")
+                    logger.warning(f"Could not edit caption: {edit_error}")
                     await send_media_message(
                         message, display_media, harem_message, reply_markup, 
                         is_video_display, display_options
@@ -360,21 +381,31 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                 )
 
     except Exception as e:
-        print(f"Error in harem command: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in harem command: {e}", exc_info=True)
         message = update.message or update.callback_query.message
         await message.reply_text("⚠️ An error occurred while loading your collection.")
 
 
 async def harem_callback(update: Update, context: CallbackContext) -> None:
+    """Handle harem pagination callbacks"""
     query = update.callback_query
 
     try:
         data = query.data
-        _, page, user_id = data.split(':')
-        page = int(page)
-        user_id = int(user_id)
+        parts = data.split(':')
+        
+        if len(parts) != 3:
+            await query.answer("❌ Invalid callback data!", show_alert=True)
+            return
+            
+        _, page_str, user_id_str = parts
+        
+        try:
+            page = int(page_str)
+            user_id = int(user_id_str)
+        except ValueError:
+            await query.answer("❌ Invalid page or user ID!", show_alert=True)
+            return
 
         if query.from_user.id != user_id:
             await query.answer("⚠️ This is not your collection!", show_alert=True)
@@ -384,11 +415,12 @@ async def harem_callback(update: Update, context: CallbackContext) -> None:
         await harem(update, context, page, edit=True)
 
     except Exception as e:
-        print(f"Error in harem callback: {e}")
+        logger.error(f"Error in harem callback: {e}", exc_info=True)
         await query.answer("❌ Error loading page", show_alert=True)
 
 
 async def unfav(update: Update, context: CallbackContext) -> None:
+    """Remove favorite character"""
     user_id = update.effective_user.id
 
     try:
@@ -417,8 +449,8 @@ async def unfav(update: Update, context: CallbackContext) -> None:
 
         caption = (
             f"<b>💔 ᴅᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜɪs ғᴀᴠᴏʀɪᴛᴇ?</b>\n\n"
-            f"✨ <b>ɴᴀᴍᴇ:</b> <code>{fav_character.get('name', 'Unknown')}</code>\n"
-            f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{fav_character.get('anime', 'Unknown')}</code>\n"
+            f"✨ <b>ɴᴀᴍᴇ:</b> <code>{escape(fav_character.get('name', 'Unknown'))}</code>\n"
+            f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{escape(fav_character.get('anime', 'Unknown'))}</code>\n"
             f"🆔 <b>ɪᴅ:</b> <code>{fav_character.get('id', 'Unknown')}</code>"
         )
 
@@ -428,13 +460,12 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         )
 
     except Exception as e:
-        print(f"Error in unfav command: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in unfav command: {e}", exc_info=True)
         await update.message.reply_text('⚠️ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ.')
 
 
 async def handle_unfav_callback(update: Update, context: CallbackContext) -> None:
+    """Handle unfavorite confirmation callbacks"""
     query = update.callback_query
 
     try:
@@ -445,8 +476,18 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
             await query.answer("❌ ɪɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ!", show_alert=True)
             return
 
-        action, user_id_str = data.split(':', 1)
-        user_id = int(user_id_str)
+        parts = data.split(':', 1)
+        if len(parts) != 2:
+            await query.answer("❌ ɪɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ!", show_alert=True)
+            return
+            
+        action, user_id_str = parts
+        
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            await query.answer("❌ ɪɴᴠᴀʟɪᴅ ᴜsᴇʀ ɪᴅ!", show_alert=True)
+            return
 
         if query.from_user.id != user_id:
             await query.answer("⚠️ ᴛʜɪs ɪs ɴᴏᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ!", show_alert=True)
@@ -459,6 +500,9 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
                 return
 
             fav_character = user.get('favorites', None)
+            if not fav_character:
+                await query.answer("❌ ɴᴏ ғᴀᴠᴏʀɪᴛᴇ ғᴏᴜɴᴅ!", show_alert=True)
+                return
 
             result = await user_collection.update_one(
                 {'id': user_id},
@@ -472,8 +516,8 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
             await query.edit_message_caption(
                 caption=(
                     f"<b>💔 ғᴀᴠᴏʀɪᴛᴇ ʀᴇᴍᴏᴠᴇᴅ!</b>\n\n"
-                    f"✨ <b>ɴᴀᴍᴇ:</b> <code>{fav_character.get('name', 'Unknown')}</code>\n"
-                    f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{fav_character.get('anime', 'Unknown')}</code>\n\n"
+                    f"✨ <b>ɴᴀᴍᴇ:</b> <code>{escape(fav_character.get('name', 'Unknown'))}</code>\n"
+                    f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{escape(fav_character.get('anime', 'Unknown'))}</code>\n\n"
                     f"<i>💖 ʏᴏᴜ ᴄᴀɴ sᴇᴛ ᴀ ɴᴇᴡ ғᴀᴠᴏʀɪᴛᴇ ᴜsɪɴɢ /fav</i>"
                 ),
                 parse_mode='HTML'
@@ -486,16 +530,15 @@ async def handle_unfav_callback(update: Update, context: CallbackContext) -> Non
             )
 
     except Exception as e:
-        print(f"Error in unfav callback: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in unfav callback: {e}", exc_info=True)
         try:
-            await query.answer(f"❌ ᴇʀʀᴏʀ: {str(e)[:100]}", show_alert=True)
+            await query.answer("✗ ᴇʀʀᴏʀ ᴘʀᴏᴄᴇssɪɴɢ ʀᴇǫᴜᴇsᴛ", show_alert=True)
         except:
             pass
 
 
 async def set_hmode(update: Update, context: CallbackContext) -> None:
+    """Set collection display mode"""
     keyboard = [
         [
             InlineKeyboardButton("ᴅᴇғᴀᴜʟᴛ", callback_data="harem_mode_default"),
@@ -524,6 +567,7 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
 
 
 async def hmode_rarity(update: Update, context: CallbackContext) -> None:
+    """Show rarity filter options"""
     keyboard = [
         [
             InlineKeyboardButton("🟢", callback_data="harem_mode_common"),
@@ -586,6 +630,7 @@ async def hmode_rarity(update: Update, context: CallbackContext) -> None:
 
 
 async def mode_button(update: Update, context: CallbackContext) -> None:
+    """Handle mode selection buttons"""
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -594,7 +639,8 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
         if data == "harem_mode_default":
             await user_collection.update_one(
                 {'id': user_id}, 
-                {'$set': {'smode': 'default'}}
+                {'$set': {'smode': 'default'}},
+                upsert=True
             )
             await query.answer("✓ ᴍᴏᴅᴇ sᴇᴛ ᴛᴏ ᴅᴇғᴀᴜʟᴛ", show_alert=False)
 
@@ -627,7 +673,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-                        message_text = (
+            message_text = (
                 "╭─────────────────╮\n"
                 "│  <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴍᴏᴅᴇ</b>  │\n"
                 "╰─────────────────╯\n\n"
@@ -635,7 +681,8 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
                 "  sʜᴏᴡ ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
                 "◆ <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
                 "  ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ᴛɪᴇʀ\n\n"
-                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+                "💡 <i>Use /hstyle to change visual style</i>"
             )
 
             await query.edit_message_text(
@@ -649,13 +696,18 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
             mode_name = data.replace("harem_mode_", "")
             rarity_display = HAREM_MODE_MAPPING.get(mode_name, "Unknown")
 
-            # Extract just the emoji
+            if rarity_display is None:
+                await query.answer("❌ ɪɴᴠᴀʟɪᴅ ʀᴀʀɪᴛʏ", show_alert=True)
+                return
+
+            # Extract emoji and name
             rarity_emoji = rarity_display.split(' ')[0] if isinstance(rarity_display, str) else "💎"
             rarity_name = ' '.join(rarity_display.split(' ')[1:]) if isinstance(rarity_display, str) else mode_name
 
             await user_collection.update_one(
                 {'id': user_id}, 
-                {'$set': {'smode': mode_name}}
+                {'$set': {'smode': mode_name}},
+                upsert=True
             )
             await query.answer(f"✓ {rarity_name} ғɪʟᴛᴇʀ ᴀᴄᴛɪᴠᴀᴛᴇᴅ", show_alert=False)
 
@@ -677,16 +729,16 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
             )
 
     except Exception as e:
-        print(f"Error in mode button: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in mode button: {e}", exc_info=True)
         await query.answer("✗ ᴇʀʀᴏʀ ᴜᴘᴅᴀᴛɪɴɢ ᴍᴏᴅᴇ", show_alert=True)
 
 
-application.add_handler(CommandHandler(["harem"], harem, block=False))
+# Register command handlers
+application.add_handler(CommandHandler(["harem", "collection"], harem, block=False))
 application.add_handler(CommandHandler("smode", set_hmode, block=False))
 application.add_handler(CommandHandler("unfav", unfav, block=False))
 
+# Register callback handlers
 application.add_handler(CallbackQueryHandler(harem_callback, pattern='^harem_page:', block=False))
 application.add_handler(CallbackQueryHandler(mode_button, pattern='^harem_mode_', block=False))
 application.add_handler(CallbackQueryHandler(handle_unfav_callback, pattern="^harem_unfav_", block=False))
