@@ -4,6 +4,7 @@ from html import escape
 import random
 import math
 from shivu import db, application
+from hstyle import get_user_style_template, get_user_display_options
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -50,10 +51,34 @@ def is_video_url(url):
     return False
 
 
-async def send_media_message(message, media_url, caption, reply_markup, is_video=False):
+async def send_media_message(message, media_url, caption, reply_markup, is_video=False, display_options=None):
+    """Send media message with support for display options"""
+    if display_options is None:
+        display_options = {}
+    
+    # Check if user wants to show URL at bottom
+    show_url = display_options.get('show_url', False)
+    video_support = display_options.get('video_support', True)
+    preview_image = display_options.get('preview_image', True)
+    
+    # Add URL to caption if requested
+    if show_url and media_url:
+        caption += f"\n\n🔗 <code>{media_url}</code>"
+    
     try:
-        if not is_video:
+        # Check if video support is disabled
+        if not video_support:
+            is_video = False
+        elif not is_video:
             is_video = is_video_url(media_url)
+
+        # If preview is disabled, just send text
+        if not preview_image:
+            return await message.reply_text(
+                text=caption,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
         if is_video:
             try:
@@ -161,8 +186,22 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
         if page < 0 or page >= total_pages:
             page = 0
 
+        # Get user's style template and display options
+        style_template = await get_user_style_template(user_id)
+        display_options = await get_user_display_options(user_id)
+        
+        show_rarity_full = display_options.get('show_rarity_full', False)
+        compact_mode = display_options.get('compact_mode', False)
+        show_id_bottom = display_options.get('show_id_bottom', False)
+
         user_name = escape(update.effective_user.first_name)
-        harem_message = f"<b>{user_name}'s ʜᴀʀᴇᴍ - ᴘᴀɢᴇ {page + 1}/{total_pages}</b>\n\n"
+        
+        # Use style template for header
+        harem_message = style_template['header'].format(
+            user_name=user_name,
+            page=page + 1,
+            total_pages=total_pages
+        )
 
         start_idx = page * 10
         end_idx = start_idx + 10
@@ -185,8 +224,16 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
 
             total_anime_count = await collection.count_documents({"anime": anime})
 
-            harem_message += f'<b>𖤍 {escape(anime)} ｛{user_anime_count}/{total_anime_count}｝</b>\n'
-            harem_message += '⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n'
+            # Use style template for anime header
+            harem_message += style_template['anime_header'].format(
+                anime=escape(anime),
+                user_count=user_anime_count,
+                total_count=total_anime_count
+            )
+            
+            # Add separator if not in compact mode
+            if not compact_mode:
+                harem_message += style_template['separator']
 
             for char in chars:
                 char_id = char.get('id')
@@ -195,19 +242,50 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                     name = char.get('name', 'Unknown')
                     rarity = char.get('rarity', '🟢 Common')
 
-                    if isinstance(rarity, str):
-                        rarity_emoji = rarity.split(' ')[0]
+                    # Handle rarity display based on options
+                    if show_rarity_full:
+                        rarity_display = rarity
                     else:
-                        rarity_emoji = '🟢'
+                        if isinstance(rarity, str):
+                            rarity_display = rarity.split(' ')[0]
+                        else:
+                            rarity_display = '🟢'
 
                     fav_marker = ""
                     if fav_character and char_id == fav_character.get('id'):
                         fav_marker = " [🍁]"
 
-                    harem_message += f'<b>𒄬 {char_id}</b> [ {rarity_emoji} ] <b>{escape(name)}</b>{fav_marker} ×{count}\n'
+                    # Handle ID position based on options
+                    if show_id_bottom:
+                        # Character format with ID at bottom
+                        char_line = style_template['character'].replace(
+                            '{id}', ''
+                        ).format(
+                            id='',
+                            rarity=rarity_display,
+                            name=escape(name),
+                            fav=fav_marker,
+                            count=count
+                        )
+                        char_line += f"    └─ ID: <code>{char_id}</code>\n"
+                    else:
+                        # Normal character format
+                        char_line = style_template['character'].format(
+                            id=char_id,
+                            rarity=rarity_display,
+                            name=escape(name),
+                            fav=fav_marker,
+                            count=count
+                        )
+                    
+                    harem_message += char_line
                     included.add(char_id)
 
-            harem_message += '⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n\n'
+            # Add footer if not in compact mode
+            if not compact_mode:
+                harem_message += style_template['footer']
+            else:
+                harem_message += '\n'
 
         total_char_count = len(filtered_chars)
         unique_char_count = len(character_counts)
@@ -259,11 +337,13 @@ async def harem(update: Update, context: CallbackContext, page=0, edit=False) ->
                 except Exception as edit_error:
                     print(f"Could not edit caption: {edit_error}")
                     await send_media_message(
-                        message, display_media, harem_message, reply_markup, is_video_display
+                        message, display_media, harem_message, reply_markup, 
+                        is_video_display, display_options
                     )
             else:
                 await send_media_message(
-                    message, display_media, harem_message, reply_markup, is_video_display
+                    message, display_media, harem_message, reply_markup, 
+                    is_video_display, display_options
                 )
         else:
             if edit:
@@ -331,6 +411,7 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
+        display_options = await get_user_display_options(user_id)
         media_url = fav_character.get("img_url", "")
         is_video_fav = fav_character.get('is_video', False) or is_video_url(media_url)
 
@@ -342,7 +423,8 @@ async def unfav(update: Update, context: CallbackContext) -> None:
         )
 
         await send_media_message(
-            update.message, media_url, caption, reply_markup, is_video_fav
+            update.message, media_url, caption, reply_markup, 
+            is_video_fav, display_options
         )
 
     except Exception as e:
@@ -430,7 +512,8 @@ async def set_hmode(update: Update, context: CallbackContext) -> None:
         "  sʜᴏᴡ ᴀʟʟ ᴄʜᴀʀᴀᴄᴛᴇʀs\n\n"
         "◆ <b>ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀ</b>\n"
         "  ғɪʟᴛᴇʀ ʙʏ sᴘᴇᴄɪғɪᴄ ᴛɪᴇʀ\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        "💡 <i>Use /hstyle to change visual style</i>"
     )
 
     await update.message.reply_text(
@@ -544,7 +627,7 @@ async def mode_button(update: Update, context: CallbackContext) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            message_text = (
+                        message_text = (
                 "╭─────────────────╮\n"
                 "│  <b>ᴄᴏʟʟᴇᴄᴛɪᴏɴ ᴍᴏᴅᴇ</b>  │\n"
                 "╰─────────────────╯\n\n"
