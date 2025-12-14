@@ -148,21 +148,21 @@ class AuctionUI:
         if auction.is_active:
             if auction.highest_bidder != user_id:
                 keyboard.append([
-                    InlineKeyboardButton("🔨 PLACE BID", callback_data=f"auc_bid_{auction.character_id}"),
-                    InlineKeyboardButton("📊 History", callback_data=f"auc_hist_{auction.character_id}")
+                    InlineKeyboardButton("🔨 PLACE BID", callback_data=f"a7b9_{auction.character_id}"),
+                    InlineKeyboardButton("📊 History", callback_data=f"h3st_{auction.character_id}")
                 ])
             else:
                 keyboard.append([
-                    InlineKeyboardButton("👑 YOU'RE WINNING", callback_data="auc_winning"),
-                    InlineKeyboardButton("📊 History", callback_data=f"auc_hist_{auction.character_id}")
+                    InlineKeyboardButton("👑 YOU'RE WINNING", callback_data="w5nn"),
+                    InlineKeyboardButton("📊 History", callback_data=f"h3st_{auction.character_id}")
                 ])
             
             keyboard.append([
-                InlineKeyboardButton("🔄 Refresh", callback_data="auc_refresh")
+                InlineKeyboardButton("🔄 Refresh", callback_data="r6fr")
             ])
         else:
             keyboard.append([
-                InlineKeyboardButton("⏰ AUCTION ENDED", callback_data="auc_ended")
+                InlineKeyboardButton("⏰ AUCTION ENDED", callback_data="e4nd")
             ])
         
         return InlineKeyboardMarkup(keyboard)
@@ -408,14 +408,14 @@ async def auction_callback_handler(update: Update, context: CallbackContext):
     user_id = query.from_user.id
     data = query.data
     
-    if data == "auc_refresh":
+    if data == "r6fr":
         auction_data = await AuctionManager.get_active_auction()
         if auction_data:
             await render_auction(query.message, context, auction_data, user_id, edit=True)
         else:
             await query.answer("⏰ Auction ended", show_alert=True)
     
-    elif data.startswith("auc_bid_"):
+    elif data.startswith("a7b9_"):
         auction_data = await AuctionManager.get_active_auction()
         if auction_data:
             auction = Auction.from_db(auction_data)
@@ -427,8 +427,8 @@ async def auction_callback_handler(update: Update, context: CallbackContext):
         else:
             await query.answer("⏰ Auction ended", show_alert=True)
     
-    elif data.startswith("auc_hist_"):
-        char_id = data.split("_", 2)[2]
+    elif data.startswith("h3st_"):
+        char_id = data.split("_", 1)[1]
         auction_data = await auction_collection.find_one({"character_id": char_id})
         
         if auction_data:
@@ -446,10 +446,10 @@ async def auction_callback_handler(update: Update, context: CallbackContext):
         else:
             await query.answer("Auction not found", show_alert=False)
     
-    elif data == "auc_winning":
+    elif data == "w5nn":
         await query.answer("👑 You're currently winning!", show_alert=False)
     
-    elif data == "auc_ended":
+    elif data == "e4nd":
         await query.answer("⏰ This auction has ended", show_alert=False)
 
 
@@ -457,4 +457,4 @@ application.add_handler(CommandHandler("auction", auction_view_command, block=Fa
 application.add_handler(CommandHandler("astart", auction_start_command, block=False))
 application.add_handler(CommandHandler("aend", auction_end_command, block=False))
 application.add_handler(CommandHandler("bid", bid_command, block=False))
-application.add_handler(CallbackQueryHandler(auction_callback_handler, pattern=r"^auc_", block=False))
+application.add_handler(CallbackQueryHandler(auction_callback_handler, pattern=r"^(a7b9_|h3st_|r6fr|w5nn|e4nd)", block=False))
