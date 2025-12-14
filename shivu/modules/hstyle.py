@@ -1,94 +1,333 @@
+#v3 bc
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from html import escape
+from dataclasses import dataclass, field, asdict
+from typing import Dict, Optional, List, Any
+from enum import Enum
 from shivu import db, application
 
 user_collection = db['user_collection_lmaoooo']
 
-DEFAULT_STYLES = {
-    "classic": {
-        "name": "🎨 Classic",
-        "header": "<b>{user_name}'s ʜᴀʀᴇᴍ - ᴘᴀɢᴇ {page}/{total_pages}</b>\n\n",
-        "anime_header": "<b>𖤍 {anime} ｛{user_count}/{total_count}｝</b>\n",
-        "separator": "⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n",
-        "character": "<b>𒄬 {id}</b> [ {rarity} ] <b>{name}</b>{fav} ×{count}\n",
-        "footer": "⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n\n"
-    },
-    "minimal": {
-        "name": "⚡ Minimal",
-        "header": "<b>📚 {user_name}'s Collection [{page}/{total_pages}]</b>\n\n",
-        "anime_header": "<b>• {anime} ({user_count}/{total_count})</b>\n",
-        "separator": "━━━━━━━━━━━━━━━\n",
-        "character": "  {rarity} {id} • {name}{fav} ×{count}\n",
-        "footer": "\n"
-    },
-    "elegant": {
-        "name": "✨ Elegant",
-        "header": "╭─────────────────╮\n│ <b>{user_name}'s Collection</b> │\n│   Page {page} of {total_pages}   │\n╰─────────────────╯\n\n",
-        "anime_header": "╔═ <b>{anime}</b> ═╗\n├─ {user_count}/{total_count} Characters\n",
-        "separator": "├─────────────────\n",
-        "character": "│ {rarity} <code>{id}</code> ► {name}{fav} ×{count}\n",
-        "footer": "╚═════════════════\n\n"
-    },
-    "cute": {
-        "name": "🌸 Cute",
-        "header": "✧･ﾟ: *✧･ﾟ:* {user_name}'s Harem *:･ﾟ✧*:･ﾟ✧\n━━━ Page {page}/{total_pages} ━━━\n\n",
-        "anime_header": "🌺 <b>{anime}</b> 🌺\n♡ {user_count}/{total_count} Characters ♡\n",
-        "separator": "･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧\n",
-        "character": "  ღ {id} {rarity} {name}{fav} ×{count}\n",
-        "footer": "･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧\n\n"
-    },
-    "modern": {
-        "name": "🎯 Modern",
-        "header": "▰▰▰ {user_name}'s COLLECTION ▰▰▰\n⟨ {page}/{total_pages} ⟩\n\n",
-        "anime_header": "▸ <b>{anime}</b>\n▹ Progress: {user_count}/{total_count}\n",
-        "separator": "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n",
-        "character": "  ◆ {id} | {rarity} | {name}{fav} ×{count}\n",
-        "footer": "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-    },
-    "royal": {
-        "name": "👑 Royal",
-        "header": "╔══════════════════╗\n║ {user_name}'s Royal Harem ║\n║    【{page}/{total_pages}】    ║\n╚══════════════════╝\n\n",
-        "anime_header": "┏━━ <b>{anime}</b> ━━┓\n┃ 👥 {user_count}/{total_count} Characters\n",
-        "separator": "┣━━━━━━━━━━━━━━━\n",
-        "character": "┃ 💎 {id} ◈ {rarity} ◈ {name}{fav} ×{count}\n",
-        "footer": "┗━━━━━━━━━━━━━━━\n\n"
+
+class MediaType(Enum):
+    IMAGE = "image"
+    VIDEO = "video"
+    NONE = "none"
+
+
+@dataclass
+class StyleTemplate:
+    name: str
+    header: str
+    anime_header: str
+    separator: str
+    character: str
+    footer: str
+    
+    def format_header(self, user_name: str, page: int, total_pages: int) -> str:
+        return self.header.format(
+            user_name=escape(user_name),
+            page=page,
+            total_pages=total_pages
+        )
+    
+    def format_anime_header(self, anime: str, user_count: int, total_count: int) -> str:
+        return self.anime_header.format(
+            anime=escape(anime),
+            user_count=user_count,
+            total_count=total_count
+        )
+    
+    def format_character(self, char_id: str, rarity: str, name: str, 
+                        fav: str, count: int) -> str:
+        return self.character.format(
+            id=char_id,
+            rarity=rarity,
+            name=escape(name),
+            fav=fav,
+            count=count
+        )
+
+
+@dataclass
+class DisplayOptions:
+    show_url: bool = False
+    preview_image: bool = True
+    video_support: bool = False
+    show_rarity_full: bool = False
+    compact_mode: bool = False
+    show_id_bottom: bool = False
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, bool]) -> 'DisplayOptions':
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+    
+    def to_dict(self) -> Dict[str, bool]:
+        return asdict(self)
+
+
+@dataclass
+class CharacterData:
+    id: str
+    name: str
+    rarity: str
+    anime: str
+    count: int = 1
+    is_fav: bool = False
+    img_url: Optional[str] = None
+    video_url: Optional[str] = None
+    total_in_anime: int = 0
+
+
+@dataclass
+class CustomStyleBuilder:
+    user_id: int
+    header_template: Optional[str] = None
+    anime_header_template: Optional[str] = None
+    character_template: Optional[str] = None
+    separator_template: Optional[str] = None
+    footer_template: Optional[str] = None
+    
+    def is_complete(self) -> bool:
+        return all([
+            self.header_template,
+            self.anime_header_template,
+            self.character_template
+        ])
+    
+    def to_style_template(self, name: str = "Custom") -> StyleTemplate:
+        return StyleTemplate(
+            name=name,
+            header=self.header_template or "",
+            anime_header=self.anime_header_template or "",
+            separator=self.separator_template or "",
+            character=self.character_template or "",
+            footer=self.footer_template or ""
+        )
+
+
+class StyleManager:
+    STYLES: Dict[str, StyleTemplate] = {
+        "classic": StyleTemplate(
+            name="🎨 Classic",
+            header="<b>{user_name}'s ʜᴀʀᴇᴍ - ᴘᴀɢᴇ {page}/{total_pages}</b>\n\n",
+            anime_header="<b>𖤍 {anime} ｛{user_count}/{total_count}｝</b>\n",
+            separator="⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n",
+            character="<b>𒄬 {id}</b> [ {rarity} ] <b>{name}</b>{fav} ×{count}\n",
+            footer="⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋⚋\n\n"
+        ),
+        "minimal": StyleTemplate(
+            name="⚡ Minimal",
+            header="<b>📚 {user_name}'s Collection [{page}/{total_pages}]</b>\n\n",
+            anime_header="<b>• {anime} ({user_count}/{total_count})</b>\n",
+            separator="━━━━━━━━━━━━━━━\n",
+            character="  {rarity} {id} • {name}{fav} ×{count}\n",
+            footer="\n"
+        ),
+        "elegant": StyleTemplate(
+            name="✨ Elegant",
+            header="<b>{user_name}'s Collection</b>\nPage {page} of {total_pages}\n\n",
+            anime_header="═ <b>{anime}</b> ═\n{user_count}/{total_count} Characters\n",
+            separator="─────────────────\n",
+            character="{rarity} <code>{id}</code> ► {name}{fav} ×{count}\n",
+            footer="═════════════════\n\n"
+        ),
+        "cute": StyleTemplate(
+            name="🌸 Cute",
+            header="✧･ﾟ: *✧･ﾟ:* {user_name}'s Harem *:･ﾟ✧*:･ﾟ✧\nPage {page}/{total_pages}\n\n",
+            anime_header="🌺 <b>{anime}</b> 🌺\n♡ {user_count}/{total_count} Characters ♡\n",
+            separator="･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧\n",
+            character="  ღ {id} {rarity} {name}{fav} ×{count}\n",
+            footer="･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧･ﾟ✧\n\n"
+        ),
+        "modern": StyleTemplate(
+            name="🎯 Modern",
+            header="▰▰▰ {user_name}'s COLLECTION ▰▰▰\n⟨ {page}/{total_pages} ⟩\n\n",
+            anime_header="▸ <b>{anime}</b>\n▹ Progress: {user_count}/{total_count}\n",
+            separator="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n",
+            character="  ◆ {id} | {rarity} | {name}{fav} ×{count}\n",
+            footer="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
+        ),
+        "royal": StyleTemplate(
+            name="👑 Royal",
+            header="<b>{user_name}'s Royal Harem</b>\n【{page}/{total_pages}】\n\n",
+            anime_header="━━ <b>{anime}</b> ━━\n👥 {user_count}/{total_count} Characters\n",
+            separator="━━━━━━━━━━━━━━━\n",
+            character="💎 {id} ◈ {rarity} ◈ {name}{fav} ×{count}\n",
+            footer="━━━━━━━━━━━━━━━\n\n"
+        )
     }
-}
-
-DISPLAY_OPTIONS = {
-    "show_url": {
-        "name": "🔗 Show URLs",
-        "description": "Display image URLs below character info"
-    },
-    "preview_image": {
-        "name": "🖼️ Preview Image",
-        "description": "Show character image as preview (default)"
-    },
-    "video_support": {
-        "name": "🎥 Video Support",
-        "description": "Enable AMV/video preview for characters"
-    },
-    "show_rarity_full": {
-        "name": "💫 Full Rarity",
-        "description": "Show full rarity name instead of emoji only"
-    },
-    "compact_mode": {
-        "name": "📦 Compact Mode",
-        "description": "Reduce spacing and separators"
-    },
-    "show_id_bottom": {
-        "name": "🔢 ID at Bottom",
-        "description": "Move character IDs to bottom of each entry"
+    
+    OPTION_INFO: Dict[str, Dict[str, str]] = {
+        "show_url": {
+            "name": "🔗 Show URLs",
+            "description": "Display image URLs below character info"
+        },
+        "preview_image": {
+            "name": "🖼️ Preview Image",
+            "description": "Show character image as preview"
+        },
+        "video_support": {
+            "name": "🎥 Video Support",
+            "description": "Enable AMV/video preview"
+        },
+        "show_rarity_full": {
+            "name": "💫 Full Rarity",
+            "description": "Show full rarity name"
+        },
+        "compact_mode": {
+            "name": "📦 Compact Mode",
+            "description": "Reduce spacing and separators"
+        },
+        "show_id_bottom": {
+            "name": "🔢 ID at Bottom",
+            "description": "Move character IDs to bottom"
+        }
     }
-}
+    
+    @classmethod
+    def get_style(cls, style_key: str) -> StyleTemplate:
+        return cls.STYLES.get(style_key, cls.STYLES["classic"])
+    
+    @classmethod
+    async def get_user_style(cls, user_id: int) -> StyleTemplate:
+        user = await user_collection.find_one({'id': user_id})
+        if user and 'custom_style' in user:
+            custom_data = user['custom_style']
+            return StyleTemplate(**custom_data)
+        style_key = user.get('harem_style', 'classic') if user else 'classic'
+        return cls.get_style(style_key)
+    
+    @classmethod
+    async def get_user_options(cls, user_id: int) -> DisplayOptions:
+        user = await user_collection.find_one({'id': user_id})
+        if user and 'harem_display_options' in user:
+            return DisplayOptions.from_dict(user['harem_display_options'])
+        return DisplayOptions()
+    
+    @classmethod
+    async def set_user_style(cls, user_id: int, style_key: str) -> bool:
+        if style_key not in cls.STYLES:
+            return False
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {'harem_style': style_key}, '$unset': {'custom_style': ''}},
+            upsert=True
+        )
+        return True
+    
+    @classmethod
+    async def set_custom_style(cls, user_id: int, style: StyleTemplate) -> None:
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {'custom_style': asdict(style)}, '$unset': {'harem_style': ''}},
+            upsert=True
+        )
+    
+    @classmethod
+    async def toggle_option(cls, user_id: int, option_key: str) -> bool:
+        options = await cls.get_user_options(user_id)
+        current_value = getattr(options, option_key, False)
+        new_value = not current_value
+        setattr(options, option_key, new_value)
+        
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {'harem_display_options': options.to_dict()}},
+            upsert=True
+        )
+        return new_value
+    
+    @classmethod
+    async def reset_user_settings(cls, user_id: int) -> None:
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {
+                'harem_style': 'classic',
+                'harem_display_options': {}
+            }, '$unset': {'custom_style': ''}},
+            upsert=True
+        )
 
 
-async def hstyle(update: Update, context: CallbackContext):
+class MediaFormatter:
+    @staticmethod
+    def add_media_preview(text: str, img_url: Optional[str], 
+                         video_url: Optional[str], 
+                         options: DisplayOptions) -> str:
+        result = text
+        
+        if options.preview_image and img_url:
+            result += f'<a href="{escape(img_url)}">&#8203;</a>'
+        
+        if options.video_support and video_url:
+            result += f'<a href="{escape(video_url)}">&#8203;</a>'
+        
+        if options.show_url:
+            if img_url:
+                result += f"\n  🔗 {escape(img_url)}"
+            if video_url:
+                result += f"\n  🎥 {escape(video_url)}"
+        
+        return result
+
+
+class HaremFormatter:
+    @staticmethod
+    async def format_page(user_id: int, user_name: str, 
+                         characters: List[CharacterData], 
+                         page: int, total_pages: int) -> str:
+        style = await StyleManager.get_user_style(user_id)
+        options = await StyleManager.get_user_options(user_id)
+        
+        text = style.format_header(user_name, page, total_pages)
+        
+        anime_groups: Dict[str, List[CharacterData]] = {}
+        for char in characters:
+            if char.anime not in anime_groups:
+                anime_groups[char.anime] = []
+            anime_groups[char.anime].append(char)
+        
+        for anime, chars in anime_groups.items():
+            text += style.format_anime_header(
+                anime, 
+                len(chars), 
+                chars[0].total_in_anime if chars else len(chars)
+            )
+            
+            if not options.compact_mode:
+                text += style.separator
+            
+            for char in chars:
+                fav_marker = " [🍁]" if char.is_fav else ""
+                
+                char_text = style.format_character(
+                    char.id, char.rarity, char.name, fav_marker, char.count
+                )
+                
+                char_text = MediaFormatter.add_media_preview(
+                    char_text, char.img_url, char.video_url, options
+                )
+                
+                text += char_text
+            
+            if not options.compact_mode:
+                text += style.footer
+            else:
+                text += "\n"
+        
+        return text
+
+
+async def hstyle(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     
     user = await user_collection.find_one({'id': user_id})
     current_style = user.get('harem_style', 'classic') if user else 'classic'
+    style_name = StyleManager.STYLES.get(current_style, StyleManager.STYLES['classic']).name
     
     keyboard = [
         [
@@ -103,43 +342,36 @@ async def hstyle(update: Update, context: CallbackContext):
             InlineKeyboardButton("👁️ Preview Current", callback_data="hstyle_preview")
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    style_name = DEFAULT_STYLES.get(current_style, {}).get('name', current_style)
-    
-    message_text = (
-        "╭─────────────────────╮\n"
-        "│ <b>ʜᴀʀᴇᴍ sᴛʏʟᴇ sᴇᴛᴛɪɴɢs</b> │\n"
-        "╰─────────────────────╯\n\n"
+    text = (
+        "<b>ʜᴀʀᴇᴍ sᴛʏʟᴇ sᴇᴛᴛɪɴɢs</b>\n\n"
         f"<b>📌 Current Style:</b> {style_name}\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
         "<b>🎨 Choose Style</b>\n"
-        "  Select from preset templates\n\n"
+        "Select from preset templates\n\n"
         "<b>⚙️ Display Options</b>\n"
-        "  Customize display features\n\n"
+        "Customize display features\n\n"
         "<b>✏️ Custom Style</b>\n"
-        "  Create your own template\n\n"
+        "Create your own template\n\n"
         "<b>🔄 Reset Default</b>\n"
-        "  Return to classic style\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+        "Return to classic style"
     )
     
     await update.message.reply_text(
-        text=message_text,
-        reply_markup=reply_markup,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
 
-async def hstyle_select(update: Update, context: CallbackContext):
+async def hstyle_select(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
     
     keyboard = []
     row = []
-    for style_key, style_data in DEFAULT_STYLES.items():
+    for style_key, style_data in StyleManager.STYLES.items():
         row.append(InlineKeyboardButton(
-            style_data['name'], 
+            style_data.name, 
             callback_data=f"hstyle_apply_{style_key}"
         ))
         if len(row) == 2:
@@ -151,12 +383,8 @@ async def hstyle_select(update: Update, context: CallbackContext):
     
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="hstyle_back")])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message_text = (
-        "╭─────────────────────╮\n"
-        "│  <b>sᴇʟᴇᴄᴛ ʜᴀʀᴇᴍ sᴛʏʟᴇ</b>  │\n"
-        "╰─────────────────────╯\n\n"
+    text = (
+        "<b>sᴇʟᴇᴄᴛ ʜᴀʀᴇᴍ sᴛʏʟᴇ</b>\n\n"
         "<b>Available Templates:</b>\n\n"
         "🎨 <b>Classic</b> - Traditional style\n"
         "⚡ <b>Minimal</b> - Clean & simple\n"
@@ -164,80 +392,67 @@ async def hstyle_select(update: Update, context: CallbackContext):
         "🌸 <b>Cute</b> - Kawaii aesthetic\n"
         "🎯 <b>Modern</b> - Contemporary design\n"
         "👑 <b>Royal</b> - Majestic theme\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         "Select a style to preview"
     )
     
     await query.edit_message_text(
-        text=message_text,
-        reply_markup=reply_markup,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
 
-async def hstyle_options(update: Update, context: CallbackContext):
+async def hstyle_options(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     
-    user = await user_collection.find_one({'id': user_id})
-    options = user.get('harem_display_options', {}) if user else {}
+    options = await StyleManager.get_user_options(user_id)
     
     keyboard = []
-    for opt_key, opt_data in DISPLAY_OPTIONS.items():
-        is_enabled = options.get(opt_key, False)
+    for opt_key, opt_info in StyleManager.OPTION_INFO.items():
+        is_enabled = getattr(options, opt_key, False)
         status = "✅" if is_enabled else "❌"
         keyboard.append([InlineKeyboardButton(
-            f"{status} {opt_data['name']}", 
+            f"{status} {opt_info['name']}", 
             callback_data=f"hstyle_toggle_{opt_key}"
         )])
     
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="hstyle_back")])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "<b>ᴅɪsᴘʟᴀʏ ᴏᴘᴛɪᴏɴs</b>\n\n<b>Customize your harem display:</b>\n\n"
     
-    message_text = (
-        "╭─────────────────────╮\n"
-        "│ <b>ᴅɪsᴘʟᴀʏ ᴏᴘᴛɪᴏɴs</b> │\n"
-        "╰─────────────────────╯\n\n"
-        "<b>Customize your harem display:</b>\n\n"
-    )
-    
-    for opt_key, opt_data in DISPLAY_OPTIONS.items():
-        is_enabled = options.get(opt_key, False)
+    for opt_key, opt_info in StyleManager.OPTION_INFO.items():
+        is_enabled = getattr(options, opt_key, False)
         status = "✅ Enabled" if is_enabled else "❌ Disabled"
-        message_text += f"<b>{opt_data['name']}</b>\n"
-        message_text += f"  {opt_data['description']}\n"
-        message_text += f"  Status: {status}\n\n"
+        text += f"<b>{opt_info['name']}</b>\n"
+        text += f"{opt_info['description']}\n"
+        text += f"Status: {status}\n\n"
     
-    message_text += "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-    message_text += "Tap to toggle options"
+    text += "Tap to toggle options"
     
     await query.edit_message_text(
-        text=message_text,
-        reply_markup=reply_markup,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
 
-async def hstyle_custom(update: Update, context: CallbackContext):
+async def hstyle_custom(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
     
     keyboard = [
-        [InlineKeyboardButton("📝 Set Custom Header", callback_data="hstyle_custom_header")],
+        [InlineKeyboardButton("📝 Set Header", callback_data="hstyle_custom_header")],
         [InlineKeyboardButton("🎨 Set Character Format", callback_data="hstyle_custom_char")],
         [InlineKeyboardButton("📊 Set Anime Header", callback_data="hstyle_custom_anime")],
+        [InlineKeyboardButton("🔧 Set Separator", callback_data="hstyle_custom_sep")],
         [InlineKeyboardButton("💾 Save Custom Style", callback_data="hstyle_custom_save")],
         [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="hstyle_back")]
     ]
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message_text = (
-        "╭─────────────────────╮\n"
-        "│ <b>ᴄᴜsᴛᴏᴍ sᴛʏʟᴇ ᴄʀᴇᴀᴛᴏʀ</b> │\n"
-        "╰─────────────────────╯\n\n"
+    text = (
+        "<b>ᴄᴜsᴛᴏᴍ sᴛʏʟᴇ ᴄʀᴇᴀᴛᴏʀ</b>\n\n"
         "<b>Create your own harem style!</b>\n\n"
         "🎯 <b>Available Variables:</b>\n\n"
         "<code>{user_name}</code> - Your name\n"
@@ -251,88 +466,56 @@ async def hstyle_custom(update: Update, context: CallbackContext):
         "<code>{rarity}</code> - Rarity emoji\n"
         "<code>{fav}</code> - Favorite marker\n"
         "<code>{count}</code> - Character count\n\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
-        "⚠️ <i>Custom styles coming soon!</i>\n"
-        "<i>For now, use preset templates</i>"
+        "⚠️ <i>Reply to bot messages to set templates</i>\n"
+        "<i>Use /cancel to stop editing</i>"
     )
     
     await query.edit_message_text(
-        text=message_text,
-        reply_markup=reply_markup,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
 
-async def hstyle_preview(update: Update, context: CallbackContext):
+async def hstyle_preview(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     
-    user = await user_collection.find_one({'id': user_id})
-    current_style = user.get('harem_style', 'classic') if user else 'classic'
-    style_template = DEFAULT_STYLES.get(current_style, DEFAULT_STYLES['classic'])
-    display_options = user.get('harem_display_options', {}) if user else {}
+    style = await StyleManager.get_user_style(user_id)
+    options = await StyleManager.get_user_options(user_id)
     
     user_name = escape(query.from_user.first_name)
-    preview = style_template['header'].format(
-        user_name=user_name,
-        page=1,
-        total_pages=3
-    )
+    preview = style.format_header(user_name, 1, 3)
+    preview += style.format_anime_header("Sample Anime", 5, 10)
     
-    preview += style_template['anime_header'].format(
-        anime="Sample Anime",
-        user_count=5,
-        total_count=10
-    )
+    if not options.compact_mode:
+        preview += style.separator
     
-    preview += style_template['separator']
+    preview += style.format_character("001", "🟡", "Sample Character", " [🍁]", 2)
     
-    preview += style_template['character'].format(
-        id="001",
-        rarity="🟡",
-        name="Sample Character",
-        fav=" [🍁]",
-        count=2
-    )
+    if options.preview_image:
+        preview += '<a href="https://graph.org/file/sample.jpg">&#8203;</a>'
     
-    # Add preview image/video URL if enabled
-    if display_options.get('preview_image', False):
-        preview += '<a href="https://graph.org/file/sample-image.jpg">&#8203;</a>'
+    if options.show_url:
+        preview += "\n  🔗 https://graph.org/file/sample.jpg"
     
-    if display_options.get('show_url', False):
-        preview += "  🔗 https://graph.org/file/sample-image.jpg\n"
+    preview += style.format_character("002", "🟣", "Another Character", "", 1)
     
-    preview += style_template['character'].format(
-        id="002",
-        rarity="🟣",
-        name="Another Character",
-        fav="",
-        count=1
-    )
-    
-    # Add video preview if enabled
-    if display_options.get('video_support', False):
-        preview += '<a href="https://telegra.ph/file/sample-video.mp4">&#8203;</a>'
-    
-    if display_options.get('show_url', False):
-        preview += "  🎥 https://telegra.ph/file/sample-video.mp4\n"
-    
-    preview += style_template['footer']
+    if not options.compact_mode:
+        preview += style.footer
     
     keyboard = [[InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="hstyle_back")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Send with link preview enabled for images/videos
     await query.edit_message_text(
-        text=f"<b>📺 PREVIEW: {style_template['name']}</b>\n\n{preview}",
-        reply_markup=reply_markup,
+        text=f"<b>📺 PREVIEW: {style.name}</b>\n\n{preview}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML',
         disable_web_page_preview=False
     )
 
 
-async def hstyle_callback(update: Update, context: CallbackContext):
+async def hstyle_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -350,17 +533,11 @@ async def hstyle_callback(update: Update, context: CallbackContext):
         await hstyle_preview(update, context)
         
     elif data == "hstyle_reset":
-        await user_collection.update_one(
-            {'id': user_id},
-            {'$set': {'harem_style': 'classic', 'harem_display_options': {}}},
-            upsert=True
-        )
+        await StyleManager.reset_user_settings(user_id)
         await query.answer("✅ Reset to default style", show_alert=True)
         await query.edit_message_text(
             text=(
-                "╭─────────────────────╮\n"
-                "│   <b>sᴛʏʟᴇ ʀᴇsᴇᴛ</b>   │\n"
-                "╰─────────────────────╯\n\n"
+                "<b>sᴛʏʟᴇ ʀᴇsᴇᴛ</b>\n\n"
                 "✨ Style reset to <b>Classic</b>\n\n"
                 "All display options cleared\n\n"
                 "Use /harem to see changes"
@@ -370,25 +547,18 @@ async def hstyle_callback(update: Update, context: CallbackContext):
         
     elif data.startswith("hstyle_apply_"):
         style_key = data.replace("hstyle_apply_", "")
-        style_data = DEFAULT_STYLES.get(style_key)
+        success = await StyleManager.set_user_style(user_id, style_key)
         
-        if style_data:
-            await user_collection.update_one(
-                {'id': user_id},
-                {'$set': {'harem_style': style_key}},
-                upsert=True
-            )
-            await query.answer(f"✅ {style_data['name']} applied!", show_alert=False)
+        if success:
+            style = StyleManager.get_style(style_key)
+            await query.answer(f"✅ {style.name} applied!", show_alert=False)
             await query.edit_message_text(
                 text=(
-                    "╭─────────────────────╮\n"
-                    "│  <b>sᴛʏʟᴇ ᴀᴘᴘʟɪᴇᴅ</b>  │\n"
-                    "╰─────────────────────╯\n\n"
-                    f"✨ <b>{style_data['name']}</b>\n\n"
-                    "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
-                    "   ✦ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ✦\n\n"
+                    "<b>sᴛʏʟᴇ ᴀᴘᴘʟɪᴇᴅ</b>\n\n"
+                    f"✨ <b>{style.name}</b>\n\n"
+                    "✦ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ✦\n\n"
                     "Your harem now uses\n"
-                    f"the {style_data['name'].lower()} template\n\n"
+                    f"the {style.name.lower()} template\n\n"
                     "Use /harem to see changes"
                 ),
                 parse_mode='HTML'
@@ -398,25 +568,19 @@ async def hstyle_callback(update: Update, context: CallbackContext):
             
     elif data.startswith("hstyle_toggle_"):
         option_key = data.replace("hstyle_toggle_", "")
+        new_value = await StyleManager.toggle_option(user_id, option_key)
         
-        user = await user_collection.find_one({'id': user_id})
-        options = user.get('harem_display_options', {}) if user else {}
-        
-        options[option_key] = not options.get(option_key, False)
-        
-        await user_collection.update_one(
-            {'id': user_id},
-            {'$set': {'harem_display_options': options}},
-            upsert=True
-        )
-        
-        status = "enabled" if options[option_key] else "disabled"
-        opt_name = DISPLAY_OPTIONS[option_key]['name']
+        status = "enabled" if new_value else "disabled"
+        opt_name = StyleManager.OPTION_INFO[option_key]['name']
         await query.answer(f"✅ {opt_name} {status}", show_alert=False)
         
         await hstyle_options(update, context)
         
     elif data == "hstyle_back":
+        user = await user_collection.find_one({'id': user_id})
+        current_style = user.get('harem_style', 'classic') if user else 'classic'
+        style_name = StyleManager.STYLES.get(current_style, StyleManager.STYLES['classic']).name
+        
         keyboard = [
             [
                 InlineKeyboardButton("🎨 Choose Style", callback_data="hstyle_select"),
@@ -430,158 +594,25 @@ async def hstyle_callback(update: Update, context: CallbackContext):
                 InlineKeyboardButton("👁️ Preview Current", callback_data="hstyle_preview")
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        user = await user_collection.find_one({'id': user_id})
-        current_style = user.get('harem_style', 'classic') if user else 'classic'
-        style_name = DEFAULT_STYLES.get(current_style, {}).get('name', current_style)
-        
-        message_text = (
-            "╭─────────────────────╮\n"
-            "│ <b>ʜᴀʀᴇᴍ sᴛʏʟᴇ sᴇᴛᴛɪɴɢs</b> │\n"
-            "╰─────────────────────╯\n\n"
+        text = (
+            "<b>ʜᴀʀᴇᴍ sᴛʏʟᴇ sᴇᴛᴛɪɴɢs</b>\n\n"
             f"<b>📌 Current Style:</b> {style_name}\n\n"
-            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
             "<b>🎨 Choose Style</b>\n"
-            "  Select from preset templates\n\n"
+            "Select from preset templates\n\n"
             "<b>⚙️ Display Options</b>\n"
-            "  Customize display features\n\n"
+            "Customize display features\n\n"
             "<b>✏️ Custom Style</b>\n"
-            "  Create your own template\n\n"
+            "Create your own template\n\n"
             "<b>🔄 Reset Default</b>\n"
-            "  Return to classic style\n\n"
-            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+            "Return to classic style"
         )
         
         await query.edit_message_text(
-            text=message_text,
-            reply_markup=reply_markup,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
-
-
-async def get_user_style_template(user_id):
-    """Get user's selected style template"""
-    user = await user_collection.find_one({'id': user_id})
-    if user:
-        style_key = user.get('harem_style', 'classic')
-        return DEFAULT_STYLES.get(style_key, DEFAULT_STYLES['classic'])
-    return DEFAULT_STYLES['classic']
-
-
-async def get_user_display_options(user_id):
-    """Get user's display options"""
-    user = await user_collection.find_one({'id': user_id})
-    if user:
-        return user.get('harem_display_options', {})
-    return {}
-
-
-def format_character_with_media(character_text, image_url=None, video_url=None, display_options=None):
-    """
-    Format character entry with media preview using HTML trick
-    
-    Args:
-        character_text: The formatted character text
-        image_url: URL to character image (if available)
-        video_url: URL to character video/AMV (if available)
-        display_options: User's display options dict
-    
-    Returns:
-        Formatted text with invisible link preview
-    """
-    if not display_options:
-        display_options = {}
-    
-    result = character_text
-    
-    # Add invisible link for image preview (Telegram will show preview)
-    if display_options.get('preview_image', False) and image_url:
-        # Zero-width space with link - Telegram shows preview but doesn't show link text
-        result += f'<a href="{escape(image_url)}">&#8203;</a>'
-    
-    # Add invisible link for video preview
-    if display_options.get('video_support', False) and video_url:
-        result += f'<a href="{escape(video_url)}">&#8203;</a>'
-    
-    # Optionally show URLs as text
-    if display_options.get('show_url', False):
-        if image_url:
-            result += f"\n  🔗 {escape(image_url)}"
-        if video_url:
-            result += f"\n  🎥 {escape(video_url)}"
-    
-    return result
-
-
-async def format_harem_page(user_id, user_name, characters_data, page, total_pages):
-    """
-    Format a harem page with user's style and display options
-    
-    Args:
-        user_id: User's Telegram ID
-        user_name: User's display name
-        characters_data: List of character dicts with keys: id, name, rarity, anime, count, is_fav, img_url, video_url
-        page: Current page number
-        total_pages: Total number of pages
-    
-    Returns:
-        Formatted HTML text for the harem page
-    """
-    style = await get_user_style_template(user_id)
-    options = await get_user_display_options(user_id)
-    
-    # Start with header
-    text = style['header'].format(
-        user_name=escape(user_name),
-        page=page,
-        total_pages=total_pages
-    )
-    
-    # Group characters by anime
-    anime_groups = {}
-    for char in characters_data:
-        anime = char.get('anime', 'Unknown')
-        if anime not in anime_groups:
-            anime_groups[anime] = []
-        anime_groups[anime].append(char)
-    
-    # Format each anime group
-    for anime, chars in anime_groups.items():
-        # Anime header
-        text += style['anime_header'].format(
-            anime=escape(anime),
-            user_count=len(chars),
-            total_count=char.get('total_in_anime', len(chars))
-        )
-        
-        text += style['separator']
-        
-        # Format each character
-        for char in chars:
-            fav_marker = " [🍁]" if char.get('is_fav', False) else ""
-            
-            char_text = style['character'].format(
-                id=char.get('id', '???'),
-                rarity=char.get('rarity', '⚪'),
-                name=escape(char.get('name', 'Unknown')),
-                fav=fav_marker,
-                count=char.get('count', 1)
-            )
-            
-            # Add media preview if options are enabled
-            char_text = format_character_with_media(
-                char_text,
-                image_url=char.get('img_url'),
-                video_url=char.get('video_url'),
-                display_options=options
-            )
-            
-            text += char_text
-        
-        text += style['footer']
-    
-    return text
 
 
 application.add_handler(CommandHandler("hstyle", hstyle, block=False))
