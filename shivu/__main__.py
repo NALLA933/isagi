@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
-from autofix_system import create_autofix_system, apply_autofix_to_handlers
+from shivu.autofix_system import create_autofix_system, apply_autofix_to_handlers
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
