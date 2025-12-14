@@ -1,6 +1,9 @@
-import random
-from datetime import datetime, timedelta
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, InputMediaVideo
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional, List
+from enum import Enum
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
 
@@ -9,276 +12,486 @@ from shivu import application, db, user_collection
 collection = db['anime_characters_lol']
 shop_collection = db['shop']
 shop_history_collection = db['shop_history']
-auction_collection = db['auctions']
-bid_collection = db['bids']
 
-sudo_users = ["8297659126", "8420981179", "5147822244"]
+SUDO_USERS = ["8297659126", "8420981179", "5147822244"]
 
-async def is_sudo_user(user_id: int) -> bool:
-    return str(user_id) in sudo_users
 
-async def sadd(update: Update, context: CallbackContext):
+class ShopStatus(Enum):
+    AVAILABLE = "available"
+    SOLD_OUT = "sold_out"
+    OWNED = "owned"
+
+
+@dataclass
+class Character:
+    id: str
+    name: str
+    anime: str
+    img_url: str
+    rarity: str
+    
+    @classmethod
+    def from_db(cls, data: dict):
+        return cls(
+            id=data.get('id', ''),
+            name=data.get('name', 'Unknown'),
+            anime=data.get('anime', 'Unknown'),
+            img_url=data.get('img_url', ''),
+            rarity=data.get('rarity', '')
+        )
+    
+    @property
+    def is_video(self) -> bool:
+        return self.rarity == "🎥 AMV"
+
+
+@dataclass
+class ShopItem:
+    id: str
+    price: int
+    original_price: int
+    discount: int
+    final_price: int
+    added_by: int
+    added_at: datetime
+    limit: Optional[int]
+    sold: int
+    featured: bool
+    views: int
+    
+    @classmethod
+    def from_db(cls, data: dict):
+        return cls(
+            id=data.get('id', ''),
+            price=data.get('price', 0),
+            original_price=data.get('original_price', 0),
+            discount=data.get('discount', 0),
+            final_price=data.get('final_price', 0),
+            added_by=data.get('added_by', 0),
+            added_at=data.get('added_at', datetime.utcnow()),
+            limit=data.get('limit'),
+            sold=data.get('sold', 0),
+            featured=data.get('featured', False),
+            views=data.get('views', 0)
+        )
+    
+    @property
+    def is_sold_out(self) -> bool:
+        return self.limit is not None and self.sold >= self.limit
+    
+    @property
+    def stock_display(self) -> str:
+        if self.limit is None:
+            return "∞"
+        return f"{self.sold}/{self.limit}"
+
+
+@dataclass
+class UserData:
+    id: int
+    balance: int
+    characters: List[dict] = field(default_factory=list)
+    
+    @classmethod
+    async def fetch(cls, user_id: int):
+        data = await user_collection.find_one({"id": user_id})
+        if not data:
+            return cls(id=user_id, balance=0, characters=[])
+        return cls(
+            id=data.get('id', user_id),
+            balance=data.get('balance', 0),
+            characters=data.get('characters', [])
+        )
+    
+    def owns_character(self, char_id: str) -> bool:
+        return any(c.get("id") == char_id for c in self.characters)
+
+
+class ShopUI:
+    
+    @staticmethod
+    def build_caption(character: Character, shop_item: ShopItem, 
+                     page: int, total: int, status: ShopStatus) -> str:
+        
+        status_emoji = {
+            ShopStatus.SOLD_OUT: "🚫 SOLD OUT",
+            ShopStatus.OWNED: "✅ OWNED",
+            ShopStatus.AVAILABLE: "⭐ FEATURED" if shop_item.featured else ""
+        }
+        
+        caption_lines = [
+            f"╭─「 🏪 <b>SHOP</b> {status_emoji[status]} 」",
+            f"│",
+            f"│ ✨ <b>{character.name}</b>",
+            f"│ 🎭 <code>{character.anime}</code>",
+            f"│"
+        ]
+        
+        if shop_item.discount > 0:
+            caption_lines.append(f"│ 💰 <s>{shop_item.price:,}</s> → <b>{shop_item.final_price:,}</b> ɢᴏʟᴅ")
+            caption_lines.append(f"│ 🏷️ <b>{shop_item.discount}%</b> OFF")
+        else:
+            caption_lines.append(f"│ 💰 <b>{shop_item.final_price:,}</b> ɢᴏʟᴅ")
+        
+        caption_lines.extend([
+            f"│",
+            f"│ 📦 Stock: <code>{shop_item.stock_display}</code>",
+            f"│ 👁️ Views: <code>{shop_item.views:,}</code>",
+            f"│",
+            f"╰─「 {page}/{total} 」"
+        ])
+        
+        return "\n".join(caption_lines)
+    
+    @staticmethod
+    def build_keyboard(shop_item: ShopItem, status: ShopStatus, 
+                      page: int, total_pages: int) -> InlineKeyboardMarkup:
+        keyboard = []
+        
+        if status == ShopStatus.AVAILABLE:
+            keyboard.append([
+                InlineKeyboardButton("💳 BUY NOW", callback_data=f"shop_buy_{shop_item.id}")
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton("🚫 UNAVAILABLE", callback_data="shop_na")
+            ])
+        
+        if total_pages > 1:
+            nav_row = []
+            if page > 1:
+                nav_row.append(InlineKeyboardButton("◀️", callback_data=f"shop_page_{page-1}"))
+            nav_row.append(InlineKeyboardButton(f"• {page}/{total_pages} •", callback_data="shop_info"))
+            if page < total_pages:
+                nav_row.append(InlineKeyboardButton("▶️", callback_data=f"shop_page_{page+1}"))
+            keyboard.append(nav_row)
+        
+        keyboard.append([
+            InlineKeyboardButton("🏷️ Discounts", callback_data="shop_filter_discount"),
+            InlineKeyboardButton("⭐ Featured", callback_data="shop_filter_featured"),
+            InlineKeyboardButton("🔄", callback_data="shop_refresh")
+        ])
+        
+        return InlineKeyboardMarkup(keyboard)
+
+
+class ShopManager:
+    
+    @staticmethod
+    async def is_sudo(user_id: int) -> bool:
+        return str(user_id) in SUDO_USERS
+    
+    @staticmethod
+    async def add_item(char_id: str, price: int, limit: Optional[int] = None,
+                      discount: int = 0, featured: bool = False, 
+                      added_by: int = 0) -> tuple[bool, str]:
+        
+        character = await collection.find_one({"id": char_id})
+        if not character:
+            return False, "⚠️ Character not found"
+        
+        existing = await shop_collection.find_one({"id": char_id})
+        if existing:
+            return False, "⚠️ Already in shop"
+        
+        final_price = int(price * (1 - discount / 100))
+        
+        await shop_collection.insert_one({
+            "id": char_id,
+            "price": price,
+            "original_price": price,
+            "discount": discount,
+            "final_price": final_price,
+            "added_by": added_by,
+            "added_at": datetime.utcnow(),
+            "limit": limit,
+            "sold": 0,
+            "featured": featured,
+            "views": 0
+        })
+        
+        msg = f"✅ <b>Added to Shop</b>\n\n"
+        msg += f"✨ {character['name']}\n"
+        msg += f"💰 {price:,} → <b>{final_price:,}</b> gold\n"
+        msg += f"📦 Limit: {'∞' if not limit else limit}"
+        
+        return True, msg
+    
+    @staticmethod
+    async def remove_item(char_id: str) -> tuple[bool, str]:
+        result = await shop_collection.delete_one({"id": char_id})
+        if result.deleted_count:
+            return True, "🗑️ Removed from shop"
+        return False, "⚠️ Not found in shop"
+    
+    @staticmethod
+    async def get_items(filter_type: Optional[str] = None) -> List[dict]:
+        query = {}
+        if filter_type == "discount":
+            query = {"discount": {"$gt": 0}}
+        elif filter_type == "featured":
+            query = {"featured": True}
+        
+        return await shop_collection.find(query).sort([
+            ("featured", -1),
+            ("added_at", -1)
+        ]).to_list(None)
+    
+    @staticmethod
+    async def purchase(user_id: int, char_id: str) -> tuple[bool, str]:
+        shop_item_data = await shop_collection.find_one({"id": char_id})
+        if not shop_item_data:
+            return False, "⚠️ Item not found"
+        
+        shop_item = ShopItem.from_db(shop_item_data)
+        character_data = await collection.find_one({"id": char_id})
+        character = Character.from_db(character_data)
+        user_data = await UserData.fetch(user_id)
+        
+        if shop_item.is_sold_out:
+            return False, "🚫 Sold out"
+        
+        if user_data.owns_character(char_id):
+            return False, "✅ Already owned"
+        
+        if user_data.balance < shop_item.final_price:
+            return False, f"⚠️ Need {shop_item.final_price:,} gold\n💰 Balance: {user_data.balance:,}"
+        
+        await user_collection.update_one(
+            {"id": user_id},
+            {
+                "$inc": {"balance": -shop_item.final_price},
+                "$push": {"characters": character_data}
+            },
+            upsert=True
+        )
+        
+        await shop_collection.update_one(
+            {"id": char_id},
+            {"$inc": {"sold": 1}}
+        )
+        
+        await shop_history_collection.insert_one({
+            "user_id": user_id,
+            "character_id": char_id,
+            "price": shop_item.final_price,
+            "purchase_date": datetime.utcnow()
+        })
+        
+        return True, f"✨ Purchased {character.name} for {shop_item.final_price:,} gold!"
+
+
+async def shop_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    if not await is_sudo_user(user_id):
-        await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪssɪᴏɴ")
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("⚠️ /sadd <id> <price> [limit] [discount%] [featured]", parse_mode="HTML")
+    
+    filter_type = context.args[0].lower() if context.args else None
+    if filter_type not in [None, "discount", "featured"]:
+        filter_type = None
+    
+    items = await ShopManager.get_items(filter_type)
+    
+    if not items:
+        await update.message.reply_text(
+            "╭─「 🏪 <b>SHOP</b> 」\n"
+            "│\n"
+            "│ Empty shop!\n"
+            "│ Check back later\n"
+            "│\n"
+            "╰─────────",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Refresh", callback_data="shop_refresh")
+            ]])
+        )
         return
     
-    char_id, price = context.args[0], int(context.args[1])
+    context.user_data['shop_items'] = [item['id'] for item in items]
+    context.user_data['shop_page'] = 1
+    context.user_data['shop_filter'] = filter_type
+    
+    await render_shop_page(update.message, context, user_id, 1)
+
+
+async def render_shop_page(message, context: CallbackContext, 
+                          user_id: int, page: int, edit: bool = False):
+    items = context.user_data.get('shop_items', [])
+    if not items or page < 1 or page > len(items):
+        return
+    
+    char_id = items[page - 1]
+    
+    character_data = await collection.find_one({"id": char_id})
+    shop_item_data = await shop_collection.find_one({"id": char_id})
+    
+    if not character_data or not shop_item_data:
+        return
+    
+    character = Character.from_db(character_data)
+    shop_item = ShopItem.from_db(shop_item_data)
+    user_data = await UserData.fetch(user_id)
+    
+    await shop_collection.update_one({"id": char_id}, {"$inc": {"views": 1}})
+    
+    if shop_item.is_sold_out:
+        status = ShopStatus.SOLD_OUT
+    elif user_data.owns_character(char_id):
+        status = ShopStatus.OWNED
+    else:
+        status = ShopStatus.AVAILABLE
+    
+    caption = ShopUI.build_caption(character, shop_item, page, len(items), status)
+    keyboard = ShopUI.build_keyboard(shop_item, status, page, len(items))
+    
+    context.user_data['shop_page'] = page
+    
+    try:
+        if edit:
+            await message.edit_caption(
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            send_func = message.reply_video if character.is_video else message.reply_photo
+            media_param = "video" if character.is_video else "photo"
+            await send_func(
+                **{media_param: character.img_url},
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+    except BadRequest:
+        if not edit:
+            await message.reply_text(caption, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def shop_callback_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data.startswith("shop_page_"):
+        page = int(data.split("_")[2])
+        await render_shop_page(query.message, context, user_id, page, edit=True)
+    
+    elif data == "shop_refresh":
+        page = context.user_data.get('shop_page', 1)
+        filter_type = context.user_data.get('shop_filter')
+        items = await ShopManager.get_items(filter_type)
+        context.user_data['shop_items'] = [item['id'] for item in items]
+        await render_shop_page(query.message, context, user_id, page, edit=True)
+    
+    elif data.startswith("shop_filter_"):
+        filter_type = data.split("_")[2]
+        items = await ShopManager.get_items(filter_type)
+        if items:
+            context.user_data['shop_items'] = [item['id'] for item in items]
+            context.user_data['shop_filter'] = filter_type
+            await render_shop_page(query.message, context, user_id, 1, edit=True)
+        else:
+            await query.answer(f"⚠️ No {filter_type} items", show_alert=True)
+    
+    elif data.startswith("shop_buy_"):
+        char_id = data.split("_", 2)[2]
+        success, message = await ShopManager.purchase(user_id, char_id)
+        await query.answer(message, show_alert=True)
+        if success:
+            page = context.user_data.get('shop_page', 1)
+            await render_shop_page(query.message, context, user_id, page, edit=True)
+    
+    elif data == "shop_na":
+        await query.answer("⚠️ This item is unavailable", show_alert=False)
+    
+    elif data == "shop_info":
+        await query.answer("Use arrow buttons to navigate", show_alert=False)
+
+
+async def shop_add_command(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    
+    if not await ShopManager.is_sudo(user_id):
+        await update.message.reply_text("⛔️ No permission")
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠️ Usage:\n<code>/sadd &lt;id&gt; &lt;price&gt; [limit] [discount%] [featured]</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    char_id = context.args[0]
+    price = int(context.args[1])
     limit = None if len(context.args) < 3 or context.args[2].lower() in ["0", "unlimited"] else int(context.args[2])
     discount = max(0, min(int(context.args[3]), 90)) if len(context.args) >= 4 else 0
     featured = len(context.args) >= 5 and context.args[4].lower() in ["yes", "true", "1"]
     
-    character = await collection.find_one({"id": char_id})
-    if not character or await shop_collection.find_one({"id": char_id}):
-        await update.message.reply_text(f"⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ {'not found' if not character else 'already in shop'}")
+    success, message = await ShopManager.add_item(
+        char_id, price, limit, discount, featured, user_id
+    )
+    
+    await update.message.reply_text(message, parse_mode="HTML")
+
+
+async def shop_remove_command(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    
+    if not await ShopManager.is_sudo(user_id):
+        await update.message.reply_text("⛔️ No permission")
         return
     
-    final_price = int(price * (1 - discount / 100))
-    await shop_collection.insert_one({
-        "id": char_id, "price": price, "original_price": price, "discount": discount,
-        "final_price": final_price, "added_by": user_id, "added_at": datetime.utcnow(),
-        "limit": limit, "sold": 0, "featured": featured, "views": 0
-    })
-    
-    await update.message.reply_text(
-        f"✨ <b>ᴀᴅᴅᴇᴅ ᴛᴏ sʜᴏᴘ!</b>\n\n🎭 {character['name']}\n"
-        f"💎 {price:,} → <b>{final_price:,}</b> ɢᴏʟᴅ\n🔢 ʟɪᴍɪᴛ: {'∞' if not limit else limit}",
-        parse_mode="HTML"
-    )
-
-async def srm(update: Update, context: CallbackContext):
-    if not await is_sudo_user(update.effective_user.id) or len(context.args) < 1:
+    if len(context.args) < 1:
+        await update.message.reply_text("⚠️ Usage: <code>/srm &lt;id&gt;</code>", parse_mode="HTML")
         return
     
     char_id = context.args[0]
-    result = await shop_collection.delete_one({"id": char_id})
-    await update.message.reply_text("🗑️ ʀᴇᴍᴏᴠᴇᴅ" if result.deleted_count else "⚠️ ɴᴏᴛ ғᴏᴜɴᴅ")
+    success, message = await ShopManager.remove_item(char_id)
+    await update.message.reply_text(message, parse_mode="HTML")
 
-async def shop(update: Update, context: CallbackContext):
+
+async def shop_history_command(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     
-    # Check for active auction
-    active_auction = await auction_collection.find_one({"status": "active", "end_time": {"$gt": datetime.utcnow()}})
-    if active_auction:
-        await show_auction(update, context, active_auction)
-        return
+    history = await shop_history_collection.find(
+        {"user_id": user_id}
+    ).sort("purchase_date", -1).limit(10).to_list(10)
     
-    filter_query = {"discount": {"$gt": 0}} if context.args and context.args[0].lower() == "discount" else {}
-    shop_items = await shop_collection.find(filter_query).sort([("featured", -1), ("added_at", -1)]).to_list(None)
-    
-    if not shop_items:
+    if not history:
         await update.message.reply_text(
-            "🏪 <b>sʜᴏᴘ ɪs ᴇᴍᴘᴛʏ</b>\n\nᴄʜᴇᴄᴋ ʙᴀᴄᴋ ʟᴀᴛᴇʀ!",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="sr_reload")]])
+            "╭─「 📜 <b>HISTORY</b> 」\n"
+            "│\n"
+            "│ No purchases yet\n"
+            "│\n"
+            "╰─────────",
+            parse_mode="HTML"
         )
         return
     
-    context.user_data['shop_items'] = [item['id'] for item in shop_items]
-    context.user_data['shop_page'] = 0
-    await render_shop_page(update.message, context, user_id, 0)
-
-def build_caption(character, shop_item, page, total, user_data=None):
-    price, final_price = shop_item["price"], shop_item.get("final_price", shop_item["price"])
-    discount, sold = shop_item.get("discount", 0), shop_item.get("sold", 0)
-    limit, featured = shop_item.get("limit"), shop_item.get("featured", False)
+    lines = ["╭─「 📜 <b>PURCHASE HISTORY</b> 」", "│"]
+    total = 0
     
-    sold_out = limit and sold >= limit
-    owned = user_data and any(c.get("id") == character["id"] for c in user_data.get("characters", []))
-    
-    status = "🚫 sᴏʟᴅ ᴏᴜᴛ" if sold_out else "✅ ᴏᴡɴᴇᴅ" if owned else "⭐ ғᴇᴀᴛᴜʀᴇᴅ" if featured else ""
-    
-    caption = f"<b>🏪 sʜᴏᴘ {status}</b>\n\n✨ {character['name']}\n🎭 {character.get('anime', 'Unknown')}\n"
-    caption += f"💎 <s>{price:,}</s> → <b>{final_price:,}</b> ɢᴏʟᴅ\n🏷️ <b>{discount}%</b> ᴏғғ!\n" if discount > 0 else f"💎 <b>{final_price:,}</b> ɢᴏʟᴅ\n"
-    caption += f"🔢 {'∞' if not limit else f'{sold}/{limit}'} | 👁️ {shop_item.get('views', 0):,}\n📖 {page}/{total}"
-    
-    return caption, character.get("img_url", ""), sold_out or owned, character.get("rarity") == "🎥 AMV"
-
-async def render_shop_page(message, context, user_id, page):
-    items = context.user_data.get('shop_items', [])
-    if not items or page >= len(items):
-        return
-    
-    char_id = items[page]
-    character = await collection.find_one({"id": char_id})
-    shop_item = await shop_collection.find_one({"id": char_id})
-    user_data = await user_collection.find_one({"id": user_id})
-    
-    if not character or not shop_item:
-        return
-    
-    await shop_collection.update_one({"id": char_id}, {"$inc": {"views": 1}})
-    
-    caption, media_url, sold_out, is_video = build_caption(character, shop_item, page + 1, len(items), user_data)
-    
-    buttons = [[InlineKeyboardButton("💳 ʙᴜʏ" if not sold_out else "🚫 ᴜɴᴀᴠᴀɪʟᴀʙʟᴇ", callback_data=f"sb_{char_id}" if not sold_out else "sna")]]
-    
-    if len(items) > 1:
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("◀️", callback_data=f"sp_{page-1}"))
-        nav.append(InlineKeyboardButton(f"{page+1}/{len(items)}", callback_data="spi"))
-        if page < len(items) - 1:
-            nav.append(InlineKeyboardButton("▶️", callback_data=f"sp_{page+1}"))
-        buttons.append(nav)
-    
-    buttons.append([InlineKeyboardButton("🏷️ ᴅɪsᴄᴏᴜɴᴛs", callback_data="ss_discount"), InlineKeyboardButton("🔄", callback_data="sr")])
-    
-    try:
-        func = message.reply_video if is_video else message.reply_photo
-        await func(video=media_url if is_video else None, photo=None if is_video else media_url, 
-                  caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-    except:
-        await message.reply_text(caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-
-async def shist(update: Update, context: CallbackContext):
-    history = await shop_history_collection.find({"user_id": update.effective_user.id}).sort("purchase_date", -1).limit(10).to_list(10)
-    
-    if not history:
-        await update.message.reply_text("📜 <b>ɴᴏ ᴘᴜʀᴄʜᴀsᴇ ʜɪsᴛᴏʀʏ</b>", parse_mode="HTML")
-        return
-    
-    text = "<b>📜 ʏᴏᴜʀ ᴘᴜʀᴄʜᴀsᴇ ʜɪsᴛᴏʀʏ</b>\n\n"
-    total = sum(r.get("price", 0) for r in history)
-    
-    for i, r in enumerate(history, 1):
-        char = await collection.find_one({"id": r["character_id"]})
+    for i, record in enumerate(history, 1):
+        char = await collection.find_one({"id": record["character_id"]})
         name = char.get("name", "Unknown") if char else "Unknown"
-        text += f"{i}. {name} - {r.get('price', 0):,} ɢᴏʟᴅ\n"
+        price = record.get("price", 0)
+        total += price
+        lines.append(f"│ {i}. {name}")
+        lines.append(f"│    💰 {price:,} gold")
     
-    text += f"\n━━━━━━━━━━━━━\n💰 ᴛᴏᴛᴀʟ: {total:,} ɢᴏʟᴅ"
-    await update.message.reply_text(text, parse_mode="HTML")
+    lines.extend([
+        "│",
+        f"│ 💳 Total: <b>{total:,}</b> gold",
+        "│",
+        "╰─────────"
+    ])
+    
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
-async def astart(update: Update, context: CallbackContext):
-    if not await is_sudo_user(update.effective_user.id) or len(context.args) < 3:
-        return
-    
-    char_id, starting_bid, duration_hours = context.args[0], int(context.args[1]), int(context.args[2])
-    character = await collection.find_one({"id": char_id})
-    
-    if not character or await auction_collection.find_one({"status": "active"}):
-        await update.message.reply_text("⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ not found or auction active")
-        return
-    
-    end_time = datetime.utcnow() + timedelta(hours=duration_hours)
-    await auction_collection.insert_one({
-        "character_id": char_id, "starting_bid": starting_bid, "current_bid": starting_bid,
-        "highest_bidder": None, "start_time": datetime.utcnow(), "end_time": end_time,
-        "status": "active", "created_by": update.effective_user.id, "bid_count": 0
-    })
-    
-    caption = f"<b>🔨 ᴀᴜᴄᴛɪᴏɴ sᴛᴀʀᴛᴇᴅ!</b>\n\n💎 {character['name']}\n💰 {starting_bid:,} ɢᴏʟᴅ\n⏰ {end_time.strftime('%d %b, %H:%M')}\n\nᴜsᴇ /bid [ᴀᴍᴏᴜɴᴛ]"
-    buttons = [[InlineKeyboardButton("🔨 ᴠɪᴇᴡ", callback_data="av")]]
-    
-    func = update.message.reply_video if character.get("rarity") == "🎥 AMV" else update.message.reply_photo
-    await func(video=character.get("img_url") if character.get("rarity") == "🎥 AMV" else None,
-               photo=character.get("img_url") if character.get("rarity") != "🎥 AMV" else None,
-               caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
 
-async def aend(update: Update, context: CallbackContext):
-    if not await is_sudo_user(update.effective_user.id):
-        return
-    
-    auction = await auction_collection.find_one({"status": "active"})
-    if not auction:
-        await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ")
-        return
-    
-    winner_id = auction.get("highest_bidder")
-    character = await collection.find_one({"id": auction["character_id"]})
-    
-    if winner_id:
-        await user_collection.update_one({"id": winner_id}, {"$inc": {"balance": -auction["current_bid"]}, "$push": {"characters": character}})
-        await update.message.reply_text(f"<b>🎊 ᴡɪɴɴᴇʀ:</b> <a href='tg://user?id={winner_id}'>User</a>\n💰 {auction['current_bid']:,}", parse_mode="HTML")
-    else:
-        await update.message.reply_text("⚠️ ɴᴏ ʙɪᴅs")
-    
-    await auction_collection.update_one({"_id": auction["_id"]}, {"$set": {"status": "ended"}})
-
-async def bid(update: Update, context: CallbackContext):
-    if not context.args:
-        return
-    
-    user_id, bid_amount = update.effective_user.id, int(context.args[0])
-    auction = await auction_collection.find_one({"status": "active"})
-    
-    if not auction:
-        await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ")
-        return
-    
-    min_bid = int(auction["current_bid"] * 1.05)
-    user_data = await user_collection.find_one({"id": user_id})
-    balance = user_data.get("balance", 0) if user_data else 0
-    
-    if bid_amount < min_bid or balance < bid_amount:
-        await update.message.reply_text(f"⚠️ ᴍɪɴ: {min_bid:,} | ʙᴀʟ: {balance:,}")
-        return
-    
-    await auction_collection.update_one({"_id": auction["_id"]}, {"$set": {"current_bid": bid_amount, "highest_bidder": user_id}, "$inc": {"bid_count": 1}})
-    await bid_collection.insert_one({"auction_id": auction["_id"], "user_id": user_id, "amount": bid_amount, "timestamp": datetime.utcnow()})
-    await update.message.reply_text(f"✅ ʙɪᴅ: {bid_amount:,} ɢᴏʟᴅ", parse_mode="HTML")
-
-async def show_auction(update, context, auction):
-    character = await collection.find_one({"id": auction["character_id"]})
-    time_left = auction["end_time"] - datetime.utcnow()
-    
-    caption = f"<b>🔨 ᴀᴜᴄᴛɪᴏɴ</b>\n\n💎 {character['name']}\n💰 {auction['current_bid']:,}\n⏰ {int(time_left.total_seconds()/3600)}h {int(time_left.total_seconds()%3600/60)}m"
-    buttons = [[InlineKeyboardButton("🔨 ᴠɪᴇᴡ", callback_data="av")]]
-    
-    await update.message.reply_photo(photo=character.get("img_url"), caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-
-async def shop_callback(update, context):
-    query = update.callback_query
-    await query.answer()
-    data, user_id = query.data, query.from_user.id
-    
-    if data.startswith("sp_"):
-        await render_shop_page_edit(query, context, user_id, int(data.split("_")[1]))
-    elif data == "sr":
-        await render_shop_page_edit(query, context, user_id, context.user_data.get('shop_page', 0))
-    elif data.startswith("sb_"):
-        await handle_buy(query, context, user_id, data.split("_", 1)[1])
-
-async def render_shop_page_edit(query, context, user_id, page):
-    items = context.user_data.get('shop_items', [])
-    char_id = items[page]
-    character = await collection.find_one({"id": char_id})
-    shop_item = await shop_collection.find_one({"id": char_id})
-    user_data = await user_collection.find_one({"id": user_id})
-    
-    caption, media_url, sold_out, is_video = build_caption(character, shop_item, page + 1, len(items), user_data)
-    buttons = [[InlineKeyboardButton("💳 ʙᴜʏ" if not sold_out else "🚫", callback_data=f"sb_{char_id}" if not sold_out else "sna")]]
-    
-    try:
-        await query.edit_message_caption(caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-    except:
-        pass
-
-async def handle_buy(query, context, user_id, char_id):
-    shop_item = await shop_collection.find_one({"id": char_id})
-    character = await collection.find_one({"id": char_id})
-    user_data = await user_collection.find_one({"id": user_id})
-    
-    price = shop_item.get("final_price", shop_item["price"])
-    balance = user_data.get("balance", 0) if user_data else 0
-    
-    if balance < price:
-        await query.answer(f"⚠️ ɴᴇᴇᴅ {price:,}", show_alert=True)
-        return
-    
-    await user_collection.update_one({"id": user_id}, {"$inc": {"balance": -price}, "$push": {"characters": character}}, upsert=True)
-    await shop_collection.update_one({"id": char_id}, {"$inc": {"sold": 1}})
-    await shop_history_collection.insert_one({"user_id": user_id, "character_id": char_id, "price": price, "purchase_date": datetime.utcnow()})
-    await query.answer("✨ ᴘᴜʀᴄʜᴀsᴇᴅ!")
-
-application.add_handler(CommandHandler("shop", shop, block=False))
-application.add_handler(CommandHandler("sadd", sadd, block=False))
-application.add_handler(CommandHandler("srm", srm, block=False))
-application.add_handler(CommandHandler("shist", shist, block=False))
-application.add_handler(CommandHandler("astart", astart, block=False))
-application.add_handler(CommandHandler("aend", aend, block=False))
-application.add_handler(CommandHandler("bid", bid, block=False))
-application.add_handler(CallbackQueryHandler(shop_callback, pattern=r"^s", block=False))
+application.add_handler(CommandHandler("shop", shop_command, block=False))
+application.add_handler(CommandHandler("sadd", shop_add_command, block=False))
+application.add_handler(CommandHandler("srm", shop_remove_command, block=False))
+application.add_handler(CommandHandler("shist", shop_history_command, block=False))
+application.add_handler(CallbackQueryHandler(shop_callback_handler, pattern=r"^shop_", block=False))
