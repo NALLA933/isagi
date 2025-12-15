@@ -631,13 +631,17 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
     LOGGER.info("Bot starting...")
+    
+    # Start auction checker in the background
+    async def post_init(app):
+        asyncio.create_task(check_expired_auctions())
+        LOGGER.info("✅ Auction checker started")
+    
+    application.post_init = post_init
     application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
     shivuu.start()
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
-    asyncio.create_task(check_expired_auctions())
-    LOGGER.info("✅ Auction checker task started")
-    
     main()
