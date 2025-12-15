@@ -1,26 +1,38 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from typing import Optional
 import asyncio
+from functools import wraps
 import logging
 import pytz
 
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.enums import ChatAction, ParseMode
+from telegram import Update
+from telegram.ext import CallbackContext, CommandHandler
+from telegram.constants import ParseMode, ChatAction
 
-from shivu import shivuu as app, db, user_collection
+from shivu import application, db, user_collection
 
 collection = db['anime_characters_lol']
 auction_collection = db['auctions']
 bid_collection = db['bids']
 
-SUDO_USERS = {8297659126, 8420981179, 5147822244}
+SUDO_USERS = {"8297659126", "8420981179", "5147822244"}
 logger = logging.getLogger(__name__)
 IST = pytz.timezone('Asia/Kolkata')
 
 def get_ist_now():
     return datetime.now(IST)
+
+def typing_action(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+        try:
+            if update.message:
+                await update.message.chat.send_action(ChatAction.TYPING)
+        except:
+            pass
+        return await func(update, context, *args, **kwargs)
+    return wrapper
 
 @dataclass
 class Character:
@@ -183,7 +195,7 @@ class AuctionManager:
 
     @staticmethod
     async def is_sudo(user_id: int):
-        return user_id in SUDO_USERS
+        return str(user_id) in SUDO_USERS
 
     @staticmethod
     async def get_active_auction():
@@ -379,11 +391,7 @@ async def check_expired_auctions():
                 
                 if success and chat_id:
                     try:
-                        await app.send_message(
-                            chat_id=chat_id, 
-                            text=message, 
-                            parse_mode=ParseMode.HTML
-                        )
+                        await application.bot.send_message(chat_id=chat_id, text=message, parse_mode=ParseMode.HTML)
                     except Exception as e:
                         logger.error(f"Failed to notify: {e}")
         except Exception as e:
@@ -391,10 +399,8 @@ async def check_expired_auctions():
         
         await asyncio.sleep(60)
 
-async def render_auction(message: Message, auction_data: dict, edit: bool = False):
+async def render_auction(message, context, auction_data, user_id, edit=False):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
         auction = Auction.from_db(auction_data)
         character_data = await collection.find_one({"id": auction.character_id})
 
@@ -406,117 +412,96 @@ async def render_auction(message: Message, auction_data: dict, edit: bool = Fals
         top_bidders = await AuctionManager.get_top_bidders(auction_data["_id"])
         caption = AuctionUI.build_caption(character, auction, top_bidders)
 
-        if edit and message.photo or message.video:
+        if edit:
             await message.edit_caption(caption=caption, parse_mode=ParseMode.HTML)
         else:
             if character.is_video:
-                await message.reply_video(
-                    video=character.img_url, 
-                    caption=caption, 
-                    parse_mode=ParseMode.HTML
-                )
+                await message.reply_video(video=character.img_url, caption=caption, parse_mode=ParseMode.HTML)
             else:
-                await message.reply_photo(
-                    photo=character.img_url, 
-                    caption=caption, 
-                    parse_mode=ParseMode.HTML
-                )
+                await message.reply_photo(photo=character.img_url, caption=caption, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error rendering: {e}")
 
-@app.on_message(filters.command("auction", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]))
-async def auction_view_command(client: Client, message: Message):
+@typing_action
+async def auction_view_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
         auction_data = await AuctionManager.get_active_auction()
         if not auction_data:
-            await message.reply_text(
-                "🔨 <b>ɴᴏ ᴀᴜᴄᴛɪᴏɴ</b>\n\nɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ", 
-                parse_mode=ParseMode.HTML
-            )
+            await update.message.reply_text("🔨 <b>ɴᴏ ᴀᴜᴄᴛɪᴏɴ</b>\n\nɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ", parse_mode=ParseMode.HTML)
             return
-        await render_auction(message, auction_data)
+        await render_auction(update.message, context, auction_data, update.effective_user.id)
     except Exception as e:
         logger.error(f"Error: {e}")
 
-@app.on_message(filters.command("astart", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^astart\s"))
-async def auction_start_command(client: Client, message: Message):
+@typing_action
+async def auction_start_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
-        user_id = message.from_user.id
+        user_id = update.effective_user.id
         if not await AuctionManager.is_sudo(user_id):
-            await message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
+            await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
             return
 
-        args = message.text.split()[1:]
-        if len(args) < 3:
-            await message.reply_text(
+        if len(context.args) < 3:
+            await update.message.reply_text(
                 "⚠️ <b>ᴜꜱᴀɢᴇ:</b>\n<code>/astart &lt;id&gt; &lt;bid&gt; &lt;hours&gt;</code>",
                 parse_mode=ParseMode.HTML
             )
             return
 
-        char_id = args[0]
-        starting_bid = int(args[1])
-        duration = int(args[2])
-        bid_increment = int(args[3]) if len(args) >= 4 else 100
+        char_id = context.args[0]
+        starting_bid = int(context.args[1])
+        duration = int(context.args[2])
+        bid_increment = int(context.args[3]) if len(context.args) >= 4 else 100
 
-        success, msg = await AuctionManager.create_auction(
-            char_id, starting_bid, duration, user_id, message.chat.id, bid_increment
+        success, message = await AuctionManager.create_auction(
+            char_id, starting_bid, duration, user_id, update.effective_chat.id, bid_increment
         )
-        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         if success:
             auction_data = await AuctionManager.get_active_auction()
             if auction_data:
-                await render_auction(message, auction_data)
+                await render_auction(update.message, context, auction_data, user_id)
     except ValueError:
-        await message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀꜱ")
+        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀꜱ")
     except Exception as e:
         logger.error(f"Error: {e}")
 
-@app.on_message(filters.command("aend", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^aend$"))
-async def auction_end_command(client: Client, message: Message):
+@typing_action
+async def auction_end_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
-        if not await AuctionManager.is_sudo(message.from_user.id):
-            await message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
+        if not await AuctionManager.is_sudo(update.effective_user.id):
+            await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
             return
-        success, msg, winner_id, chat_id = await AuctionManager.end_auction()
-        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        success, message, winner_id, chat_id = await AuctionManager.end_auction()
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error: {e}")
 
-@app.on_message(filters.command("bid", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^bid\s"))
-async def bid_command(client: Client, message: Message):
+@typing_action
+async def bid_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
-        args = message.text.split()[1:]
-        if not args:
-            await message.reply_text(
+        if not context.args:
+            await update.message.reply_text(
                 "⚠️ <b>ᴜꜱᴀɢᴇ:</b>\n<code>/bid &lt;amount&gt;</code>",
                 parse_mode=ParseMode.HTML
             )
             return
 
-        user_id = message.from_user.id
-        user_name = message.from_user.first_name or "Anonymous"
-        amount = int(args[0])
+        user_id = update.effective_user.id
+        user_name = update.effective_user.first_name or "Anonymous"
+        amount = int(context.args[0])
 
         if amount < 0:
-            await message.reply_text("⚠️ ʙɪᴅ ᴍᴜꜱᴛ ʙᴇ ᴘᴏꜱɪᴛɪᴠᴇ")
+            await update.message.reply_text("⚠️ ʙɪᴅ ᴍᴜꜱᴛ ʙᴇ ᴘᴏꜱɪᴛɪᴠᴇ")
             return
 
-        success, msg, previous_bidder = await AuctionManager.place_bid(user_id, amount, user_name)
-        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        success, message, previous_bidder = await AuctionManager.place_bid(user_id, amount, user_name)
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         if success and previous_bidder:
             try:
-                await app.send_message(
+                await context.bot.send_message(
                     chat_id=previous_bidder,
                     text=f"⚠️ <b>ᴏᴜᴛʙɪᴅ!</b>\n\n💰 ɴᴇᴡ: <b>{amount:,}</b> ɢᴏʟᴅ",
                     parse_mode=ParseMode.HTML
@@ -528,20 +513,18 @@ async def bid_command(client: Client, message: Message):
             await asyncio.sleep(1)
             auction_data = await AuctionManager.get_active_auction()
             if auction_data:
-                await render_auction(message, auction_data)
+                await render_auction(update.message, context, auction_data, user_id)
     except ValueError:
-        await message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ")
+        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ")
     except Exception as e:
         logger.error(f"Error: {e}")
 
-@app.on_message(filters.command("astats", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^astats$"))
-async def auction_stats_command(client: Client, message: Message):
+@typing_action
+async def auction_stats_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
         auction_data = await AuctionManager.get_active_auction()
         if not auction_data:
-            await message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ")
+            await update.message.reply_text("⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ")
             return
 
         auction = Auction.from_db(auction_data)
@@ -555,20 +538,18 @@ async def auction_stats_command(client: Client, message: Message):
                 medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
                 msg += f"{medal} {bid.amount:,} - {bid.user_name}\n"
 
-        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error: {e}")
 
-@app.on_message(filters.command("mybids", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]))
-async def my_bids_command(client: Client, message: Message):
+@typing_action
+async def my_bids_command(update: Update, context: CallbackContext):
     try:
-        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
-        
-        user_id = message.from_user.id
+        user_id = update.effective_user.id
         user_data = await user_collection.find_one({"id": user_id})
         
         if not user_data:
-            await message.reply_text("⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
+            await update.message.reply_text("⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
             return
 
         balance = user_data.get("balance", 0)
@@ -594,6 +575,15 @@ async def my_bids_command(client: Client, message: Message):
         else:
             msg += "ℹ️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ"
 
-        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error: {e}")
+
+application.add_handler(CommandHandler("auction", auction_view_command, block=False))
+application.add_handler(CommandHandler("astart", auction_start_command, block=False))
+application.add_handler(CommandHandler("aend", auction_end_command, block=False))
+application.add_handler(CommandHandler("bid", bid_command, block=False))
+application.add_handler(CommandHandler("astats", auction_stats_command, block=False))
+application.add_handler(CommandHandler("mybids", my_bids_command, block=False))
+
+asyncio.create_task(check_expired_auctions())
