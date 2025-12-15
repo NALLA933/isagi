@@ -393,7 +393,7 @@ async def check_expired_auctions():
 
 async def render_auction(message: Message, auction_data: dict, edit: bool = False):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         auction = Auction.from_db(auction_data)
         character_data = await collection.find_one({"id": auction.character_id})
@@ -427,7 +427,7 @@ async def render_auction(message: Message, auction_data: dict, edit: bool = Fals
 @app.on_message(filters.command("auction", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]))
 async def auction_view_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         auction_data = await AuctionManager.get_active_auction()
         if not auction_data:
@@ -443,7 +443,7 @@ async def auction_view_command(client: Client, message: Message):
 @app.on_message(filters.command("astart", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^astart\s"))
 async def auction_start_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         user_id = message.from_user.id
         if not await AuctionManager.is_sudo(user_id):
@@ -480,7 +480,7 @@ async def auction_start_command(client: Client, message: Message):
 @app.on_message(filters.command("aend", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^aend$"))
 async def auction_end_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         if not await AuctionManager.is_sudo(message.from_user.id):
             await message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
@@ -493,7 +493,7 @@ async def auction_end_command(client: Client, message: Message):
 @app.on_message(filters.command("bid", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^bid\s"))
 async def bid_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         args = message.text.split()[1:]
         if not args:
@@ -537,7 +537,7 @@ async def bid_command(client: Client, message: Message):
 @app.on_message(filters.command("astats", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]) | filters.regex(r"^astats$"))
 async def auction_stats_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         auction_data = await AuctionManager.get_active_auction()
         if not auction_data:
@@ -562,7 +562,7 @@ async def auction_stats_command(client: Client, message: Message):
 @app.on_message(filters.command("mybids", prefixes=[".", ",", ":", "'", '"', "*", "!", ";", "_", "/"]))
 async def my_bids_command(client: Client, message: Message):
     try:
-        await message.chat.send_action(ChatAction.TYPING)
+        await app.send_chat_action(message.chat.id, ChatAction.TYPING)
         
         user_id = message.from_user.id
         user_data = await user_collection.find_one({"id": user_id})
