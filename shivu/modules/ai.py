@@ -597,7 +597,3 @@ async def my_bids_command(client: Client, message: Message):
         await message.reply_text(msg, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error: {e}")
-
-
-# Initialize the background task
-asyncio.create_task(check_expired_auctions())
