@@ -598,21 +598,5 @@ async def my_bids_command(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error: {e}")
 
-# Start the expired auction checker when the bot starts
-@app.on_message(filters.command("start") & filters.private)
-async def start_command(client: Client, message: Message):
-    await message.reply_text(
-        "👋 <b>Welcome to Auction Bot!</b>\n\n"
-        "Available commands:\n"
-        "🔨 /auction - View current auction\n"
-        "💰 /bid &lt;amount&gt; - Place a bid\n"
-        "📊 /astats - Auction statistics\n"
-        "💼 /mybids - Your bidding status\n\n"
-        "<i>Admin commands:</i>\n"
-        "🎬 /astart - Start auction\n"
-        "⏹ /aend - End auction",
-        parse_mode=ParseMode.HTML
-    )
-
 # Initialize the background task
 asyncio.create_task(check_expired_auctions())
