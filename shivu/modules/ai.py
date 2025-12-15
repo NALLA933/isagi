@@ -86,6 +86,7 @@ class Auction:
     bid_count: int
     bid_increment: int = 100
     auto_extend: bool = True
+    chat_id: Optional[int] = None
 
     @classmethod
     def from_db(cls, data: dict):
@@ -119,7 +120,8 @@ class Auction:
             created_by=data.get('created_by', 0),
             bid_count=data.get('bid_count', 0),
             bid_increment=data.get('bid_increment', 100),
-            auto_extend=data.get('auto_extend', True)
+            auto_extend=data.get('auto_extend', True),
+            chat_id=data.get('chat_id')
         )
 
     @property
@@ -195,12 +197,16 @@ class Bid:
             user_name=data.get('user_name', 'Anonymous')
         )
 
+    def to_dict(self):
+        data = asdict(self)
+        data['timestamp'] = self.timestamp
+        return data
+
 
 class AuctionUI:
 
     @staticmethod
     def build_caption(character, auction, top_bidders=None):
-
         header = "🔨 <b>ʟɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n\n"
 
         status_indicator = "🔥 ᴇɴᴅɪɴɢ ꜱᴏᴏɴ!" if auction.is_ending_soon else "✅ ᴀᴄᴛɪᴠᴇ"
@@ -254,6 +260,7 @@ class AuctionManager:
     @staticmethod
     async def create_auction(char_id: str, starting_bid: int, 
                            duration_hours: int, created_by: int,
+                           chat_id: int,
                            bid_increment: int = 100,
                            auto_extend: bool = True):
         try:
@@ -273,10 +280,12 @@ class AuctionManager:
                 "starting_bid": starting_bid,
                 "current_bid": starting_bid,
                 "highest_bidder": None,
+                "previous_bidder": None,
                 "start_time": start_time,
                 "end_time": end_time,
                 "status": "active",
                 "created_by": created_by,
+                "chat_id": chat_id,
                 "bid_count": 0,
                 "bid_increment": bid_increment,
                 "auto_extend": auto_extend
@@ -295,30 +304,52 @@ class AuctionManager:
             try:
                 auction_data = await AuctionManager.get_active_auction()
                 if not auction_data:
-                    return False, "⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ʀᴜɴɴɪɴɢ"
+                    return False, "⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ʀᴜɴɴɪɴɢ", None
 
                 auction = Auction.from_db(auction_data)
 
                 if not auction.is_active:
-                    return False, "⏰ ᴀᴜᴄᴛɪᴏɴ ʜᴀꜱ ᴇɴᴅᴇᴅ"
+                    return False, "⏰ ᴀᴜᴄᴛɪᴏɴ ʜᴀꜱ ᴇɴᴅᴇᴅ", None
 
                 if user_id == auction.highest_bidder:
-                    return False, "👑 ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ᴛʜᴇ ʜɪɢʜᴇꜱᴛ ʙɪᴅᴅᴇʀ!"
+                    return False, "👑 ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ᴛʜᴇ ʜɪɢʜᴇꜱᴛ ʙɪᴅᴅᴇʀ!", None
 
                 if amount < auction.min_next_bid:
-                    return False, f"⚠️ ᴍɪɴɪᴍᴜᴍ ʙɪᴅ: <b>{auction.min_next_bid:,}</b> ɢᴏʟᴅ"
+                    return False, f"⚠️ ᴍɪɴɪᴍᴜᴍ ʙɪᴅ: <b>{auction.min_next_bid:,}</b> ɢᴏʟᴅ", None
 
                 user_data = await user_collection.find_one({"id": user_id})
-                balance = user_data.get("balance", 0) if user_data else 0
+                if not user_data:
+                    return False, "⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ. ᴘʟᴇᴀꜱᴇ ꜱᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ ꜰɪʀꜱᴛ.", None
 
-                if balance < amount:
-                    deficit = amount - balance
+                balance = user_data.get("balance", 0)
+                reserved = user_data.get("auction_reserved", 0)
+                available = balance - reserved
+
+                if available < amount:
+                    deficit = amount - available
                     return False, (
                         f"⚠️ <b>ɪɴꜱᴜꜰꜰɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ</b>\n\n"
                         f"💰 ʀᴇǫᴜɪʀᴇᴅ: <code>{amount:,}</code> ɢᴏʟᴅ\n"
-                        f"💳 ʙᴀʟᴀɴᴄᴇ: <code>{balance:,}</code> ɢᴏʟᴅ\n"
+                        f"💳 ᴀᴠᴀɪʟᴀʙʟᴇ: <code>{available:,}</code> ɢᴏʟᴅ\n"
+                        f"🔒 ʀᴇꜱᴇʀᴠᴇᴅ: <code>{reserved:,}</code> ɢᴏʟᴅ\n"
                         f"📉 ɴᴇᴇᴅ: <code>{deficit:,}</code> ᴍᴏʀᴇ ɢᴏʟᴅ"
+                    ), None
+
+                previous_bidder = auction.highest_bidder
+                previous_bid = auction.current_bid
+
+                # Free previous bidder's reserved funds
+                if previous_bidder:
+                    await user_collection.update_one(
+                        {"id": previous_bidder},
+                        {"$inc": {"auction_reserved": -previous_bid}}
                     )
+
+                # Reserve new bidder's funds
+                await user_collection.update_one(
+                    {"id": user_id},
+                    {"$inc": {"auction_reserved": amount}}
+                )
 
                 if auction.auto_extend and auction.is_ending_soon:
                     new_end_time = get_ist_now() + timedelta(minutes=5)
@@ -333,14 +364,15 @@ class AuctionManager:
                     {
                         "$set": {
                             "current_bid": amount,
-                            "highest_bidder": user_id
+                            "highest_bidder": user_id,
+                            "previous_bidder": previous_bidder
                         },
                         "$inc": {"bid_count": 1}
                     }
                 )
 
                 await bid_collection.insert_one({
-                    "auction_id": auction_data["_id"],
+                    "auction_id": str(auction_data["_id"]),
                     "user_id": user_id,
                     "user_name": user_name,
                     "amount": amount,
@@ -351,29 +383,34 @@ class AuctionManager:
                 msg += f"💰 ʏᴏᴜʀ ʙɪᴅ: <b>{amount:,}</b> ɢᴏʟᴅ\n"
                 msg += f"👑 ʏᴏᴜ'ʀᴇ ɴᴏᴡ ʟᴇᴀᴅɪɴɢ!"
 
-                return True, msg
+                return True, msg, previous_bidder
             except Exception as e:
                 logger.error(f"Error placing bid: {e}")
-                return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}"
+                return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}", None
 
     @staticmethod
     async def end_auction():
         try:
             auction_data = await auction_collection.find_one({"status": "active"})
             if not auction_data:
-                return False, "⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ꜰᴏᴜɴᴅ", None
+                return False, "⚠️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ ꜰᴏᴜɴᴅ", None, None
 
             auction = Auction.from_db(auction_data)
             winner_id = auction.highest_bidder
+            chat_id = auction.chat_id
 
             if winner_id:
                 character = await collection.find_one({"id": auction.character_id})
 
+                # Deduct reserved funds and add character (just ID)
                 await user_collection.update_one(
                     {"id": winner_id},
                     {
-                        "$inc": {"balance": -auction.current_bid},
-                        "$push": {"characters": character}
+                        "$inc": {
+                            "balance": -auction.current_bid,
+                            "auction_reserved": -auction.current_bid
+                        },
+                        "$push": {"characters": character['id']}
                     }
                 )
 
@@ -389,28 +426,62 @@ class AuctionManager:
                     f"💰 ꜰɪɴᴀʟ ᴘʀɪᴄᴇ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ\n"
                     f"🔨 ᴛᴏᴛᴀʟ ʙɪᴅꜱ: <code>{auction.bid_count}</code>"
                 )
-                return True, message, winner_id
+                return True, message, winner_id, chat_id
             else:
                 await auction_collection.update_one(
                     {"_id": auction_data["_id"]},
                     {"$set": {"status": "ended"}}
                 )
-                return True, "⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ ᴡɪᴛʜ ɴᴏ ʙɪᴅꜱ", None
+                return True, "⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ ᴡɪᴛʜ ɴᴏ ʙɪᴅꜱ", None, chat_id
         except Exception as e:
             logger.error(f"Error ending auction: {e}")
-            return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}", None
+            return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}", None, None
 
     @staticmethod
     async def get_top_bidders(auction_id):
         try:
-            bids = await bid_collection.find(
-                {"auction_id": auction_id}
-            ).sort("amount", -1).limit(5).to_list(5)
-
+            bids_cursor = bid_collection.find(
+                {"auction_id": str(auction_id)}
+            ).sort("amount", -1).limit(5)
+            
+            bids = await bids_cursor.to_list(length=5)
             return [Bid.from_db(bid) for bid in bids]
         except Exception as e:
             logger.error(f"Error getting top bidders: {e}")
             return []
+
+
+# Background task to auto-end expired auctions
+async def check_expired_auctions():
+    """Background task to automatically end expired auctions"""
+    await asyncio.sleep(10)  # Wait for bot to initialize
+    
+    while True:
+        try:
+            auction_data = await auction_collection.find_one({
+                "status": "active",
+                "end_time": {"$lt": get_ist_now()}
+            })
+            
+            if auction_data:
+                logger.info("Found expired auction, ending it...")
+                success, message, winner_id, chat_id = await AuctionManager.end_auction()
+                
+                if success and chat_id:
+                    try:
+                        await application.bot.send_message(
+                            chat_id=chat_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info(f"Auto-ended auction, notified chat {chat_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send auto-end notification: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error in auto-end task: {e}")
+        
+        await asyncio.sleep(60)  # Check every minute
 
 
 @typing_action
@@ -466,9 +537,10 @@ async def auction_start_command(update: Update, context: CallbackContext):
         if len(context.args) < 3:
             await update.message.reply_text(
                 "⚠️ <b>ᴜꜱᴀɢᴇ:</b>\n"
-                "<code>/astart &lt;id&gt; &lt;starting_bid&gt; &lt;hours&gt;</code>\n\n"
-                "<b>ᴇxᴀᴍᴘʟᴇ:</b>\n"
-                "<code>/astart char123 1000 24</code>",
+                "<code>/astart &lt;id&gt; &lt;starting_bid&gt; &lt;hours&gt; [bid_increment] [auto_extend]</code>\n\n"
+                "<b>ᴇxᴀᴍᴘʟᴇꜱ:</b>\n"
+                "<code>/astart char123 1000 24</code>\n"
+                "<code>/astart char456 5000 12 200 yes</code>",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -478,9 +550,10 @@ async def auction_start_command(update: Update, context: CallbackContext):
         duration = int(context.args[2])
         bid_increment = int(context.args[3]) if len(context.args) >= 4 else 100
         auto_extend = len(context.args) >= 5 and context.args[4].lower() in ["yes", "true", "1"]
+        chat_id = update.effective_chat.id
 
         success, message = await AuctionManager.create_auction(
-            char_id, starting_bid, duration, user_id, bid_increment, auto_extend
+            char_id, starting_bid, duration, user_id, chat_id, bid_increment, auto_extend
         )
 
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
@@ -506,7 +579,7 @@ async def auction_end_command(update: Update, context: CallbackContext):
             await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
             return
 
-        success, message, winner_id = await AuctionManager.end_auction()
+        success, message, winner_id, chat_id = await AuctionManager.end_auction()
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error in auction end: {e}")
@@ -532,8 +605,25 @@ async def bid_command(update: Update, context: CallbackContext):
             await update.message.reply_text("⚠️ ʙɪᴅ ᴀᴍᴏᴜɴᴛ ᴍᴜꜱᴛ ʙᴇ ᴘᴏꜱɪᴛɪᴠᴇ")
             return
 
-        success, message = await AuctionManager.place_bid(user_id, amount, user_name)
+        success, message, previous_bidder = await AuctionManager.place_bid(user_id, amount, user_name)
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+
+        # Notify previous bidder they were outbid
+        if success and previous_bidder:
+            try:
+                outbid_msg = (
+                    "⚠️ <b>ʏᴏᴜ'ᴠᴇ ʙᴇᴇɴ ᴏᴜᴛʙɪᴅ!</b>\n\n"
+                    f"💰 ɴᴇᴡ ʙɪᴅ: <b>{amount:,}</b> ɢᴏʟᴅ\n"
+                    f"👤 ʙʏ: <code>{user_name}</code>\n\n"
+                    "🔥 ᴘʟᴀᴄᴇ ᴀ ɴᴇᴡ ʙɪᴅ ᴛᴏ ʀᴇᴄʟᴀɪᴍ ᴛʜᴇ ʟᴇᴀᴅ!"
+                )
+                await context.bot.send_message(
+                    chat_id=previous_bidder,
+                    text=outbid_msg,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify previous bidder: {e}")
 
         if success:
             await asyncio.sleep(1)
@@ -570,7 +660,7 @@ async def auction_stats_command(update: Update, context: CallbackContext):
             msg += "<b>🏆 ᴛᴏᴘ 5 ʙɪᴅᴅᴇʀꜱ:</b>\n"
             for i, bid in enumerate(top_bidders, 1):
                 medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
-                msg += f"{medal} <code>{bid.amount:,}</code> ɢᴏʟᴅ\n"
+                msg += f"{medal} <code>{bid.amount:,}</code> ɢᴏʟᴅ - {bid.user_name}\n"
 
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
     except Exception as e:
@@ -578,8 +668,62 @@ async def auction_stats_command(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ")
 
 
+@typing_action
+async def my_bids_command(update: Update, context: CallbackContext):
+    """Show user's current auction status and reserved funds"""
+    try:
+        user_id = update.effective_user.id
+        user_data = await user_collection.find_one({"id": user_id})
+        
+        if not user_data:
+            await update.message.reply_text("⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
+            return
+
+        balance = user_data.get("balance", 0)
+        reserved = user_data.get("auction_reserved", 0)
+        available = balance - reserved
+
+        auction_data = await AuctionManager.get_active_auction()
+        
+        msg = "💼 <b>ʏᴏᴜʀ ᴀᴜᴄᴛɪᴏɴ ꜱᴛᴀᴛᴜꜱ</b>\n\n"
+        msg += f"💰 ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ: <b>{balance:,}</b> ɢᴏʟᴅ\n"
+        msg += f"🔒 ʀᴇꜱᴇʀᴠᴇᴅ: <code>{reserved:,}</code> ɢᴏʟᴅ\n"
+        msg += f"✅ ᴀᴠᴀɪʟᴀʙʟᴇ: <b>{available:,}</b> ɢᴏʟᴅ\n\n"
+
+        if auction_data:
+            auction = Auction.from_db(auction_data)
+            if auction.highest_bidder == user_id:
+                msg += "👑 <b>ʏᴏᴜ'ʀᴇ ᴛʜᴇ ʜɪɢʜᴇꜱᴛ ʙɪᴅᴅᴇʀ!</b>\n"
+                msg += f"💎 ʏᴏᴜʀ ʙɪᴅ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ\n"
+                msg += f"{auction.format_time_left()}"
+            else:
+                # Check if user has bid on this auction
+                user_bid = await bid_collection.find_one({
+                    "auction_id": str(auction_data["_id"]),
+                    "user_id": user_id
+                })
+                if user_bid:
+                    msg += "📊 <b>ʏᴏᴜ ʜᴀᴠᴇ ʙɪᴅ ᴏɴ ᴛʜɪꜱ ᴀᴜᴄᴛɪᴏɴ</b>\n"
+                    msg += f"💰 ᴄᴜʀʀᴇɴᴛ ʜɪɢʜᴇꜱᴛ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ\n"
+                    msg += f"📈 ɴᴇxᴛ ᴍɪɴ: <code>{auction.min_next_bid:,}</code> ɢᴏʟᴅ"
+                else:
+                    msg += "ℹ️ ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ʙɪᴅ ʏᴇᴛ"
+        else:
+            msg += "ℹ️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ"
+
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Error in my bids: {e}")
+        await update.message.reply_text("⚠️ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ")
+
+
+# Command handlers
 application.add_handler(CommandHandler("auction", auction_view_command, block=False))
 application.add_handler(CommandHandler("astart", auction_start_command, block=False))
 application.add_handler(CommandHandler("aend", auction_end_command, block=False))
 application.add_handler(CommandHandler("bid", bid_command, block=False))
 application.add_handler(CommandHandler("astats", auction_stats_command, block=False))
+application.add_handler(CommandHandler("mybids", my_bids_command, block=False))
+
+# Start background task
+asyncio.create_task(check_expired_auctions())
