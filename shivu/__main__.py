@@ -12,6 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
+from shivu.modules.ai import check_expired_auctions
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -624,6 +625,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
+
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
@@ -635,4 +637,7 @@ def main() -> None:
 if __name__ == "__main__":
     shivuu.start()
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+    asyncio.create_task(check_expired_auctions())
+    LOGGER.info("✅ Auction checker task started")
+    
     main()
