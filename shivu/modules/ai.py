@@ -9,7 +9,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatAction, ParseMode
 
-from shivu import app, db, user_collection
+from shivu import shivuu as app, db, user_collection
 
 collection = db['anime_characters_lol']
 auction_collection = db['auctions']
@@ -597,6 +597,7 @@ async def my_bids_command(client: Client, message: Message):
         await message.reply_text(msg, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Error: {e}")
+
 
 # Initialize the background task
 asyncio.create_task(check_expired_auctions())
