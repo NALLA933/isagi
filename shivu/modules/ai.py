@@ -585,5 +585,3 @@ application.add_handler(CommandHandler("aend", auction_end_command, block=False)
 application.add_handler(CommandHandler("bid", bid_command, block=False))
 application.add_handler(CommandHandler("astats", auction_stats_command, block=False))
 application.add_handler(CommandHandler("mybids", my_bids_command, block=False))
-
-asyncio.create_task(check_expired_auctions())
