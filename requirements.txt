@@ -14,6 +14,6 @@ cachetools>=5.0.0
 telegraph>=0.3.0
 redis>=6.2.0
 psutil
-httpx[http2]==0.27.2
-pytz
-instaloader
+httpx[http2]==0.27.2 
+pytz 
+yt-dlp
