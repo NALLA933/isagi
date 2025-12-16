@@ -47,4 +47,4 @@ async def ig(u: Update, c: ContextTypes.DEFAULT_TYPE):
     else:
         await m.edit_text("❌")
 
-application.add_handler(MessageHandler(filters.TEXT & filters.Regex(IGDL.REGEX) & filters.ChatType.PRIVATE, ig))
+application.add_handler(MessageHandler(filters.TEXT & filters.Regex(IGDL.REGEX), ig))
