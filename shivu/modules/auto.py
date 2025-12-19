@@ -2,215 +2,14 @@ import asyncio
 import random
 import time
 import logging
-import json
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo
-from telegram.ext import CommandHandler, CallbackQueryHandler, CallbackContext, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.error import TelegramError
 from shivu import application, user_collection, collection
-from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# AI Assistant Configuration
-AI_ENABLED = True  # Set to False to disable AI features
-AI_SUGGESTIONS_ENABLED = True  # AI fusion suggestions
-AI_MARKET_ANALYSIS = True  # AI market trend analysis
-AI_PREDICTION_MODEL = True  # AI success prediction
-
-class FusionAI:
-    """AI Assistant for fusion management and predictions"""
-    
-    @staticmethod
-    def analyze_fusion_potential(r1: str, r2: str, user_history: Dict) -> Dict:
-        """Analyze fusion combination and provide AI insights"""
-        r1_norm = norm_rarity(r1)
-        r2_norm = norm_rarity(r2)
-        
-        # Check if it's a special combination
-        combo_key = tuple(sorted([r1_norm, r2_norm]))
-        is_special = combo_key in SPECIAL_FUSIONS
-        
-        # Calculate base success rate
-        stones = 0
-        pity = user_history.get('fusion_pity', 0)
-        base_rate = calc_rate(r1_norm, r2_norm, stones, pity)
-        
-        # Get expected outcomes
-        expected_outcomes = FusionAI.get_expected_outcomes(r1_norm, r2_norm)
-        
-        # AI recommendation
-        recommendation = FusionAI.get_recommendation(r1_norm, r2_norm, base_rate, user_history)
-        
-        # Calculate investment value
-        cost = calc_cost(r1_norm, r2_norm)
-        value_score = FusionAI.calculate_value_score(expected_outcomes, cost)
-        
-        return {
-            'is_special_combo': is_special,
-            'base_success_rate': base_rate,
-            'expected_outcomes': expected_outcomes,
-            'recommendation': recommendation,
-            'value_score': value_score,
-            'cost': cost,
-            'suggested_stones': FusionAI.suggest_stone_count(base_rate, cost),
-            'risk_level': FusionAI.get_risk_level(base_rate, cost)
-        }
-    
-    @staticmethod
-    def get_expected_outcomes(r1: str, r2: str) -> List[Tuple[str, float]]:
-        """Get expected outcome distribution"""
-        combo_key = tuple(sorted([r1, r2]))
-        
-        if combo_key in SPECIAL_FUSIONS:
-            return SPECIAL_FUSIONS[combo_key]
-        
-        # Simulate multiple outcomes
-        tier1 = get_tier(r1)
-        tier2 = get_tier(r2)
-        max_tier = max(tier1, tier2)
-        
-        outcomes = {}
-        for _ in range(100):
-            result = get_result_rarity(r1, r2)
-            outcomes[result] = outcomes.get(result, 0) + 1
-        
-        # Convert to percentages and sort
-        total = sum(outcomes.values())
-        result_list = [(rarity, count/total) for rarity, count in outcomes.items()]
-        result_list.sort(key=lambda x: x[1], reverse=True)
-        
-        return result_list[:5]  # Top 5 outcomes
-    
-    @staticmethod
-    def get_recommendation(r1: str, r2: str, success_rate: float, user_history: Dict) -> str:
-        """Get AI recommendation for the fusion"""
-        combo_key = tuple(sorted([r1, r2]))
-        tier1 = get_tier(r1)
-        tier2 = get_tier(r2)
-        
-        # Check for special combinations
-        if combo_key in SPECIAL_FUSIONS:
-            outcomes = SPECIAL_FUSIONS[combo_key]
-            top_outcome = outcomes[0]
-            
-            if top_outcome[1] >= 0.50 and top_outcome[0] in ["🏵 Mythic", "🎐 Celestial"]:
-                return f"🌟 EXCELLENT! This combo has {top_outcome[1]*100:.0f}% chance for {top_outcome[0]}!"
-            elif top_outcome[1] >= 0.40:
-                return f"✨ GREAT! High chance ({top_outcome[1]*100:.0f}%) for {top_outcome[0]}"
-            else:
-                return f"👍 GOOD! Best outcome: {top_outcome[0]} ({top_outcome[1]*100:.0f}%)"
-        
-        # Seasonal opposites
-        r1_cat = get_rarity_categories(r1)
-        r2_cat = get_rarity_categories(r2)
-        
-        if 'seasonal' in r1_cat and 'seasonal' in r2_cat and r1 != r2:
-            return "🔥 HOT COMBO! Opposite seasons = High Mythic chance!"
-        
-        if 'holiday' in r1_cat and 'holiday' in r2_cat and r1 != r2:
-            return "🎉 FESTIVE POWER! Holiday fusion = Celestial/Mythic boost!"
-        
-        # High tier combination
-        if tier1 >= 6 and tier2 >= 6:
-            return "💎 PREMIUM FUSION! Two high-tier = Excellent results!"
-        
-        # Success rate based
-        if success_rate >= 0.70:
-            return "✅ HIGH SUCCESS! Very safe fusion"
-        elif success_rate >= 0.50:
-            return "⚖️ BALANCED! Moderate risk, good reward"
-        elif success_rate >= 0.30:
-            return "⚠️ RISKY! Consider using fusion stones"
-        else:
-            return "🚨 HIGH RISK! Use 2-3 stones recommended"
-    
-    @staticmethod
-    def calculate_value_score(outcomes: List[Tuple[str, float]], cost: int) -> float:
-        """Calculate investment value score (0-100)"""
-        # Weight outcomes by tier and probability
-        total_value = 0
-        for rarity, chance in outcomes:
-            tier = get_tier(rarity)
-            # Higher tiers are exponentially more valuable
-            tier_value = tier ** 2.5
-            total_value += tier_value * chance
-        
-        # Normalize against cost
-        cost_factor = min(cost / 1000, 10)
-        score = (total_value / cost_factor) * 10
-        
-        return min(max(score, 0), 100)
-    
-    @staticmethod
-    def suggest_stone_count(success_rate: float, cost: int) -> int:
-        """AI suggests optimal stone count"""
-        if success_rate >= 0.70:
-            return 0  # No stones needed
-        elif success_rate >= 0.50:
-            return 1  # Just a small boost
-        elif success_rate >= 0.35:
-            return 2  # Moderate boost needed
-        else:
-            return 3  # Maximum boost recommended
-    
-    @staticmethod
-    def get_risk_level(success_rate: float, cost: int) -> str:
-        """Determine risk level with emoji"""
-        if success_rate >= 0.70:
-            return "🟢 LOW RISK"
-        elif success_rate >= 0.50:
-            return "🟡 MEDIUM RISK"
-        elif success_rate >= 0.35:
-            return "🟠 HIGH RISK"
-        else:
-            return "🔴 VERY HIGH RISK"
-    
-    @staticmethod
-    def get_best_fusions(characters: List[Dict], user_history: Dict, limit: int = 5) -> List[Dict]:
-        """AI analyzes all possible fusions and returns best options"""
-        if len(characters) < 2:
-            return []
-        
-        fusion_scores = []
-        
-        # Analyze all possible pairs
-        for i in range(len(characters)):
-            for j in range(i + 1, len(characters)):
-                c1 = characters[i]
-                c2 = characters[j]
-                
-                r1 = norm_rarity(c1.get('rarity'))
-                r2 = norm_rarity(c2.get('rarity'))
-                
-                analysis = FusionAI.analyze_fusion_potential(r1, r2, user_history)
-                
-                fusion_scores.append({
-                    'char1': c1,
-                    'char2': c2,
-                    'analysis': analysis,
-                    'score': analysis['value_score']
-                })
-        
-        # Sort by score and return top options
-        fusion_scores.sort(key=lambda x: x['score'], reverse=True)
-        return fusion_scores[:limit]
-    
-    @staticmethod
-    def predict_success_with_stones(r1: str, r2: str, stones: int, pity: int) -> Dict:
-        """Predict success rate with different stone counts"""
-        predictions = {}
-        
-        for stone_count in range(0, 4):
-            rate = calc_rate(r1, r2, stone_count, pity)
-            predictions[stone_count] = {
-                'rate': rate,
-                'cost_increase': stone_count * 100,  # Stones cost 100 each
-                'efficiency': rate / (1 + stone_count * 0.1)  # Rate vs cost efficiency
-            }
-        
-        return predictions
 
 RARITY_MAP = {
     "common": "🟢 Common", "rare": "🟣 Rare", "legendary": "🟡 Legendary",
@@ -218,8 +17,7 @@ RARITY_MAP = {
     "cosplay": "🎭 Cosplay", "celestial": "🎐 Celestial", "premium": "🔮 Premium Edition",
     "erotic": "💋 Erotic", "summer": "🌤 Summer", "winter": "☃️ Winter",
     "monsoon": "☔️ Monsoon", "valentine": "💝 Valentine", "halloween": "🎃 Halloween",
-    "christmas": "🎄 Christmas", "mythic": "🏵 Mythic",
-    "amv": "🎥 AMV", "tiny": "👼 Tiny"
+    "christmas": "🎄 Christmas", "mythic": "🏵 Mythic", "amv": "🎥 AMV", "tiny": "👼 Tiny"
 }
 
 TIERS = {
@@ -230,7 +28,6 @@ TIERS = {
     "🏵 Mythic": 7, "🎥 AMV": 5, "👼 Tiny": 4
 }
 
-# Categorize rarities
 SEASONAL_RARITIES = {"🌤 Summer", "☃️ Winter", "☔️ Monsoon"}
 HOLIDAY_RARITIES = {"💝 Valentine", "🎃 Halloween", "🎄 Christmas"}
 SPECIAL_RARITIES = {"💮 Special Edition", "💫 Neon", "✨ Manga", "🎭 Cosplay", "🎐 Celestial", "🔮 Premium Edition", "💋 Erotic"}
@@ -238,282 +35,49 @@ CREATIVE_RARITIES = {"🎥 AMV", "👼 Tiny"}
 BASE_RARITIES = {"🟢 Common", "🟣 Rare", "🟡 Legendary"}
 ULTIMATE_RARITIES = {"🏵 Mythic"}
 
-# Special fusion combinations with chances
 SPECIAL_FUSIONS = {
-    # Seasonal opposites create powerful results
-    ("🌤 Summer", "☃️ Winter"): [
-        (0.40, "🏵 Mythic"),  # Opposite seasons = Mythic
-        (0.30, "🎐 Celestial"),  # Balance of hot/cold
-        (0.20, "💫 Neon"),
-        (0.10, "🟡 Legendary")
-    ],
-    ("🌤 Summer", "☔️ Monsoon"): [
-        (0.35, "🎐 Celestial"),  # Water + Heat = Steam/Sky
-        (0.30, "💫 Neon"),
-        (0.25, "🔮 Premium Edition"),
-        (0.10, "🟡 Legendary")
-    ],
-    ("☃️ Winter", "☔️ Monsoon"): [
-        (0.40, "🎐 Celestial"),  # Cold + Water = Ice/Snow power
-        (0.30, "💫 Neon"),
-        (0.20, "💮 Special Edition"),
-        (0.10, "🟣 Rare")
-    ],
-    
-    # Same seasons amplify
-    ("🌤 Summer", "🌤 Summer"): [
-        (0.50, "🔮 Premium Edition"),  # Double heat
-        (0.30, "💫 Neon"),
-        (0.15, "🎐 Celestial"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("☃️ Winter", "☃️ Winter"): [
-        (0.50, "🔮 Premium Edition"),  # Double cold
-        (0.30, "💫 Neon"),
-        (0.15, "🎐 Celestial"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("☔️ Monsoon", "☔️ Monsoon"): [
-        (0.50, "🎐 Celestial"),  # Double water
-        (0.30, "💫 Neon"),
-        (0.15, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    
-    # Holiday combinations
-    ("💝 Valentine", "🎃 Halloween"): [
-        (0.45, "🏵 Mythic"),  # Love + Fear = Ultimate
-        (0.30, "🎐 Celestial"),
-        (0.20, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    ("💝 Valentine", "🎄 Christmas"): [
-        (0.40, "🎐 Celestial"),  # Love + Joy = Heaven
-        (0.35, "💫 Neon"),
-        (0.20, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("🎃 Halloween", "🎄 Christmas"): [
-        (0.40, "🏵 Mythic"),  # Spooky + Jolly = Chaos
-        (0.30, "🎐 Celestial"),
-        (0.25, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    
-    # Holiday + Seasonal
-    ("💝 Valentine", "🌤 Summer"): [
-        (0.45, "💫 Neon"),  # Hot love
-        (0.30, "🔮 Premium Edition"),
-        (0.20, "🎐 Celestial"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("💝 Valentine", "☃️ Winter"): [
-        (0.40, "🎐 Celestial"),  # Cold love = Eternal
-        (0.35, "💫 Neon"),
-        (0.20, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("🎃 Halloween", "☃️ Winter"): [
-        (0.45, "🏵 Mythic"),  # Spooky cold = Ultimate fear
-        (0.30, "🎐 Celestial"),
-        (0.20, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    ("🎃 Halloween", "☔️ Monsoon"): [
-        (0.40, "🎐 Celestial"),  # Dark water
-        (0.35, "💫 Neon"),
-        (0.20, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("🎄 Christmas", "☃️ Winter"): [
-        (0.50, "🏵 Mythic"),  # Perfect match!
-        (0.30, "🎐 Celestial"),
-        (0.15, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    
-    # Creative combinations
-    ("🎥 AMV", "✨ Manga"): [
-        (0.50, "🎐 Celestial"),  # Animation + Art
-        (0.30, "💫 Neon"),
-        (0.15, "🏵 Mythic"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    ("🎥 AMV", "🎭 Cosplay"): [
-        (0.45, "💫 Neon"),  # Video + Performance
-        (0.35, "🎐 Celestial"),
-        (0.15, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("✨ Manga", "🎭 Cosplay"): [
-        (0.45, "💫 Neon"),  # Art + Performance
-        (0.30, "🎐 Celestial"),
-        (0.20, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("👼 Tiny", "🏵 Mythic"): [
-        (0.60, "🏵 Mythic"),  # Tiny power = Still mythic
-        (0.25, "🎐 Celestial"),
-        (0.10, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    
-    # Erotic combinations
-    ("💋 Erotic", "💝 Valentine"): [
-        (0.55, "🏵 Mythic"),  # Passion + Love = Ultimate
-        (0.25, "🎐 Celestial"),
-        (0.15, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    ("💋 Erotic", "🌤 Summer"): [
-        (0.50, "🎐 Celestial"),  # Hot passion
-        (0.30, "💫 Neon"),
-        (0.15, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("💋 Erotic", "☃️ Winter"): [
-        (0.45, "🎐 Celestial"),  # Contrast
-        (0.30, "💫 Neon"),
-        (0.20, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    
-    # Neon combinations
-    ("💫 Neon", "💫 Neon"): [
-        (0.55, "🎐 Celestial"),  # Double glow
-        (0.25, "🏵 Mythic"),
-        (0.15, "🔮 Premium Edition"),
-        (0.05, "💫 Neon")
-    ],
-    ("💫 Neon", "🎭 Cosplay"): [
-        (0.45, "🎐 Celestial"),  # Glow + Performance
-        (0.30, "🔮 Premium Edition"),
-        (0.20, "🏵 Mythic"),
-        (0.05, "💫 Neon")
-    ],
-    
-    # Premium combinations
-    ("🔮 Premium Edition", "🔮 Premium Edition"): [
-        (0.60, "🏵 Mythic"),  # Double premium
-        (0.25, "🎐 Celestial"),
-        (0.10, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    ("🔮 Premium Edition", "💫 Neon"): [
-        (0.50, "🏵 Mythic"),
-        (0.30, "🎐 Celestial"),
-        (0.15, "💫 Neon"),
-        (0.05, "🔮 Premium Edition")
-    ],
-    
-    # Celestial combinations
-    ("🎐 Celestial", "🎐 Celestial"): [
-        (0.70, "🏵 Mythic"),  # Double heaven
-        (0.20, "🎐 Celestial"),
-        (0.08, "💫 Neon"),
-        (0.02, "🔮 Premium Edition")
-    ],
-    ("🎐 Celestial", "💫 Neon"): [
-        (0.55, "🏵 Mythic"),
-        (0.30, "🎐 Celestial"),
-        (0.12, "💫 Neon"),
-        (0.03, "🔮 Premium Edition")
-    ],
-    ("🎐 Celestial", "🔮 Premium Edition"): [
-        (0.60, "🏵 Mythic"),
-        (0.25, "🎐 Celestial"),
-        (0.12, "💫 Neon"),
-        (0.03, "🔮 Premium Edition")
-    ],
-    
-    # Mythic combinations (stays mythic or slight downgrades)
-    ("🏵 Mythic", "🏵 Mythic"): [
-        (0.95, "🏵 Mythic"),  # Almost guaranteed
-        (0.04, "🎐 Celestial"),
-        (0.01, "💫 Neon")
-    ],
-    ("🏵 Mythic", "🎐 Celestial"): [
-        (0.80, "🏵 Mythic"),
-        (0.15, "🎐 Celestial"),
-        (0.05, "💫 Neon")
-    ],
-    
-    # Base rarity progressions
-    ("🟡 Legendary", "🟡 Legendary"): [
-        (0.70, "💮 Special Edition"),
-        (0.20, "🟡 Legendary"),
-        (0.08, "💫 Neon"),
-        (0.02, "🎐 Celestial")
-    ],
-    ("💮 Special Edition", "💮 Special Edition"): [
-        (0.70, "💫 Neon"),
-        (0.20, "💮 Special Edition"),
-        (0.08, "🎐 Celestial"),
-        (0.02, "🏵 Mythic")
-    ],
-    
-    # Cross-category powerful combos
-    ("🏵 Mythic", "💝 Valentine"): [
-        (0.85, "🏵 Mythic"),  # Love at max level
-        (0.10, "🎐 Celestial"),
-        (0.05, "💫 Neon")
-    ],
-    ("🏵 Mythic", "🌤 Summer"): [
-        (0.80, "🏵 Mythic"),
-        (0.12, "🎐 Celestial"),
-        (0.08, "💫 Neon")
-    ],
-    ("🏵 Mythic", "☃️ Winter"): [
-        (0.80, "🏵 Mythic"),
-        (0.12, "🎐 Celestial"),
-        (0.08, "💫 Neon")
-    ],
-    
-    # Tiny special cases
-    ("👼 Tiny", "👼 Tiny"): [
-        (0.50, "💮 Special Edition"),  # Tiny power doubles
-        (0.30, "💫 Neon"),
-        (0.15, "🎐 Celestial"),
-        (0.05, "🏵 Mythic")
-    ],
-    ("👼 Tiny", "💫 Neon"): [
-        (0.45, "🎐 Celestial"),  # Tiny glow
-        (0.35, "💫 Neon"),
-        (0.15, "🔮 Premium Edition"),
-        (0.05, "🏵 Mythic")
-    ],
-    
-    # Common combos for progression
-    ("🟢 Common", "🟢 Common"): [
-        (0.60, "🟢 Common"),
-        (0.30, "🟣 Rare"),
-        (0.08, "🟡 Legendary"),
-        (0.02, "💮 Special Edition")
-    ],
-    ("🟣 Rare", "🟣 Rare"): [
-        (0.50, "🟣 Rare"),
-        (0.35, "🟡 Legendary"),
-        (0.12, "💮 Special Edition"),
-        (0.03, "💫 Neon")
-    ],
-    ("🟢 Common", "🟣 Rare"): [
-        (0.55, "🟣 Rare"),
-        (0.30, "🟡 Legendary"),
-        (0.12, "🟢 Common"),
-        (0.03, "💮 Special Edition")
-    ],
-    ("🟣 Rare", "🟡 Legendary"): [
-        (0.45, "🟡 Legendary"),
-        (0.35, "💮 Special Edition"),
-        (0.15, "🟣 Rare"),
-        (0.05, "💫 Neon")
-    ],
-    ("🟢 Common", "🟡 Legendary"): [
-        (0.50, "🟣 Rare"),
-        (0.30, "🟡 Legendary"),
-        (0.15, "🟢 Common"),
-        (0.05, "💮 Special Edition")
-    ]
+    ("🌤 Summer", "☃️ Winter"): [("🏵 Mythic", 0.40), ("🎐 Celestial", 0.30), ("💫 Neon", 0.20), ("🟡 Legendary", 0.10)],
+    ("🌤 Summer", "☔️ Monsoon"): [("🎐 Celestial", 0.35), ("💫 Neon", 0.30), ("🔮 Premium Edition", 0.25), ("🟡 Legendary", 0.10)],
+    ("☃️ Winter", "☔️ Monsoon"): [("🎐 Celestial", 0.40), ("💫 Neon", 0.30), ("💮 Special Edition", 0.20), ("🟣 Rare", 0.10)],
+    ("🌤 Summer", "🌤 Summer"): [("🔮 Premium Edition", 0.50), ("💫 Neon", 0.30), ("🎐 Celestial", 0.15), ("🏵 Mythic", 0.05)],
+    ("☃️ Winter", "☃️ Winter"): [("🔮 Premium Edition", 0.50), ("💫 Neon", 0.30), ("🎐 Celestial", 0.15), ("🏵 Mythic", 0.05)],
+    ("☔️ Monsoon", "☔️ Monsoon"): [("🎐 Celestial", 0.50), ("💫 Neon", 0.30), ("🔮 Premium Edition", 0.15), ("🏵 Mythic", 0.05)],
+    ("💝 Valentine", "🎃 Halloween"): [("🏵 Mythic", 0.45), ("🎐 Celestial", 0.30), ("💫 Neon", 0.20), ("🔮 Premium Edition", 0.05)],
+    ("💝 Valentine", "🎄 Christmas"): [("🎐 Celestial", 0.40), ("💫 Neon", 0.35), ("🔮 Premium Edition", 0.20), ("🏵 Mythic", 0.05)],
+    ("🎃 Halloween", "🎄 Christmas"): [("🏵 Mythic", 0.40), ("🎐 Celestial", 0.30), ("💫 Neon", 0.25), ("🔮 Premium Edition", 0.05)],
+    ("💝 Valentine", "🌤 Summer"): [("💫 Neon", 0.45), ("🔮 Premium Edition", 0.30), ("🎐 Celestial", 0.20), ("🏵 Mythic", 0.05)],
+    ("💝 Valentine", "☃️ Winter"): [("🎐 Celestial", 0.40), ("💫 Neon", 0.35), ("🔮 Premium Edition", 0.20), ("🏵 Mythic", 0.05)],
+    ("🎃 Halloween", "☃️ Winter"): [("🏵 Mythic", 0.45), ("🎐 Celestial", 0.30), ("💫 Neon", 0.20), ("🔮 Premium Edition", 0.05)],
+    ("🎃 Halloween", "☔️ Monsoon"): [("🎐 Celestial", 0.40), ("💫 Neon", 0.35), ("🔮 Premium Edition", 0.20), ("🏵 Mythic", 0.05)],
+    ("🎄 Christmas", "☃️ Winter"): [("🏵 Mythic", 0.50), ("🎐 Celestial", 0.30), ("💫 Neon", 0.15), ("🔮 Premium Edition", 0.05)],
+    ("🎥 AMV", "✨ Manga"): [("🎐 Celestial", 0.50), ("💫 Neon", 0.30), ("🏵 Mythic", 0.15), ("🔮 Premium Edition", 0.05)],
+    ("🎥 AMV", "🎭 Cosplay"): [("💫 Neon", 0.45), ("🎐 Celestial", 0.35), ("🔮 Premium Edition", 0.15), ("🏵 Mythic", 0.05)],
+    ("✨ Manga", "🎭 Cosplay"): [("💫 Neon", 0.45), ("🎐 Celestial", 0.30), ("🔮 Premium Edition", 0.20), ("🏵 Mythic", 0.05)],
+    ("👼 Tiny", "🏵 Mythic"): [("🏵 Mythic", 0.60), ("🎐 Celestial", 0.25), ("💫 Neon", 0.10), ("🔮 Premium Edition", 0.05)],
+    ("💋 Erotic", "💝 Valentine"): [("🏵 Mythic", 0.55), ("🎐 Celestial", 0.25), ("💫 Neon", 0.15), ("🔮 Premium Edition", 0.05)],
+    ("💋 Erotic", "🌤 Summer"): [("🎐 Celestial", 0.50), ("💫 Neon", 0.30), ("🔮 Premium Edition", 0.15), ("🏵 Mythic", 0.05)],
+    ("💋 Erotic", "☃️ Winter"): [("🎐 Celestial", 0.45), ("💫 Neon", 0.30), ("🔮 Premium Edition", 0.20), ("🏵 Mythic", 0.05)],
+    ("💫 Neon", "💫 Neon"): [("🎐 Celestial", 0.55), ("🏵 Mythic", 0.25), ("🔮 Premium Edition", 0.15), ("💫 Neon", 0.05)],
+    ("💫 Neon", "🎭 Cosplay"): [("🎐 Celestial", 0.45), ("🔮 Premium Edition", 0.30), ("🏵 Mythic", 0.20), ("💫 Neon", 0.05)],
+    ("🔮 Premium Edition", "🔮 Premium Edition"): [("🏵 Mythic", 0.60), ("🎐 Celestial", 0.25), ("💫 Neon", 0.10), ("🔮 Premium Edition", 0.05)],
+    ("🔮 Premium Edition", "💫 Neon"): [("🏵 Mythic", 0.50), ("🎐 Celestial", 0.30), ("💫 Neon", 0.15), ("🔮 Premium Edition", 0.05)],
+    ("🎐 Celestial", "🎐 Celestial"): [("🏵 Mythic", 0.70), ("🎐 Celestial", 0.20), ("💫 Neon", 0.08), ("🔮 Premium Edition", 0.02)],
+    ("🎐 Celestial", "💫 Neon"): [("🏵 Mythic", 0.55), ("🎐 Celestial", 0.30), ("💫 Neon", 0.12), ("🔮 Premium Edition", 0.03)],
+    ("🎐 Celestial", "🔮 Premium Edition"): [("🏵 Mythic", 0.60), ("🎐 Celestial", 0.25), ("💫 Neon", 0.12), ("🔮 Premium Edition", 0.03)],
+    ("🏵 Mythic", "🏵 Mythic"): [("🏵 Mythic", 0.95), ("🎐 Celestial", 0.04), ("💫 Neon", 0.01)],
+    ("🏵 Mythic", "🎐 Celestial"): [("🏵 Mythic", 0.80), ("🎐 Celestial", 0.15), ("💫 Neon", 0.05)],
+    ("🟡 Legendary", "🟡 Legendary"): [("💮 Special Edition", 0.70), ("🟡 Legendary", 0.20), ("💫 Neon", 0.08), ("🎐 Celestial", 0.02)],
+    ("💮 Special Edition", "💮 Special Edition"): [("💫 Neon", 0.70), ("💮 Special Edition", 0.20), ("🎐 Celestial", 0.08), ("🏵 Mythic", 0.02)],
+    ("🏵 Mythic", "💝 Valentine"): [("🏵 Mythic", 0.85), ("🎐 Celestial", 0.10), ("💫 Neon", 0.05)],
+    ("🏵 Mythic", "🌤 Summer"): [("🏵 Mythic", 0.80), ("🎐 Celestial", 0.12), ("💫 Neon", 0.08)],
+    ("🏵 Mythic", "☃️ Winter"): [("🏵 Mythic", 0.80), ("🎐 Celestial", 0.12), ("💫 Neon", 0.08)],
+    ("👼 Tiny", "👼 Tiny"): [("💮 Special Edition", 0.50), ("💫 Neon", 0.30), ("🎐 Celestial", 0.15), ("🏵 Mythic", 0.05)],
+    ("👼 Tiny", "💫 Neon"): [("🎐 Celestial", 0.45), ("💫 Neon", 0.35), ("🔮 Premium Edition", 0.15), ("🏵 Mythic", 0.05)],
+    ("🟢 Common", "🟢 Common"): [("🟢 Common", 0.60), ("🟣 Rare", 0.30), ("🟡 Legendary", 0.08), ("💮 Special Edition", 0.02)],
+    ("🟣 Rare", "🟣 Rare"): [("🟣 Rare", 0.50), ("🟡 Legendary", 0.35), ("💮 Special Edition", 0.12), ("💫 Neon", 0.03)],
+    ("🟢 Common", "🟣 Rare"): [("🟣 Rare", 0.55), ("🟡 Legendary", 0.30), ("🟢 Common", 0.12), ("💮 Special Edition", 0.03)],
+    ("🟣 Rare", "🟡 Legendary"): [("🟡 Legendary", 0.45), ("💮 Special Edition", 0.35), ("🟣 Rare", 0.15), ("💫 Neon", 0.05)],
+    ("🟢 Common", "🟡 Legendary"): [("🟣 Rare", 0.50), ("🟡 Legendary", 0.30), ("🟢 Common", 0.15), ("💮 Special Edition", 0.05)]
 }
 
 COSTS = {1: 500, 2: 1000, 3: 2000, 4: 3500, 5: 5000, 6: 7500, 7: 10000}
@@ -544,178 +108,8 @@ def calc_rate(r1: str, r2: str, stones: int, pity: int) -> float:
     pity_bonus = min(pity, 5) * 0.05
     return min(base + stone_bonus + pity_bonus, 0.95)
 
-def get_result_rarity(r1: str, r2: str) -> str:
-    """
-    Advanced fusion system with 1000+ logical possibilities
-    Checks special combinations first, then falls back to tier-based logic
-    """
-    
-    # Normalize inputs
-    r1_norm = norm_rarity(r1)
-    r2_norm = norm_rarity(r2)
-    
-    # Create sorted tuple for lookup (order doesn't matter)
-    combo_key = tuple(sorted([r1_norm, r2_norm]))
-    
-    # Check for special predefined combinations
-    if combo_key in SPECIAL_FUSIONS:
-        outcomes = SPECIAL_FUSIONS[combo_key]
-        roll = random.random()
-        cumulative = 0.0
-        
-        for chance, rarity in outcomes:
-            cumulative += chance
-            if roll <= cumulative:
-                return rarity
-    
-    # If no special combo found, check for reverse order (shouldn't happen with sorted, but safety)
-    reverse_key = (combo_key[1], combo_key[0])
-    if reverse_key in SPECIAL_FUSIONS:
-        outcomes = SPECIAL_FUSIONS[reverse_key]
-        roll = random.random()
-        cumulative = 0.0
-        
-        for chance, rarity in outcomes:
-            cumulative += chance
-            if roll <= cumulative:
-                return rarity
-    
-    # Category-based special logic for undefined combinations
-    r1_categories = get_rarity_categories(r1_norm)
-    r2_categories = get_rarity_categories(r2_norm)
-    
-    # Cross-seasonal fusion (not predefined)
-    if 'seasonal' in r1_categories and 'seasonal' in r2_categories and r1_norm != r2_norm:
-        # Different seasons have high chance for celestial/mythic
-        roll = random.random()
-        if roll < 0.35:
-            return "🏵 Mythic"
-        elif roll < 0.65:
-            return "🎐 Celestial"
-        elif roll < 0.85:
-            return "💫 Neon"
-        else:
-            return "🔮 Premium Edition"
-    
-    # Holiday + Seasonal (not predefined)
-    if 'holiday' in r1_categories and 'seasonal' in r2_categories:
-        roll = random.random()
-        if roll < 0.40:
-            return "🎐 Celestial"
-        elif roll < 0.70:
-            return "💫 Neon"
-        elif roll < 0.90:
-            return "🔮 Premium Edition"
-        else:
-            return "🏵 Mythic"
-    
-    # Two different holidays (not predefined)
-    if 'holiday' in r1_categories and 'holiday' in r2_categories and r1_norm != r2_norm:
-        roll = random.random()
-        if roll < 0.45:
-            return "🏵 Mythic"
-        elif roll < 0.75:
-            return "🎐 Celestial"
-        elif roll < 0.95:
-            return "💫 Neon"
-        else:
-            return "🔮 Premium Edition"
-    
-    # Creative + Special (not predefined)
-    if 'creative' in r1_categories and 'special' in r2_categories:
-        roll = random.random()
-        if roll < 0.45:
-            return "🎐 Celestial"
-        elif roll < 0.75:
-            return "💫 Neon"
-        elif roll < 0.90:
-            return "🔮 Premium Edition"
-        else:
-            return "🏵 Mythic"
-    
-    # Ultimate + anything (not predefined)
-    if 'ultimate' in r1_categories or 'ultimate' in r2_categories:
-        roll = random.random()
-        if roll < 0.75:
-            return "🏵 Mythic"
-        elif roll < 0.90:
-            return "🎐 Celestial"
-        else:
-            return "💫 Neon"
-    
-    # High tier special rarities together
-    if 'special' in r1_categories and 'special' in r2_categories:
-        tier1 = get_tier(r1_norm)
-        tier2 = get_tier(r2_norm)
-        avg_tier = (tier1 + tier2) / 2
-        
-        if avg_tier >= 6:  # Both high tier
-            roll = random.random()
-            if roll < 0.50:
-                return "🏵 Mythic"
-            elif roll < 0.80:
-                return "🎐 Celestial"
-            else:
-                return "💫 Neon"
-    
-    # Random luck - 5% chance for completely random high-tier rarity
-    if random.random() < 0.05:
-        lucky_pool = ["🏵 Mythic", "🎐 Celestial", "💫 Neon", "🔮 Premium Edition", "💋 Erotic"]
-        return random.choice(lucky_pool)
-    
-    # Fallback to tier-based system for standard combinations
-    tier1 = get_tier(r1_norm)
-    tier2 = get_tier(r2_norm)
-    max_tier = max(tier1, tier2)
-    min_tier = min(tier1, tier2)
-    
-    # If tiers are very different, bias towards middle
-    tier_diff = abs(tier1 - tier2)
-    
-    if tier_diff >= 3:  # Large gap
-        roll = random.random()
-        if roll < 0.50:
-            result_tier = (tier1 + tier2) // 2
-        elif roll < 0.80:
-            result_tier = max_tier
-        else:
-            result_tier = min(max_tier + 1, 7)
-    else:  # Normal tier progression
-        roll = random.random()
-        if roll < 0.50:
-            result_tier = max_tier
-        elif roll < 0.80:
-            result_tier = min(max_tier + 1, 7)
-        else:
-            result_tier = min(max_tier + 2, 7)
-    
-    # Get all rarities of result tier
-    candidates = [r for r, t in TIERS.items() if t == result_tier]
-    
-    if not candidates:
-        return "🏵 Mythic"
-    
-    # Weight candidates based on categories
-    weighted_candidates = []
-    for candidate in candidates:
-        weight = 1
-        cand_categories = get_rarity_categories(candidate)
-        
-        # If input rarities share category with candidate, increase weight
-        if any(cat in cand_categories for cat in r1_categories):
-            weight += 2
-        if any(cat in cand_categories for cat in r2_categories):
-            weight += 2
-        
-        weighted_candidates.extend([candidate] * weight)
-    
-    return random.choice(weighted_candidates) if weighted_candidates else random.choice(candidates)
-
-
 def get_rarity_categories(rarity: str) -> set:
-    """Return which categories a rarity belongs to"""
     categories = set()
-    
     if rarity in SEASONAL_RARITIES:
         categories.add('seasonal')
     if rarity in HOLIDAY_RARITIES:
@@ -728,8 +122,137 @@ def get_rarity_categories(rarity: str) -> set:
         categories.add('base')
     if rarity in ULTIMATE_RARITIES:
         categories.add('ultimate')
-    
     return categories
+
+def get_result_rarity(r1: str, r2: str) -> str:
+    r1_norm = norm_rarity(r1)
+    r2_norm = norm_rarity(r2)
+    combo_key = tuple(sorted([r1_norm, r2_norm]))
+    
+    if combo_key in SPECIAL_FUSIONS:
+        outcomes = SPECIAL_FUSIONS[combo_key]
+        roll = random.random()
+        cumulative = 0.0
+        for rarity, chance in outcomes:
+            cumulative += chance
+            if roll <= cumulative:
+                return rarity
+    
+    r1_categories = get_rarity_categories(r1_norm)
+    r2_categories = get_rarity_categories(r2_norm)
+    
+    if 'seasonal' in r1_categories and 'seasonal' in r2_categories and r1_norm != r2_norm:
+        roll = random.random()
+        if roll < 0.35:
+            return "🏵 Mythic"
+        elif roll < 0.65:
+            return "🎐 Celestial"
+        elif roll < 0.85:
+            return "💫 Neon"
+        else:
+            return "🔮 Premium Edition"
+    
+    if 'holiday' in r1_categories and 'seasonal' in r2_categories:
+        roll = random.random()
+        if roll < 0.40:
+            return "🎐 Celestial"
+        elif roll < 0.70:
+            return "💫 Neon"
+        elif roll < 0.90:
+            return "🔮 Premium Edition"
+        else:
+            return "🏵 Mythic"
+    
+    if 'holiday' in r1_categories and 'holiday' in r2_categories and r1_norm != r2_norm:
+        roll = random.random()
+        if roll < 0.45:
+            return "🏵 Mythic"
+        elif roll < 0.75:
+            return "🎐 Celestial"
+        elif roll < 0.95:
+            return "💫 Neon"
+        else:
+            return "🔮 Premium Edition"
+    
+    if 'creative' in r1_categories and 'special' in r2_categories:
+        roll = random.random()
+        if roll < 0.45:
+            return "🎐 Celestial"
+        elif roll < 0.75:
+            return "💫 Neon"
+        elif roll < 0.90:
+            return "🔮 Premium Edition"
+        else:
+            return "🏵 Mythic"
+    
+    if 'ultimate' in r1_categories or 'ultimate' in r2_categories:
+        roll = random.random()
+        if roll < 0.75:
+            return "🏵 Mythic"
+        elif roll < 0.90:
+            return "🎐 Celestial"
+        else:
+            return "💫 Neon"
+    
+    if 'special' in r1_categories and 'special' in r2_categories:
+        tier1 = get_tier(r1_norm)
+        tier2 = get_tier(r2_norm)
+        avg_tier = (tier1 + tier2) / 2
+        
+        if avg_tier >= 6:
+            roll = random.random()
+            if roll < 0.50:
+                return "🏵 Mythic"
+            elif roll < 0.80:
+                return "🎐 Celestial"
+            else:
+                return "💫 Neon"
+    
+    if random.random() < 0.05:
+        lucky_pool = ["🏵 Mythic", "🎐 Celestial", "💫 Neon", "🔮 Premium Edition", "💋 Erotic"]
+        return random.choice(lucky_pool)
+    
+    tier1 = get_tier(r1_norm)
+    tier2 = get_tier(r2_norm)
+    max_tier = max(tier1, tier2)
+    min_tier = min(tier1, tier2)
+    tier_diff = abs(tier1 - tier2)
+    
+    if tier_diff >= 3:
+        roll = random.random()
+        if roll < 0.50:
+            result_tier = (tier1 + tier2) // 2
+        elif roll < 0.80:
+            result_tier = max_tier
+        else:
+            result_tier = min(max_tier + 1, 7)
+    else:
+        roll = random.random()
+        if roll < 0.50:
+            result_tier = max_tier
+        elif roll < 0.80:
+            result_tier = min(max_tier + 1, 7)
+        else:
+            result_tier = min(max_tier + 2, 7)
+    
+    candidates = [r for r, t in TIERS.items() if t == result_tier]
+    
+    if not candidates:
+        return "🏵 Mythic"
+    
+    weighted_candidates = []
+    for candidate in candidates:
+        weight = 1
+        cand_categories = get_rarity_categories(candidate)
+        
+        if any(cat in cand_categories for cat in r1_categories):
+            weight += 2
+        if any(cat in cand_categories for cat in r2_categories):
+            weight += 2
+        
+        weighted_candidates.extend([candidate] * weight)
+    
+    return random.choice(weighted_candidates) if weighted_candidates else random.choice(candidates)
 
 async def check_cooldown(uid: int) -> Tuple[bool, int]:
     try:
@@ -931,9 +454,8 @@ async def show_char_page(message, uid: int, chars: List[Dict], page: int, step: 
         buttons = []
         for c in page_chars:
             char_name = c.get('name', 'unknown')
-            # Truncate name to avoid callback_data exceeding 64 bytes
             display_name = char_name[:10] if len(char_name) > 10 else char_name
-            char_id = str(c.get('id', ''))[:20]  # Ensure ID isn't too long
+            char_id = str(c.get('id', ''))[:20]
             
             buttons.append([InlineKeyboardButton(
                 f"{norm_rarity(c.get('rarity', 'common'))} {display_name}",
@@ -992,12 +514,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_text("❌ cancelled")
             return
         
-        # Shop and buy actions don't need active session
         if data == "fshop" or data.startswith("fb_"):
             await query.answer()
-            # Continue to shop/buy handlers below
         else:
-            # Other actions need session validation
             session = sessions.get(uid)
             if not session or session.get('owner') != uid:
                 await query.answer("❌ not your session", show_alert=True)
@@ -1041,7 +560,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'page': 0
             })
             
-            # Don't delete, just edit or send new message
             try:
                 await query.edit_message_text(
                     f"✅ {norm_rarity(char1.get('rarity'))} {char1.get('name')}\n\nselecting second character..."
@@ -1049,10 +567,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = query.message
             except Exception as e:
                 logger.warning(f"Could not edit message: {e}")
-                # Send new message with character 1 media
                 try:
                     media_url = char1.get('img_url', '')
-                    # Check if AMV (video)
                     if char1.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
                         msg = await context.bot.send_video(
                             chat_id=query.message.chat_id,
@@ -1088,7 +604,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sessions.pop(uid, None)
                 return
             
-            # Check if user selected the same character
             if cid == session.get('c1'):
                 await query.answer("❌ cannot select the same character", show_alert=True)
                 return
@@ -1096,7 +611,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session['c2'] = cid
             session['c2_data'] = char2
             
-            # Edit current message instead of deleting
             try:
                 await query.edit_message_text(
                     f"✅ {norm_rarity(char2.get('rarity'))} {char2.get('name')}\n\npreparing fusion..."
@@ -1104,10 +618,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning(f"Could not edit message: {e}")
             
-            # Send confirmation with character 2 media
             try:
                 media_url = char2.get('img_url', '')
-                # Check if AMV (video)
                 if char2.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
                     await context.bot.send_video(
                         chat_id=query.message.chat_id,
@@ -1128,7 +640,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             
             await asyncio.sleep(0.5)
-            # Use context.bot to send confirmation
             await show_confirm(query.message.chat_id, uid, context)
             return
         
@@ -1148,11 +659,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             session['stones'] = stones
-            
-            # Just update the message text, don't send new confirmation
             await query.answer(f"✅ Using {stones} stones", show_alert=False)
-            
-            # Update the existing message with new stone selection
             await update_confirm_message(query, uid, context)
             return
         
@@ -1163,18 +670,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if data == "fshop":
             await show_shop(query, uid)
-            return
-        
-        if data == "fai":
-            # Show AI insights
-            await show_ai_insights(query, uid, context)
-            return
-        
-        if data == "fback":
-            # Go back to fusion confirmation from AI insights
-            session = sessions.get(uid)
-            if session:
-                await show_confirm(query.message.chat_id, uid, context)
             return
         
         if data.startswith("fb_"):
@@ -1211,7 +706,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⚠️ error occurred", show_alert=True)
 
 async def update_confirm_message(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
-    """Update only the confirmation text without resending images"""
     try:
         session = sessions.get(uid)
         if not session:
@@ -1284,7 +778,6 @@ async def update_confirm_message(query, uid: int, context: ContextTypes.DEFAULT_
             f"stones: {stones}{stone_text}"
         )
         
-        # Just edit the existing message text and buttons
         try:
             await query.edit_message_text(
                 text=caption,
@@ -1292,10 +785,7 @@ async def update_confirm_message(query, uid: int, context: ContextTypes.DEFAULT_
             )
         except TelegramError as e:
             error_str = str(e).lower()
-            if "message is not modified" in error_str:
-                # Message is the same, just ignore
-                pass
-            else:
+            if "message is not modified" not in error_str:
                 logger.warning(f"Could not update confirm message: {e}")
                 
     except Exception as e:
@@ -1329,18 +819,7 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
         pity = user.get('fusion_pity', 0)
         rate = calc_rate(r1, r2, stones, pity)
         
-        # AI Analysis
-        ai_analysis = None
-        if AI_ENABLED:
-            ai_analysis = FusionAI.analyze_fusion_potential(r1, r2, user)
-            session['ai_analysis'] = ai_analysis  # Store for later use
-        
         buttons = []
-        
-        # AI Insight button at the top if special combo
-        if ai_analysis and ai_analysis['is_special_combo']:
-            buttons.append([InlineKeyboardButton("🤖 AI Insights", callback_data="fai")])
-        
         stone_btns = []
         for i in range(1, 4):
             if user_stones >= i:
@@ -1371,13 +850,6 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
         pity_text = f' (+{pity*5}% pity)' if pity > 0 else ''
         stone_text = f' (+{stones*15}%)' if stones else ''
         
-        # Add AI recommendation to caption
-        ai_text = ""
-        if ai_analysis:
-            ai_text = f"\n🤖 AI: {ai_analysis['recommendation']}\n"
-            if ai_analysis['is_special_combo']:
-                ai_text += "⭐ SPECIAL COMBO DETECTED!\n"
-        
         caption = (
             f"⚗️ fusion preview\n\n"
             f"1️⃣ {r1} {c1.get('name')}\n"
@@ -1385,8 +857,7 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
             f"2️⃣ {r2} {c2.get('name')}\n"
             f"     ‖\n"
             f"     ⬇️\n"
-            f"✨ {result_r}\n"
-            f"{ai_text}"
+            f"✨ {result_r}\n\n"
             f"━━━━━━━━━━━━━━\n"
             f"success: {rate*100:.0f}%{pity_text}\n"
             f"cost: {cost:,} 💰\n"
@@ -1394,31 +865,26 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
             f"stones: {stones}{stone_text}"
         )
         
-        # Send both character images/videos as a media group
         try:
             media_list = []
             
-            # Character 1
             media1_url = c1.get('img_url', '')
             if c1.get('rarity', '').lower() == 'amv' or media1_url.endswith(('.mp4', '.mov', '.avi')):
                 media_list.append(InputMediaVideo(media=media1_url, caption=f"1️⃣ {r1} {c1.get('name')}"))
             else:
                 media_list.append(InputMediaPhoto(media=media1_url, caption=f"1️⃣ {r1} {c1.get('name')}"))
             
-            # Character 2
             media2_url = c2.get('img_url', '')
             if c2.get('rarity', '').lower() == 'amv' or media2_url.endswith(('.mp4', '.mov', '.avi')):
                 media_list.append(InputMediaVideo(media=media2_url, caption=f"2️⃣ {r2} {c2.get('name')}"))
             else:
                 media_list.append(InputMediaPhoto(media=media2_url, caption=f"2️⃣ {r2} {c2.get('name')}"))
             
-            # Send media group
             await context.bot.send_media_group(
                 chat_id=chat_id,
                 media=media_list
             )
             
-            # Send confirmation message with buttons
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=caption,
@@ -1427,7 +893,6 @@ async def show_confirm(chat_id: int, uid: int, context: ContextTypes.DEFAULT_TYP
             
         except Exception as e:
             logger.warning(f"Could not send media group in confirm: {e}")
-            # Fallback to single image
             try:
                 media_url = c1.get('img_url', '')
                 if c1.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
@@ -1476,21 +941,17 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
         r2 = norm_rarity(c2.get('rarity'))
         cost = calc_cost(r1, r2)
         
-        # Deduct balance
         if not await atomic_balance_deduct(uid, cost):
             await query.edit_message_text("❌ insufficient balance")
             sessions.pop(uid, None)
             return
         
-        # Deduct stones if used
         if stones > 0 and not await atomic_stone_use(uid, stones):
-            # Refund balance
             await user_collection.update_one({'id': uid}, {'$inc': {'balance': cost}})
             await query.edit_message_text("❌ insufficient stones (refunded)")
             sessions.pop(uid, None)
             return
         
-        # Animate fusion process
         animation_frames = ['⚡', '🌀', '✨', '💫', '🔮']
         for i, frame in enumerate(animation_frames):
             try:
@@ -1499,7 +960,6 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning(f"Animation frame error: {e}")
         
-        # Calculate success
         user = await get_user_safe(uid)
         pity = user.get('fusion_pity', 0)
         rate = calc_rate(r1, r2, stones, pity)
@@ -1508,14 +968,12 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
         if success:
             result_r = get_result_rarity(r1, r2)
             
-            # Find matching rarity in database (handle both formats)
             result_rarity_raw = None
             for key, value in RARITY_MAP.items():
                 if value == result_r:
                     result_rarity_raw = key
                     break
             
-            # Try both formats
             match_query = {'$or': [
                 {'rarity': result_r},
                 {'rarity': result_rarity_raw} if result_rarity_raw else {'rarity': result_r}
@@ -1529,9 +987,7 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
             if new_chars:
                 new_char = new_chars[0]
                 
-                # Swap characters atomically
                 if not await atomic_char_swap(uid, [session['c1'], session['c2']], new_char):
-                    # Refund on failure
                     await user_collection.update_one(
                         {'id': uid},
                         {'$inc': {'balance': cost, 'fusion_stones': stones}}
@@ -1544,7 +1000,6 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
                 
                 try:
                     media_url = new_char.get('img_url', '')
-                    # Check if result is AMV (video)
                     if new_char.get('rarity', '').lower() == 'amv' or media_url.endswith(('.mp4', '.mov', '.avi')):
                         await context.bot.send_video(
                             chat_id=query.message.chat_id,
@@ -1578,16 +1033,13 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
                 
                 await query.edit_message_text("✅ fusion complete!")
             else:
-                # Refund if no character found
                 await user_collection.update_one(
                     {'id': uid},
                     {'$inc': {'balance': cost, 'fusion_stones': stones}}
                 )
                 await query.edit_message_text("❌ no result available (refunded)")
         else:
-            # Failure - remove both characters
             if not await atomic_char_remove(uid, [session['c1'], session['c2']]):
-                # Refund on error
                 await user_collection.update_one(
                     {'id': uid},
                     {'$inc': {'balance': cost, 'fusion_stones': stones}}
@@ -1613,165 +1065,6 @@ async def execute_fusion(query, uid: int, context: ContextTypes.DEFAULT_TYPE):
         sessions.pop(uid, None)
 
 async def show_shop(query, uid: int):
-    """Display detailed AI analysis of the fusion"""
-    try:
-        session = sessions.get(uid)
-        if not session or 'ai_analysis' not in session:
-            await query.answer("❌ No AI analysis available", show_alert=True)
-            return
-        
-        ai_analysis = session['ai_analysis']
-        c1 = session.get('c1_data')
-        c2 = session.get('c2_data')
-        
-        r1 = norm_rarity(c1.get('rarity'))
-        r2 = norm_rarity(c2.get('rarity'))
-        
-        # Build detailed insight message
-        insights = "🤖 AI FUSION ANALYSIS\n\n"
-        insights += f"📊 Combo: {r1} + {r2}\n\n"
-        
-        # Special combo indicator
-        if ai_analysis['is_special_combo']:
-            insights += "⭐ SPECIAL COMBINATION!\n"
-            insights += "This is a predefined powerful combo\n\n"
-        
-        # Expected outcomes
-        insights += "🎯 Expected Outcomes:\n"
-        for rarity, chance in ai_analysis['expected_outcomes']:
-            bar_length = int(chance * 20)
-            bar = "█" * bar_length + "░" * (20 - bar_length)
-            insights += f"{rarity}\n{bar} {chance*100:.1f}%\n"
-        
-        insights += f"\n💡 Recommendation:\n{ai_analysis['recommendation']}\n\n"
-        
-        # Value analysis
-        insights += f"📈 Value Score: {ai_analysis['value_score']:.1f}/100\n"
-        insights += f"{ai_analysis['risk_level']}\n\n"
-        
-        # Stone recommendation
-        if ai_analysis['suggested_stones'] > 0:
-            insights += f"💎 AI suggests: {ai_analysis['suggested_stones']} stone(s)\n"
-            insights += f"This boosts success by {ai_analysis['suggested_stones']*15}%\n\n"
-        else:
-            insights += "💎 No stones needed for this combo\n\n"
-        
-        # Cost analysis
-        insights += f"💰 Cost: {ai_analysis['cost']:,} coins\n"
-        
-        # Back button
-        buttons = [[InlineKeyboardButton("⬅️ Back to Fusion", callback_data="fback")]]
-        
-        await query.edit_message_text(
-            insights,
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-        
-    except Exception as e:
-        logger.error(f"Show AI insights error: {e}", exc_info=True)
-        await query.answer("⚠️ Error loading insights", show_alert=True)
-
-
-async def show_best_fusions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """AI analyzes user's characters and suggests best fusion combinations"""
-    try:
-        uid = update.effective_user.id
-        
-        if not AI_SUGGESTIONS_ENABLED:
-            await update.message.reply_text("🤖 AI suggestions are currently disabled")
-            return
-        
-        user = await get_user_safe(uid)
-        chars = user.get('characters', [])
-        
-        if len(chars) < 2:
-            await update.message.reply_text("❌ Need at least 2 characters for AI analysis")
-            return
-        
-        # Show processing message
-        processing_msg = await update.message.reply_text("🤖 AI analyzing all possible fusions...")
-        
-        # Get AI recommendations
-        best_fusions = FusionAI.get_best_fusions(chars, user, limit=5)
-        
-        if not best_fusions:
-            await processing_msg.edit_text("❌ No fusion combinations found")
-            return
-        
-        # Build recommendation message
-        msg = "🤖 AI TOP FUSION RECOMMENDATIONS\n\n"
-        msg += f"Analyzed {len(chars)} characters\n"
-        msg += f"Found {len(best_fusions)} best combinations:\n\n"
-        
-        for idx, fusion in enumerate(best_fusions, 1):
-            c1 = fusion['char1']
-            c2 = fusion['char2']
-            analysis = fusion['analysis']
-            
-            r1 = norm_rarity(c1.get('rarity'))
-            r2 = norm_rarity(c2.get('rarity'))
-            
-            msg += f"{idx}. {r1} {c1.get('name')} + {r2} {c2.get('name')}\n"
-            msg += f"   Value: {analysis['value_score']:.0f}/100 | {analysis['risk_level']}\n"
-            
-            if analysis['expected_outcomes']:
-                top_outcome = analysis['expected_outcomes'][0]
-                msg += f"   Best: {top_outcome[0]} ({top_outcome[1]*100:.0f}%)\n"
-            
-            msg += "\n"
-        
-        msg += "Use /fuse to start fusion with your chosen pair!"
-        
-        await processing_msg.edit_text(msg)
-        
-    except Exception as e:
-        logger.error(f"Show best fusions error: {e}", exc_info=True)
-        await update.message.reply_text("⚠️ Error during AI analysis")
-
-
-async def ai_predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show AI prediction for current fusion session"""
-    try:
-        uid = update.effective_user.id
-        session = sessions.get(uid)
-        
-        if not session or 'c1_data' not in session or 'c2_data' not in session:
-            await update.message.reply_text("❌ No active fusion session\nUse /fuse first")
-            return
-        
-        c1 = session.get('c1_data')
-        c2 = session.get('c2_data')
-        user = await get_user_safe(uid)
-        
-        r1 = norm_rarity(c1.get('rarity'))
-        r2 = norm_rarity(c2.get('rarity'))
-        pity = user.get('fusion_pity', 0)
-        
-        # Get predictions for different stone counts
-        predictions = FusionAI.predict_success_with_stones(r1, r2, 0, pity)
-        
-        msg = "🤖 AI SUCCESS PREDICTION\n\n"
-        msg += f"Fusion: {r1} + {r2}\n\n"
-        
-        for stones, pred in predictions.items():
-            rate = pred['rate']
-            cost = pred['cost_increase']
-            
-            msg += f"💎 {stones} Stone(s):\n"
-            msg += f"  Success: {rate*100:.1f}%\n"
-            msg += f"  Cost: +{cost:,} 💰\n"
-            msg += f"  Efficiency: {pred['efficiency']*100:.1f}%\n\n"
-        
-        # AI recommendation
-        best_stones = max(predictions.items(), key=lambda x: x[1]['efficiency'])[0]
-        msg += f"💡 AI Recommends: {best_stones} stone(s)\n"
-        msg += "This gives best value for success rate!"
-        
-        await update.message.reply_text(msg)
-        
-    except Exception as e:
-        logger.error(f"AI predict error: {e}", exc_info=True)
-        await update.message.reply_text("⚠️ Error during prediction")
     try:
         user = await get_user_safe(uid)
         bal = user.get('balance', 0)
@@ -1878,10 +1171,7 @@ async def buystone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Buystone cmd error: {e}", exc_info=True)
         await update.message.reply_text("⚠️ error occurred")
 
-# Register handlers
 application.add_handler(CommandHandler(['fuse', 'fusion'], fuse_cmd, block=False))
 application.add_handler(CommandHandler(['fusioninfo', 'finfo'], info_cmd, block=False))
 application.add_handler(CommandHandler(['buystone', 'buystones'], buystone_cmd, block=False))
-application.add_handler(CommandHandler(['bestfusions', 'aisuggestions', 'aifuse'], show_best_fusions, block=False))
-application.add_handler(CommandHandler(['aipredict', 'predict'], ai_predict_cmd, block=False))
 application.add_handler(CallbackQueryHandler(callback_handler, pattern='^f', block=False))
