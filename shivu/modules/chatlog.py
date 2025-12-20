@@ -1,198 +1,188 @@
-import random
 import asyncio
-from pyrogram import Client
-from pyrogram.types import Message
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, Message
-from pyrogram.errors import PeerIdInvalid, BadRequest, FloodWait, UserIsBlocked, ChatWriteForbidden
+from typing import Optional, Dict, Any
+from datetime import datetime
+from collections import defaultdict
+from pyrogram import Client, filters
+from pyrogram.types import Message, Chat, User
+from pyrogram.errors import (
+    PeerIdInvalid, BadRequest, FloodWait, 
+    UserIsBlocked, ChatWriteForbidden
+)
 from shivu import user_collection, shivuu as app, LEAVELOGS, JOINLOGS
 
 
-async def lul_message(chat_id: int, message: str, timeout: int = 10):
-    """
-    Send message with retry logic and timeout protection
-    """
-    max_retries = 3  # Reduced from 5 to 3 for faster failure
+class BotAnalytics:
+    def __init__(self):
+        self.stats = defaultdict(int)
+        self.chat_cache = {}
+        self.lock = asyncio.Lock()
     
-    try:
-        # Wrap the entire retry logic in a timeout
-        return await asyncio.wait_for(
-            _send_with_retry(chat_id, message, max_retries),
-            timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        print(f"⏱️ Timeout sending message to {chat_id} after {timeout}s")
-        return False
-    except Exception as e:
-        print(f"❌ Unexpected error in lul_message: {e}")
-        return False
+    async def increment(self, key: str):
+        async with self.lock:
+            self.stats[key] += 1
+    
+    async def get_stats(self) -> Dict[str, int]:
+        async with self.lock:
+            return dict(self.stats)
 
 
-async def _send_with_retry(chat_id: int, message: str, max_retries: int):
-    """Internal function for retry logic"""
-    for attempt in range(max_retries):
+analytics = BotAnalytics()
+
+
+async def send_log(chat_id: int, text: str, timeout: int = 8) -> bool:
+    for attempt in range(3):
         try:
-            await app.send_message(chat_id=chat_id, text=message, disable_web_page_preview=True)
+            await asyncio.wait_for(
+                app.send_message(chat_id, text, disable_web_page_preview=True),
+                timeout=timeout
+            )
             return True
-            
         except FloodWait as e:
-            if attempt == max_retries - 1:
-                print(f"❌ FloodWait limit reached for {chat_id}")
-                return False
-            wait_time = min(e.value + 1, 5)  # Cap wait time at 5 seconds
-            print(f"⏳ FloodWait: Waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
-            await asyncio.sleep(wait_time)
-            
-        except PeerIdInvalid:
-            print(f"⚠️ Invalid peer ID: {chat_id}. Bot may not be member of this chat.")
+            if attempt == 2: return False
+            await asyncio.sleep(min(e.value + 1, 5))
+        except (PeerIdInvalid, UserIsBlocked, ChatWriteForbidden):
             return False
-            
-        except BadRequest as e:
-            if "PEER_ID_INVALID" in str(e):
-                print(f"⚠️ Chat {chat_id} not accessible. Bot needs to join this chat first.")
-                return False
-            print(f"⚠️ BadRequest on attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)
-            else:
-                return False
-                
-        except (UserIsBlocked, ChatWriteForbidden) as e:
-            print(f"🚫 Cannot send to {chat_id}: {e}")
-            return False
-            
-        except Exception as e:
-            print(f"❌ Error on attempt {attempt + 1}/{max_retries}: {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)
-            else:
-                return False
-
-    print(f"❌ Failed to send message to {chat_id} after {max_retries} attempts")
+        except Exception:
+            if attempt == 2: return False
+            await asyncio.sleep(0.5)
     return False
 
 
-async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
-    """
-    Track bot start event. Called asynchronously from start.py
-    """
+async def get_user_stats() -> Dict[str, Any]:
     try:
+        total = await asyncio.wait_for(
+            user_collection.count_documents({}), 
+            timeout=2
+        )
+        return {"total_users": total}
+    except asyncio.TimeoutError:
+        return {"total_users": "N/A"}
+    except Exception:
+        return {"total_users": "Error"}
+
+
+async def get_chat_info(chat: Chat) -> Dict[str, str]:
+    cached = analytics.chat_cache.get(chat.id)
+    if cached:
+        return cached
+    
+    info = {
+        "title": chat.title or "Private",
+        "username": f"@{chat.username}" if chat.username else "ᴘʀɪᴠᴀᴛᴇ",
+        "type": chat.type.value if hasattr(chat, 'type') else "unknown",
+        "member_count": "N/A"
+    }
+    
+    try:
+        if hasattr(chat, 'members_count'):
+            info["member_count"] = str(chat.members_count)
+        elif chat.type in ["group", "supergroup"]:
+            count = await asyncio.wait_for(
+                app.get_chat_members_count(chat.id),
+                timeout=2
+            )
+            info["member_count"] = str(count)
+    except Exception:
+        pass
+    
+    analytics.chat_cache[chat.id] = info
+    return info
+
+
+def format_user_mention(user: Optional[User]) -> str:
+    if not user:
+        return "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
+    return f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+
+
+async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
+    try:
+        await analytics.increment("bot_starts")
+        if is_new:
+            await analytics.increment("new_users")
+        
         user_mention = f"<a href='tg://user?id={user_id}'>{first_name}</a>"
         username_str = f"@{username}" if username else "ɴᴏ ᴜsᴇʀɴᴀᴍᴇ"
-
+        
         if is_new:
-            try:
-                total_users = await asyncio.wait_for(
-                    user_collection.count_documents({}),
-                    timeout=3.0
-                )
-                status = f"ɴᴇᴡ ᴜsᴇʀ #{total_users}"
-            except asyncio.TimeoutError:
-                status = "ɴᴇᴡ ᴜsᴇʀ"
-                print(f"⏱️ Timeout counting users for {user_id}")
+            stats = await get_user_stats()
+            status = f"ɴᴇᴡ ᴜsᴇʀ #{stats['total_users']}"
         else:
             status = "ʀᴇᴛᴜʀɴɪɴɢ ᴜsᴇʀ"
 
-        start_log = (
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        log = (
             f"˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n"
             f"#BOTSTART\n"
-            f" sᴛᴀᴛᴜs : {status}\n"
-            f" ᴜsᴇʀ : {user_mention}\n"
-            f" ᴜsᴇʀ ɪᴅ : <code>{user_id}</code>\n"
-            f" ᴜsᴇʀɴᴀᴍᴇ : {username_str}"
+            f"sᴛᴀᴛᴜs : {status}\n"
+            f"ᴜsᴇʀ : {user_mention}\n"
+            f"ᴜsᴇʀ ɪᴅ : <code>{user_id}</code>\n"
+            f"ᴜsᴇʀɴᴀᴍᴇ : {username_str}\n"
+            f"ᴛɪᴍᴇ : {timestamp}"
         )
-
-        # Use timeout of 8 seconds for the entire operation
-        result = await lul_message(JOINLOGS, start_log, timeout=8)
         
-        if result:
-            print(f"✓ Bot start tracked for user {user_id}")
-        else:
-            print(f"✗ Failed to track bot start for user {user_id}")
-
+        await send_log(JOINLOGS, log)
     except Exception as e:
-        print(f"❌ Critical error in track_bot_start: {e}")
+        print(f"❌ track_bot_start: {e}")
 
 
 @app.on_message(filters.new_chat_members, group=1)
-async def on_new_chat_members(client: Client, message: Message):
-    """Log when bot is added to new chats"""
+async def on_new_chat(client: Client, message: Message):
     try:
         bot = await client.get_me()
-        bot_added = any(user.id == bot.id for user in message.new_chat_members)
-
-        if not bot_added:
+        if not any(u.id == bot.id for u in message.new_chat_members):
             return
 
-        added_by = message.from_user.mention if message.from_user else "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
-        matlabi_jhanto = message.chat.title
-        chat_id = message.chat.id
-        chatusername = f"@{message.chat.username}" if message.chat.username else "ᴩʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
+        await analytics.increment("chats_joined")
+        
+        chat_info = await get_chat_info(message.chat)
+        added_by = format_user_mention(message.from_user)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        lemda_text = (
+        log = (
             f"˹𝐆ʀᴀʙʙɪɴɢ 𝐘ᴏᴜʀ 𝐖ᴀɪғᴜ˼ 🥀\n"
             f"#NEWCHAT\n"
-            f" ᴄʜᴀᴛ ᴛɪᴛʟᴇ : {matlabi_jhanto}\n"
-            f" ᴄʜᴀᴛ ɪᴅ : <code>{chat_id}</code>\n"
-            f" ᴄʜᴀᴛ ᴜɴᴀᴍᴇ : {chatusername}\n"
-            f" ᴀᴅᴅᴇᴅ ʙʏ : {added_by}"
+            f"ᴄʜᴀᴛ : {chat_info['title']}\n"
+            f"ɪᴅ : <code>{message.chat.id}</code>\n"
+            f"ᴜsᴇʀɴᴀᴍᴇ : {chat_info['username']}\n"
+            f"ᴛʏᴘᴇ : {chat_info['type']}\n"
+            f"ᴍᴇᴍʙᴇʀs : {chat_info['member_count']}\n"
+            f"ᴀᴅᴅᴇᴅ ʙʏ : {added_by}\n"
+            f"ᴛɪᴍᴇ : {timestamp}"
         )
-
-        # Send log in background without blocking
-        asyncio.create_task(_log_new_chat(chat_id, lemda_text))
-
+        
+        asyncio.create_task(send_log(JOINLOGS, log))
     except Exception as e:
-        print(f"❌ Critical error in on_new_chat_members: {e}")
-
-
-async def _log_new_chat(chat_id: int, message: str):
-    """Background task to log new chat"""
-    try:
-        result = await lul_message(JOINLOGS, message, timeout=10)
-        if result:
-            print(f"✓ New chat logged: {chat_id}")
-        else:
-            print(f"✗ Failed to log new chat: {chat_id}")
-    except Exception as e:
-        print(f"❌ Error logging new chat: {e}")
+        print(f"❌ on_new_chat: {e}")
 
 
 @app.on_message(filters.left_chat_member, group=1)
-async def on_left_chat_member(client: Client, message: Message):
-    """Log when bot leaves or is removed from chats"""
+async def on_left_chat(client: Client, message: Message):
     try:
         bot = await client.get_me()
-
         if message.left_chat_member.id != bot.id:
             return
 
-        remove_by = message.from_user.mention if message.from_user else "ᴜɴᴋɴᴏᴡɴ ᴜꜱᴇʀ"
-        title = message.chat.title
-        username = f"@{message.chat.username}" if message.chat.username else "ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
-        chat_id = message.chat.id
+        await analytics.increment("chats_left")
+        
+        chat_info = await get_chat_info(message.chat)
+        removed_by = format_user_mention(message.from_user)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        left = (
-            f"#ʟᴇꜰᴛ ɢʀᴏᴜᴘ ✫\n"
-            f" ᴄʜᴀᴛ ᴛɪᴛʟᴇ : {title}\n"
-            f" ᴄʜᴀᴛ ɪᴅ : <code>{chat_id}</code>\n"
-            f" ᴄʜᴀᴛ ᴜɴᴀᴍᴇ : {username}\n"
-            f" ʀᴇᴍᴏᴠᴇᴅ ʙʏ : {remove_by}"
+        log = (
+            f"#ʟᴇғᴛ ɢʀᴏᴜᴘ ✫\n"
+            f"ᴄʜᴀᴛ : {chat_info['title']}\n"
+            f"ɪᴅ : <code>{message.chat.id}</code>\n"
+            f"ᴜsᴇʀɴᴀᴍᴇ : {chat_info['username']}\n"
+            f"ᴛʏᴘᴇ : {chat_info['type']}\n"
+            f"ʀᴇᴍᴏᴠᴇᴅ ʙʏ : {removed_by}\n"
+            f"ᴛɪᴍᴇ : {timestamp}"
         )
-
-        # Send log in background without blocking
-        asyncio.create_task(_log_left_chat(chat_id, left))
-
+        
+        asyncio.create_task(send_log(LEAVELOGS, log))
+        
+        if message.chat.id in analytics.chat_cache:
+            del analytics.chat_cache[message.chat.id]
     except Exception as e:
-        print(f"❌ Critical error in on_left_chat_member: {e}")
-
-
-async def _log_left_chat(chat_id: int, message: str):
-    """Background task to log left chat"""
-    try:
-        result = await lul_message(LEAVELOGS, message, timeout=10)
-        if result:
-            print(f"✓ Left chat logged: {chat_id}")
-        else:
-            print(f"✗ Failed to log left chat: {chat_id}")
-    except Exception as e:
-        print(f"❌ Error logging left chat: {e}")
+        print(f"❌ on_left_chat: {e}")
