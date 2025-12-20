@@ -13,7 +13,6 @@ from telegram.error import BadRequest
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 from shivu.modules.ai import check_expired_auctions
-from shivu.modules.backup import setup_backup_handlers
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
