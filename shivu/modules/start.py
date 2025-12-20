@@ -1,10 +1,12 @@
 import random
+import time
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, collection
+from shivu.modules.chatlog import track_bot_start
+from shivu.modules.database.sudo import fetch_sudo_users
 import asyncio
-
 
 VIDEOS = [
     "https://files.catbox.moe/k3dhbe.mp4",
