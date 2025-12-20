@@ -14,7 +14,8 @@ anime_cache = TTLCache(maxsize=1000, ttl=900)
 user_cache = TTLCache(maxsize=500, ttl=300)
 
 USERS_PER_PAGE = 10
-MAX_RESULTS_DISPLAY = 20
+CHARACTERS_PER_PAGE = 15
+MAX_RESULTS_DISPLAY = 1000
 
 
 @dataclass
@@ -259,16 +260,91 @@ class CardFormatter:
         return caption
     
     @staticmethod
-    def format_search_results(query: str, result: SearchResult) -> str:
+    def format_find_results_paginated(
+        query: str,
+        result: SearchResult,
+        page: int = 0,
+        show_all: bool = False
+    ) -> Tuple[str, int]:
+        """Format paginated find results"""
+        total_chars = result.unique_count
+        total_pages = (total_chars + CHARACTERS_PER_PAGE - 1) // CHARACTERS_PER_PAGE if not show_all else 1
+        
+        # Header
         response = (
             f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
-            f"<b>┃  🔍 sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs  ┃</b>\n"
-            f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
-            f"<b>🔎 ǫᴜᴇʀʏ</b> <code>{escape(query)}</code>\n"
-            f"<b>📊 ᴛᴏᴛᴀʟ ғᴏᴜɴᴅ</b> <code>{result.total_count}</code>\n"
-            f"<b>👤 ᴜɴɪǫᴜᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs</b> <code>{result.unique_count}</code>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━</b>\n\n"
+            f"<b>┃ 🔍 ᴅᴇᴛᴀɪʟᴇᴅ sᴇᴀʀᴄʜ ┃</b>\n"
+            f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n"
+            f"<b>🔎 ǫᴜᴇʀʏ:</b> <code>{escape(query)}</code>\n"
+            f"<b>📊 ᴛᴏᴛᴀʟ:</b> <code>{result.total_count}</code> ᴠᴀʀɪᴀɴᴛs\n"
+            f"<b>👤 ᴜɴɪǫᴜᴇ:</b> <code>{result.unique_count}</code> ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
         )
+        
+        if result.rarity_breakdown:
+            response += "<b>✨ ʀᴀʀɪᴛʏ sᴘʟɪᴛ:</b>\n"
+            for emoji, count in sorted(result.rarity_breakdown.items(), key=lambda x: x[1], reverse=True):
+                response += f"   {emoji} <code>{count}</code> ᴄᴀʀᴅs\n"
+        
+        response += "<b>━━━━━━━━━━━━━━━━━</b>\n"
+        
+        # Character list with pagination
+        sorted_chars = sorted(result.name_counts.items())
+        
+        if show_all:
+            start_idx = 0
+            end_idx = len(sorted_chars)
+        else:
+            start_idx = page * CHARACTERS_PER_PAGE
+            end_idx = min(start_idx + CHARACTERS_PER_PAGE, len(sorted_chars))
+        
+        for i, (name, count) in enumerate(sorted_chars[start_idx:end_idx], start=start_idx + 1):
+            char = result.char_data[name]
+            char_id = char.get('id', '??')
+            rarity = RarityInfo.parse(char.get('rarity', '🟢 Common'))
+            
+            response += f"<b>{i}. {escape(name)}</b> <code>[{char_id}]</code>\n"
+            response += f"📺 {escape(char.get('anime', 'Unknown'))}\n"
+            response += f"{rarity.emoji} {rarity.text.lower()}"
+            
+            if count > 1:
+                response += f" • <code>{count}</code> ᴠᴀʀɪᴀɴᴛs"
+            
+            response += f"\n💫 /check {char_id}\n"
+        
+        response += "<b>━━━━━━━━━━━━━━━━━</b>\n"
+        
+        if not show_all and total_pages > 1:
+            response += f"<b>📄 ᴘᴀɢᴇ:</b> <code>{page + 1}/{total_pages}</code>\n"
+        
+        response += "<i>💡 ᴛᴀᴘ /check ᴄᴏᴍᴍᴀɴᴅs ᴛᴏ ᴠɪᴇᴡ ᴄᴀʀᴅs</i>"
+        
+        return response, total_pages
+    
+    @staticmethod
+    def format_id_list(characters: List[Dict], query: str) -> str:
+        """Format a compact ID list view"""
+        char_ids = sorted(set(char.get('id', '??') for char in characters))
+        
+        response = (
+            f"<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
+            f"<b>┃  🆔 ɪᴅ ʟɪsᴛ ᴠɪᴇᴡ  ┃</b>\n"
+            f"<b>╰━━━━━━━━━━━━━━━━━╯</b>\n"
+            f"<b>🔎 ǫᴜᴇʀʏ:</b> <code>{escape(query)}</code>\n"
+            f"<b>📊 ᴛᴏᴛᴀʟ:</b> <code>{len(char_ids)}</code> ᴄʜᴀʀᴀᴄᴛᴇʀs\n"
+            f"<b>━━━━━━━━━━━━━━━━━</b>\n"
+        )
+        
+        # Group IDs in rows of 6 for compact display
+        ids_per_row = 6
+        for i in range(0, len(char_ids), ids_per_row):
+            row_ids = char_ids[i:i+ids_per_row]
+            response += " ".join(f"<code>{cid}</code>" for cid in row_ids) + "\n"
+        
+        response += (
+            f"<b>━━━━━━━━━━━━━━━━━</b>\n"
+            f"<i>💡 ᴜsᴇ /check [ɪᴅ] ᴛᴏ ᴠɪᴇᴡ ᴀɴʏ ᴄᴀʀᴅ</i>"
+        )
+        
         return response
     
     @staticmethod
@@ -354,6 +430,41 @@ class KeyboardBuilder:
             ])
         
         return InlineKeyboardMarkup(keyboard)
+    
+    @staticmethod
+    def build_find_pagination(
+        query: str,
+        page: int,
+        total_pages: int,
+        rarity_filter: Optional[str] = None
+    ) -> InlineKeyboardMarkup:
+        keyboard = []
+        
+        if total_pages > 1:
+            nav_buttons = []
+            
+            callback_prefix = f"find_{query}"
+            if rarity_filter:
+                callback_prefix += f"_r{rarity_filter}"
+            
+            if page > 0:
+                nav_buttons.append(
+                    InlineKeyboardButton("⬅️ ᴘʀᴇᴠ", callback_data=f"{callback_prefix}_{page-1}")
+                )
+            
+            nav_buttons.append(
+                InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop")
+            )
+            
+            if page < total_pages - 1:
+                nav_buttons.append(
+                    InlineKeyboardButton("ɴᴇxᴛ ➡️", callback_data=f"{callback_prefix}_{page+1}")
+                )
+            
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+        
+        return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 
 class MediaSender:
@@ -418,30 +529,100 @@ async def find_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         if len(context.args) < 1:
             return await update.message.reply_text(
-                "<b>ᴜsᴀɢᴇ</b> <code>/find name</code>\n"
+                "<b>╭━━━━━━━━━━━━━━━━━╮</b>\n"
+                "<b>┃  🔍 ғɪɴᴅ ᴄᴏᴍᴍᴀɴᴅ  ┃</b>\n"
+                "<b>╰━━━━━━━━━━━━━━━━━╯</b>\n\n"
+                "<b>📖 ᴜsᴀɢᴇ</b>\n"
+                "<code>/find [name]</code> - Basic search\n"
+                "<code>/find [name] --all</code> - Show all results\n"
+                "<code>/find [name] --ids</code> - ID list only\n"
+                "<code>/find [name] --rarity [emoji]</code> - Filter by rarity\n\n"
+                "<b>📌 ᴇxᴀᴍᴘʟᴇs</b>\n"
+                "• <code>/find naruto</code>\n"
+                "• <code>/find goku --all</code>\n"
+                "• <code>/find luffy --ids</code>\n"
+                "• <code>/find sasuke --rarity 🔴</code>\n\n"
+                "<b>✨ ʀᴀʀɪᴛʏ ғɪʟᴛᴇʀs</b>\n"
+                "🟢 Common | 🔵 Medium | 🟣 Rare\n"
+                "🟡 Legendary | 🔴 Limited | ⚪️ Special\n\n"
+                "<i>💡 ғɪɴᴅ ᴀɴʏ ᴄʜᴀʀᴀᴄᴛᴇʀ ʙʏ ɴᴀᴍᴇ!</i>",
+                parse_mode=ParseMode.HTML
+            )
+
+        # Parse arguments
+        args = context.args.copy()
+        show_all = False
+        ids_only = False
+        rarity_filter = None
+        
+        # Check for flags
+        if '--all' in args:
+            show_all = True
+            args.remove('--all')
+        
+        if '--ids' in args:
+            ids_only = True
+            args.remove('--ids')
+        
+        if '--rarity' in args:
+            idx = args.index('--rarity')
+            if idx + 1 < len(args):
+                rarity_filter = args[idx + 1]
+                args.pop(idx)
+                args.pop(idx)
+        
+        if not args:
+            return await update.message.reply_text(
+                "<b>❌ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴀᴍᴇ</b>\n\n"
                 "ᴇxᴀᴍᴘʟᴇ: <code>/find naruto</code>",
                 parse_mode=ParseMode.HTML
             )
 
-        char_name = ' '.join(context.args)
+        char_name = ' '.join(args)
         characters = await CharacterRepository.find_by_name(char_name)
 
         if not characters:
             return await update.message.reply_text(
-                f"<b>❌ ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ɴᴀᴍᴇ</b> <code>{escape(char_name)}</code>",
+                f"<b>❌ ɴᴏ ʀᴇsᴜʟᴛs</b>\n\n"
+                f"ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ᴍᴀᴛᴄʜɪɴɢ:\n"
+                f"<code>{escape(char_name)}</code>\n\n"
+                f"<i>💡 ᴛʀʏ ᴀ ᴅɪғғᴇʀᴇɴᴛ sᴘᴇʟʟɪɴɢ ᴏʀ ɴᴀᴍᴇ</i>",
                 parse_mode=ParseMode.HTML
             )
 
-        result = SearchProcessor.process_search_results(characters)
-        response = CardFormatter.format_search_results(char_name, result)
-        response = await CardFormatter.append_character_list(response, result)
+        # Apply rarity filter if specified
+        if rarity_filter:
+            characters = [
+                char for char in characters 
+                if rarity_filter in str(char.get('rarity', ''))
+            ]
+            if not characters:
+                return await update.message.reply_text(
+                    f"<b>❌ ɴᴏ ʀᴇsᴜʟᴛs</b>\n\n"
+                    f"ɴᴏ <code>{escape(char_name)}</code> ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ᴡɪᴛʜ ʀᴀʀɪᴛʏ {rarity_filter}",
+                    parse_mode=ParseMode.HTML
+                )
 
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+        # Show ID list view if requested
+        if ids_only:
+            response = CardFormatter.format_id_list(characters, char_name)
+            return await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+
+        # Show detailed results with pagination
+        result = SearchProcessor.process_search_results(characters)
+        response, total_pages = CardFormatter.format_find_results_paginated(char_name, result, 0, show_all)
+        
+        # Build keyboard if pagination needed
+        keyboard = None
+        if not show_all and total_pages > 1:
+            keyboard = KeyboardBuilder.build_find_pagination(char_name, 0, total_pages, rarity_filter)
+
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
     except Exception as e:
         print(f"Error in find_character: {e}")
         await update.message.reply_text(
-            f"<b>❌ ᴇʀʀᴏʀ</b> {escape(str(e))}",
+            f"<b>❌ ᴇʀʀᴏʀ</b>\n\n{escape(str(e))}",
             parse_mode=ParseMode.HTML
         )
 
@@ -580,9 +761,68 @@ async def handle_back_to_card(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("ᴇʀʀᴏʀ", show_alert=True)
 
 
+async def handle_find_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        # Parse callback data: find_query_rRARITY_page or find_query_page
+        data = query.data.replace('find_', '', 1)
+        parts = data.rsplit('_', 1)
+        
+        if len(parts) != 2:
+            return await query.answer("ɪɴᴠᴀʟɪᴅ ᴅᴀᴛᴀ", show_alert=True)
+        
+        query_part = parts[0]
+        page = int(parts[1])
+        
+        # Check for rarity filter
+        rarity_filter = None
+        char_name = query_part
+        if '_r' in query_part:
+            name_parts = query_part.rsplit('_r', 1)
+            char_name = name_parts[0]
+            rarity_filter = name_parts[1]
+        
+        # Fetch characters
+        characters = await CharacterRepository.find_by_name(char_name)
+        
+        if not characters:
+            return await query.answer("ɴᴏ ʀᴇsᴜʟᴛs ғᴏᴜɴᴅ", show_alert=True)
+        
+        # Apply rarity filter if present
+        if rarity_filter:
+            characters = [
+                char for char in characters 
+                if rarity_filter in str(char.get('rarity', ''))
+            ]
+        
+        if not characters:
+            return await query.answer("ɴᴏ ʀᴇsᴜʟᴛs ғᴏʀ ᴛʜɪs ғɪʟᴛᴇʀ", show_alert=True)
+        
+        # Process and format results
+        result = SearchProcessor.process_search_results(characters)
+        response, total_pages = CardFormatter.format_find_results_paginated(char_name, result, page, False)
+        
+        # Build keyboard
+        keyboard = KeyboardBuilder.build_find_pagination(char_name, page, total_pages, rarity_filter)
+        
+        await query.edit_message_text(
+            text=response,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
+        )
+
+    except Exception as e:
+        print(f"Error in find pagination: {e}")
+        await query.answer("ᴇʀʀᴏʀ", show_alert=True)
+
+
+# Register handlers
 application.add_handler(CommandHandler("check", check_character, block=False))
 application.add_handler(CommandHandler("find", find_character, block=False))
 application.add_handler(CommandHandler("anime", find_anime, block=False))
 application.add_handler(CommandHandler("pfind", find_users_with_character, block=False))
 application.add_handler(CallbackQueryHandler(handle_owners_pagination, pattern=r"^owners_", block=False))
 application.add_handler(CallbackQueryHandler(handle_back_to_card, pattern=r"^back_", block=False))
+application.add_handler(CallbackQueryHandler(handle_find_pagination, pattern=r"^find_", block=False))
