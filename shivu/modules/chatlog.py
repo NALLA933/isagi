@@ -49,19 +49,26 @@ class AdvancedBotAnalytics:
     async def queue_log(self, chat_id: int, text: str, priority: int = 5):
         await self.ensure_processor_started()
         try:
+            print(f"📥 Queuing log: priority={priority}, chat_id={chat_id}")
             await asyncio.wait_for(
                 self.log_queue.put((priority, chat_id, text)),
                 timeout=1.0
             )
+            print(f"✓ Log queued successfully")
         except asyncio.TimeoutError:
-            print(f"⚠️ Log queue full, dropping message")
+            print(f"⚠️ Log queue full, dropping message for chat {chat_id}")
+        except Exception as e:
+            print(f"❌ Queue error: {e}")
     
     async def ensure_processor_started(self):
         if not self._started:
+            print("⚡ Starting log processor for the first time")
             self._started = True
             self._processor_task = asyncio.create_task(self._process_logs())
+            print("✓ Log processor task created")
     
     async def _process_logs(self):
+        print("🚀 Log processor started")
         batch = []
         batch_timeout = 2.0
         
@@ -71,20 +78,24 @@ class AdvancedBotAnalytics:
                     self.log_queue.get(),
                     timeout=batch_timeout
                 )
+                print(f"📨 Log received from queue: priority={priority}, chat_id={chat_id}")
                 batch.append((priority, chat_id, text))
                 
                 if len(batch) >= 5:
+                    print(f"📦 Batch size reached (5), sending batch")
                     await self._send_batch(batch)
                     batch = []
                     
             except asyncio.TimeoutError:
                 if batch:
+                    print(f"⏰ Timeout reached, sending {len(batch)} logs in batch")
                     await self._send_batch(batch)
                     batch = []
             except Exception as e:
                 print(f"❌ Log processor error: {e}")
     
     async def _send_batch(self, batch: List[tuple]):
+        print(f"📤 Sending batch of {len(batch)} logs")
         batch.sort(key=lambda x: x[0])
         
         tasks = [
@@ -92,7 +103,9 @@ class AdvancedBotAnalytics:
             for _, chat_id, text in batch
         ]
         
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        success_count = sum(1 for r in results if r is True)
+        print(f"✓ Batch sent: {success_count}/{len(batch)} successful")
 
 
 analytics = AdvancedBotAnalytics()
@@ -110,21 +123,27 @@ async def log_operation(operation_name: str):
 
 
 async def send_log_direct(chat_id: int, text: str, timeout: int = 5) -> bool:
+    print(f"🔄 Attempting to send log to chat_id={chat_id}")
     for attempt in range(2):
         try:
-            await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 app.send_message(chat_id, text, disable_web_page_preview=True),
                 timeout=timeout
             )
+            print(f"✅ Log sent successfully to {chat_id}")
             return True
         except FloodWait as e:
+            print(f"⏳ FloodWait: {e.value}s on attempt {attempt + 1}")
             if attempt == 1: return False
             await asyncio.sleep(min(e.value, 3))
-        except (PeerIdInvalid, UserIsBlocked, ChatWriteForbidden):
+        except (PeerIdInvalid, UserIsBlocked, ChatWriteForbidden) as e:
+            print(f"🚫 Cannot send to {chat_id}: {type(e).__name__}")
             return False
-        except Exception:
+        except Exception as e:
+            print(f"❌ Send error (attempt {attempt + 1}): {type(e).__name__} - {e}")
             if attempt == 1: return False
             await asyncio.sleep(0.3)
+    print(f"❌ Failed to send log to {chat_id} after 2 attempts")
     return False
 
 
@@ -193,6 +212,8 @@ def create_log_message(template: str, data: Dict[str, Any]) -> str:
 
 async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
     try:
+        print(f"🔍 track_bot_start called: user={user_id}, is_new={is_new}")
+        
         await analytics.increment("bot_starts")
         if is_new:
             await analytics.increment("new_users")
@@ -212,14 +233,18 @@ async def track_bot_start(user_id: int, first_name: str, username: str, is_new: 
         
         log = create_log_message("˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n#BOTSTART", data)
         
+        print(f"📤 Queuing log to JOINLOGS={JOINLOGS}")
         await send_log(JOINLOGS, log, priority=3 if is_new else 5)
+        print(f"✓ Log queued successfully for user {user_id}")
         
         await analytics.add_event("bot_start", {
             "user_id": user_id,
             "is_new": is_new
         })
     except Exception as e:
-        print(f"❌ track_bot_start: {e}")
+        print(f"❌ track_bot_start error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.on_message(filters.new_chat_members, group=1)
