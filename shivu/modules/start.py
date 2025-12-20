@@ -1,11 +1,8 @@
 import random
-import time
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, collection
-from shivu.modules.chatlog import track_bot_start
-from shivu.modules.database.sudo import fetch_sudo_users
 import asyncio
 
 
@@ -202,6 +199,21 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
         return False
 
 
+async def safe_track_bot_start(user_id: int, first_name: str, username: str, is_new_user: bool):
+    try:
+        from shivu.modules.chatlog import track_bot_start
+        await asyncio.wait_for(
+            track_bot_start(user_id, first_name, username, is_new_user),
+            timeout=5.0
+        )
+    except asyncio.TimeoutError:
+        LOGGER.warning(f"track_bot_start timed out for user {user_id}")
+    except ImportError:
+        LOGGER.warning("chatlog module not available, skipping bot start tracking")
+    except Exception as e:
+        LOGGER.error(f"Error in safe_track_bot_start: {e}")
+
+
 async def start(update: Update, context: CallbackContext):
     try:
         if not update or not update.effective_user:
@@ -258,7 +270,9 @@ async def start(update: Update, context: CallbackContext):
             await user_collection.insert_one(new_user)
             user_data = new_user
 
-            asyncio.create_task(safe_track_bot_start(user_id, first_name, username, True))
+            context.application.create_task(
+                safe_track_bot_start(user_id, first_name, username, True)
+            )
 
             if referring_user_id:
                 LOGGER.info(f"Processing referral for new user {user_id} from {referring_user_id}")
@@ -272,7 +286,9 @@ async def start(update: Update, context: CallbackContext):
                 {"$set": {"first_name": first_name, "username": username}}
             )
 
-            asyncio.create_task(safe_track_bot_start(user_id, first_name, username, False))
+            context.application.create_task(
+                safe_track_bot_start(user_id, first_name, username, False)
+            )
 
         balance = user_data.get('balance', 0)
 
@@ -338,18 +354,6 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
             await update.message.reply_text("⚠️ An error occurred. Please try again later.")
         except:
             pass
-
-
-async def safe_track_bot_start(user_id: int, first_name: str, username: str, is_new_user: bool):
-    try:
-        await asyncio.wait_for(
-            track_bot_start(user_id, first_name, username, is_new_user),
-            timeout=5.0
-        )
-    except asyncio.TimeoutError:
-        LOGGER.warning(f"track_bot_start timed out for user {user_id}")
-    except Exception as e:
-        LOGGER.error(f"Error in safe_track_bot_start: {e}", exc_info=True)
 
 
 async def refer_command(update: Update, context: CallbackContext):
@@ -459,6 +463,7 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
                     buttons.append(owner_row)
 
             try:
+                from shivu.modules.database.sudo import fetch_sudo_users
                 sudo_users_db = await fetch_sudo_users()
                 if sudo_users_db:
                     text += "\n\n<b>sᴜᴅᴏ ᴜsᴇʀs</b>"
@@ -472,6 +477,8 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
                         ]
                         if sudo_row:
                             buttons.append(sudo_row)
+            except ImportError:
+                LOGGER.warning("sudo module not available")
             except Exception as e:
                 LOGGER.error(f"Error fetching sudo users: {e}")
 
@@ -659,3 +666,5 @@ sᴛᴀʀᴛ sʜᴀʀɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ ᴛᴏ ᴇᴀʀɴ ʀᴇᴡᴀʀ
 application.add_handler(CommandHandler('start', start, block=False))
 application.add_handler(CommandHandler('refer', refer_command, block=False))
 application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back|view_invites)$', block=False))
+
+LOGGER.info("✓ Start module loaded successfully")
