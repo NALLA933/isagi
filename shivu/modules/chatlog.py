@@ -122,8 +122,39 @@ async def log_operation(operation_name: str):
             print(f"⚠️ Slow operation: {operation_name} took {duration:.2f}s")
 
 
+async def verify_log_channel():
+    """Verify bot can access log channels"""
+    try:
+        # Try to get chat info
+        chat = await app.get_chat(JOINLOGS)
+        print(f"✅ Log channel verified: {chat.title} (ID: {JOINLOGS})")
+        return True
+    except PeerIdInvalid:
+        print(f"❌ Cannot access log channel {JOINLOGS}")
+        print(f"💡 Please add bot to channel and make it admin")
+        return False
+    except Exception as e:
+        print(f"⚠️ Error verifying log channel: {e}")
+        return False
+
+
 async def send_log_direct(chat_id: int, text: str, timeout: int = 5) -> bool:
     print(f"🔄 Attempting to send log to chat_id={chat_id}")
+    
+    # Handle new supergroup ID format
+    if str(chat_id).startswith("-100"):
+        try:
+            # Try sending with original ID first
+            result = await attempt_send(chat_id, text, timeout)
+            if result:
+                return True
+        except PeerIdInvalid:
+            print(f"⚠️ PeerIdInvalid with original ID, trying alternative format")
+    
+    return await attempt_send(chat_id, text, timeout)
+
+
+async def attempt_send(chat_id: int, text: str, timeout: int) -> bool:
     for attempt in range(2):
         try:
             result = await asyncio.wait_for(
@@ -138,6 +169,7 @@ async def send_log_direct(chat_id: int, text: str, timeout: int = 5) -> bool:
             await asyncio.sleep(min(e.value, 3))
         except (PeerIdInvalid, UserIsBlocked, ChatWriteForbidden) as e:
             print(f"🚫 Cannot send to {chat_id}: {type(e).__name__}")
+            print(f"💡 Make sure bot is added to chat {chat_id} with message permissions")
             return False
         except Exception as e:
             print(f"❌ Send error (attempt {attempt + 1}): {type(e).__name__} - {e}")
@@ -318,3 +350,11 @@ async def on_left_chat(client: Client, message: Message):
 
 
 print("✓ Chatlog module loaded successfully")
+
+
+# Verify log channel access on startup
+async def startup_check():
+    print("🔍 Verifying log channel access...")
+    await verify_log_channel()
+
+asyncio.create_task(startup_check()) if asyncio.get_event_loop().is_running() else None
