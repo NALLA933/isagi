@@ -21,6 +21,7 @@ class AdvancedBotAnalytics:
         self.lock = asyncio.Lock()
         self.log_queue = asyncio.Queue(maxsize=100)
         self._processor_task = None
+        self._started = False
     
     async def increment(self, key: str):
         async with self.lock:
@@ -46,6 +47,7 @@ class AdvancedBotAnalytics:
             }
     
     async def queue_log(self, chat_id: int, text: str, priority: int = 5):
+        await self.ensure_processor_started()
         try:
             await asyncio.wait_for(
                 self.log_queue.put((priority, chat_id, text)),
@@ -54,8 +56,9 @@ class AdvancedBotAnalytics:
         except asyncio.TimeoutError:
             print(f"⚠️ Log queue full, dropping message")
     
-    def start_log_processor(self):
-        if self._processor_task is None:
+    async def ensure_processor_started(self):
+        if not self._started:
+            self._started = True
             self._processor_task = asyncio.create_task(self._process_logs())
     
     async def _process_logs(self):
@@ -142,8 +145,13 @@ async def get_user_stats() -> Dict[str, Any]:
 
 async def get_chat_info(chat: Chat) -> Dict[str, str]:
     cached = analytics.chat_cache.get(chat.id)
-    if cached and (datetime.now() - datetime.fromisoformat(cached["cached_at"])).seconds < 3600:
-        return cached
+    if cached:
+        try:
+            cache_time = datetime.fromisoformat(cached["cached_at"])
+            if (datetime.now() - cache_time).seconds < 3600:
+                return cached
+        except:
+            pass
     
     info = {
         "title": chat.title or "Private",
@@ -284,4 +292,4 @@ async def on_left_chat(client: Client, message: Message):
         print(f"❌ on_left_chat: {e}")
 
 
-analytics.start_log_processor()
+print("✓ Chatlog module loaded successfully")
