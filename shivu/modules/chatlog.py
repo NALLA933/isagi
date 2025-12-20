@@ -1,7 +1,8 @@
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from pyrogram import Client, filters
 from pyrogram.types import Message, Chat, User
 from pyrogram.errors import (
@@ -11,26 +12,102 @@ from pyrogram.errors import (
 from shivu import user_collection, shivuu as app, LEAVELOGS, JOINLOGS
 
 
-class BotAnalytics:
-    def __init__(self):
+class AdvancedBotAnalytics:
+    def __init__(self, max_cache_size: int = 500):
         self.stats = defaultdict(int)
         self.chat_cache = {}
+        self.recent_events = deque(maxlen=100)
+        self.max_cache_size = max_cache_size
         self.lock = asyncio.Lock()
+        self.log_queue = asyncio.Queue(maxsize=100)
+        self._processor_task = None
     
     async def increment(self, key: str):
         async with self.lock:
             self.stats[key] += 1
     
-    async def get_stats(self) -> Dict[str, int]:
+    async def add_event(self, event_type: str, data: Dict[str, Any]):
+        event = {
+            "type": event_type,
+            "timestamp": datetime.now().isoformat(),
+            "data": data
+        }
         async with self.lock:
-            return dict(self.stats)
+            self.recent_events.append(event)
+    
+    async def cache_chat(self, chat_id: int, info: Dict[str, str]):
+        async with self.lock:
+            if len(self.chat_cache) >= self.max_cache_size:
+                oldest = next(iter(self.chat_cache))
+                del self.chat_cache[oldest]
+            self.chat_cache[chat_id] = {
+                **info,
+                "cached_at": datetime.now().isoformat()
+            }
+    
+    async def queue_log(self, chat_id: int, text: str, priority: int = 5):
+        try:
+            await asyncio.wait_for(
+                self.log_queue.put((priority, chat_id, text)),
+                timeout=1.0
+            )
+        except asyncio.TimeoutError:
+            print(f"⚠️ Log queue full, dropping message")
+    
+    def start_log_processor(self):
+        if self._processor_task is None:
+            self._processor_task = asyncio.create_task(self._process_logs())
+    
+    async def _process_logs(self):
+        batch = []
+        batch_timeout = 2.0
+        
+        while True:
+            try:
+                priority, chat_id, text = await asyncio.wait_for(
+                    self.log_queue.get(),
+                    timeout=batch_timeout
+                )
+                batch.append((priority, chat_id, text))
+                
+                if len(batch) >= 5:
+                    await self._send_batch(batch)
+                    batch = []
+                    
+            except asyncio.TimeoutError:
+                if batch:
+                    await self._send_batch(batch)
+                    batch = []
+            except Exception as e:
+                print(f"❌ Log processor error: {e}")
+    
+    async def _send_batch(self, batch: List[tuple]):
+        batch.sort(key=lambda x: x[0])
+        
+        tasks = [
+            send_log_direct(chat_id, text, timeout=5)
+            for _, chat_id, text in batch
+        ]
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
-analytics = BotAnalytics()
+analytics = AdvancedBotAnalytics()
 
 
-async def send_log(chat_id: int, text: str, timeout: int = 8) -> bool:
-    for attempt in range(3):
+@asynccontextmanager
+async def log_operation(operation_name: str):
+    start = datetime.now()
+    try:
+        yield
+    finally:
+        duration = (datetime.now() - start).total_seconds()
+        if duration > 3.0:
+            print(f"⚠️ Slow operation: {operation_name} took {duration:.2f}s")
+
+
+async def send_log_direct(chat_id: int, text: str, timeout: int = 5) -> bool:
+    for attempt in range(2):
         try:
             await asyncio.wait_for(
                 app.send_message(chat_id, text, disable_web_page_preview=True),
@@ -38,32 +115,34 @@ async def send_log(chat_id: int, text: str, timeout: int = 8) -> bool:
             )
             return True
         except FloodWait as e:
-            if attempt == 2: return False
-            await asyncio.sleep(min(e.value + 1, 5))
+            if attempt == 1: return False
+            await asyncio.sleep(min(e.value, 3))
         except (PeerIdInvalid, UserIsBlocked, ChatWriteForbidden):
             return False
         except Exception:
-            if attempt == 2: return False
-            await asyncio.sleep(0.5)
+            if attempt == 1: return False
+            await asyncio.sleep(0.3)
     return False
+
+
+async def send_log(chat_id: int, text: str, priority: int = 5):
+    await analytics.queue_log(chat_id, text, priority)
 
 
 async def get_user_stats() -> Dict[str, Any]:
     try:
         total = await asyncio.wait_for(
             user_collection.count_documents({}), 
-            timeout=2
+            timeout=1.5
         )
         return {"total_users": total}
-    except asyncio.TimeoutError:
-        return {"total_users": "N/A"}
     except Exception:
-        return {"total_users": "Error"}
+        return {"total_users": "N/A"}
 
 
 async def get_chat_info(chat: Chat) -> Dict[str, str]:
     cached = analytics.chat_cache.get(chat.id)
-    if cached:
+    if cached and (datetime.now() - datetime.fromisoformat(cached["cached_at"])).seconds < 3600:
         return cached
     
     info = {
@@ -74,18 +153,18 @@ async def get_chat_info(chat: Chat) -> Dict[str, str]:
     }
     
     try:
-        if hasattr(chat, 'members_count'):
+        if hasattr(chat, 'members_count') and chat.members_count:
             info["member_count"] = str(chat.members_count)
         elif chat.type in ["group", "supergroup"]:
             count = await asyncio.wait_for(
                 app.get_chat_members_count(chat.id),
-                timeout=2
+                timeout=1.5
             )
             info["member_count"] = str(count)
     except Exception:
         pass
     
-    analytics.chat_cache[chat.id] = info
+    await analytics.cache_chat(chat.id, info)
     return info
 
 
@@ -93,6 +172,15 @@ def format_user_mention(user: Optional[User]) -> str:
     if not user:
         return "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
     return f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+
+
+def create_log_message(template: str, data: Dict[str, Any]) -> str:
+    timestamp = datetime.now().strftime("%H:%M:%S %d/%m/%y")
+    base = f"{template}\n"
+    for key, value in data.items():
+        base += f"{key} : {value}\n"
+    base += f"ᴛɪᴍᴇ : {timestamp}"
+    return base
 
 
 async def track_bot_start(user_id: int, first_name: str, username: str, is_new: bool):
@@ -104,25 +192,24 @@ async def track_bot_start(user_id: int, first_name: str, username: str, is_new: 
         user_mention = f"<a href='tg://user?id={user_id}'>{first_name}</a>"
         username_str = f"@{username}" if username else "ɴᴏ ᴜsᴇʀɴᴀᴍᴇ"
         
-        if is_new:
-            stats = await get_user_stats()
-            status = f"ɴᴇᴡ ᴜsᴇʀ #{stats['total_users']}"
-        else:
-            status = "ʀᴇᴛᴜʀɴɪɴɢ ᴜsᴇʀ"
-
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stats = await get_user_stats()
+        status = f"ɴᴇᴡ ᴜsᴇʀ #{stats['total_users']}" if is_new else "ʀᴇᴛᴜʀɴɪɴɢ ᴜsᴇʀ"
         
-        log = (
-            f"˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n"
-            f"#BOTSTART\n"
-            f"sᴛᴀᴛᴜs : {status}\n"
-            f"ᴜsᴇʀ : {user_mention}\n"
-            f"ᴜsᴇʀ ɪᴅ : <code>{user_id}</code>\n"
-            f"ᴜsᴇʀɴᴀᴍᴇ : {username_str}\n"
-            f"ᴛɪᴍᴇ : {timestamp}"
-        )
+        data = {
+            "sᴛᴀᴛᴜs": status,
+            "ᴜsᴇʀ": user_mention,
+            "ᴜsᴇʀ ɪᴅ": f"<code>{user_id}</code>",
+            "ᴜsᴇʀɴᴀᴍᴇ": username_str
+        }
         
-        await send_log(JOINLOGS, log)
+        log = create_log_message("˹𝐁ᴏᴛ 𝐒ᴛᴀʀᴛᴇᴅ˼ 🌸\n#BOTSTART", data)
+        
+        await send_log(JOINLOGS, log, priority=3 if is_new else 5)
+        
+        await analytics.add_event("bot_start", {
+            "user_id": user_id,
+            "is_new": is_new
+        })
     except Exception as e:
         print(f"❌ track_bot_start: {e}")
 
@@ -130,29 +217,33 @@ async def track_bot_start(user_id: int, first_name: str, username: str, is_new: 
 @app.on_message(filters.new_chat_members, group=1)
 async def on_new_chat(client: Client, message: Message):
     try:
-        bot = await client.get_me()
-        if not any(u.id == bot.id for u in message.new_chat_members):
-            return
+        async with log_operation("on_new_chat"):
+            bot = await client.get_me()
+            if not any(u.id == bot.id for u in message.new_chat_members):
+                return
 
-        await analytics.increment("chats_joined")
-        
-        chat_info = await get_chat_info(message.chat)
-        added_by = format_user_mention(message.from_user)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        log = (
-            f"˹𝐆ʀᴀʙʙɪɴɢ 𝐘ᴏᴜʀ 𝐖ᴀɪғᴜ˼ 🥀\n"
-            f"#NEWCHAT\n"
-            f"ᴄʜᴀᴛ : {chat_info['title']}\n"
-            f"ɪᴅ : <code>{message.chat.id}</code>\n"
-            f"ᴜsᴇʀɴᴀᴍᴇ : {chat_info['username']}\n"
-            f"ᴛʏᴘᴇ : {chat_info['type']}\n"
-            f"ᴍᴇᴍʙᴇʀs : {chat_info['member_count']}\n"
-            f"ᴀᴅᴅᴇᴅ ʙʏ : {added_by}\n"
-            f"ᴛɪᴍᴇ : {timestamp}"
-        )
-        
-        asyncio.create_task(send_log(JOINLOGS, log))
+            await analytics.increment("chats_joined")
+            
+            chat_info = await get_chat_info(message.chat)
+            added_by = format_user_mention(message.from_user)
+            
+            data = {
+                "ᴄʜᴀᴛ": chat_info['title'],
+                "ɪᴅ": f"<code>{message.chat.id}</code>",
+                "ᴜsᴇʀɴᴀᴍᴇ": chat_info['username'],
+                "ᴛʏᴘᴇ": chat_info['type'],
+                "ᴍᴇᴍʙᴇʀs": chat_info['member_count'],
+                "ᴀᴅᴅᴇᴅ ʙʏ": added_by
+            }
+            
+            log = create_log_message("˹𝐆ʀᴀʙʙɪɴɢ 𝐘ᴏᴜʀ 𝐖ᴀɪғᴜ˼ 🥀\n#NEWCHAT", data)
+            
+            await send_log(JOINLOGS, log, priority=2)
+            
+            await analytics.add_event("chat_joined", {
+                "chat_id": message.chat.id,
+                "member_count": chat_info['member_count']
+            })
     except Exception as e:
         print(f"❌ on_new_chat: {e}")
 
@@ -160,29 +251,37 @@ async def on_new_chat(client: Client, message: Message):
 @app.on_message(filters.left_chat_member, group=1)
 async def on_left_chat(client: Client, message: Message):
     try:
-        bot = await client.get_me()
-        if message.left_chat_member.id != bot.id:
-            return
+        async with log_operation("on_left_chat"):
+            bot = await client.get_me()
+            if message.left_chat_member.id != bot.id:
+                return
 
-        await analytics.increment("chats_left")
-        
-        chat_info = await get_chat_info(message.chat)
-        removed_by = format_user_mention(message.from_user)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        log = (
-            f"#ʟᴇғᴛ ɢʀᴏᴜᴘ ✫\n"
-            f"ᴄʜᴀᴛ : {chat_info['title']}\n"
-            f"ɪᴅ : <code>{message.chat.id}</code>\n"
-            f"ᴜsᴇʀɴᴀᴍᴇ : {chat_info['username']}\n"
-            f"ᴛʏᴘᴇ : {chat_info['type']}\n"
-            f"ʀᴇᴍᴏᴠᴇᴅ ʙʏ : {removed_by}\n"
-            f"ᴛɪᴍᴇ : {timestamp}"
-        )
-        
-        asyncio.create_task(send_log(LEAVELOGS, log))
-        
-        if message.chat.id in analytics.chat_cache:
-            del analytics.chat_cache[message.chat.id]
+            await analytics.increment("chats_left")
+            
+            chat_info = await get_chat_info(message.chat)
+            removed_by = format_user_mention(message.from_user)
+            
+            data = {
+                "ᴄʜᴀᴛ": chat_info['title'],
+                "ɪᴅ": f"<code>{message.chat.id}</code>",
+                "ᴜsᴇʀɴᴀᴍᴇ": chat_info['username'],
+                "ᴛʏᴘᴇ": chat_info['type'],
+                "ʀᴇᴍᴏᴠᴇᴅ ʙʏ": removed_by
+            }
+            
+            log = create_log_message("#ʟᴇғᴛ ɢʀᴏᴜᴘ ✫", data)
+            
+            await send_log(LEAVELOGS, log, priority=4)
+            
+            await analytics.add_event("chat_left", {
+                "chat_id": message.chat.id
+            })
+            
+            if message.chat.id in analytics.chat_cache:
+                async with analytics.lock:
+                    del analytics.chat_cache[message.chat.id]
     except Exception as e:
         print(f"❌ on_left_chat: {e}")
+
+
+analytics.start_log_processor()
