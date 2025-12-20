@@ -630,7 +630,10 @@ def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-setup_backup_handlers(application)
+    # Setup backup handlers only once
+    if setup_backup_handlers is not None:
+        setup_backup_handlers(application)
+        LOGGER.info("✅ Backup handlers initialized")
 
     LOGGER.info("Bot starting...")
     
