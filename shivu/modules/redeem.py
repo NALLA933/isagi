@@ -1,11 +1,17 @@
 import random
 import string
 import html
+import datetime
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import CommandHandler, ContextTypes
 
+# Database imports
 from shivu import collection, user_collection, application
+# Hum nayi collection banayenge codes save karne ke liye
+from shivu import db 
+codes_collection = db['redeem_codes'] 
+
 from shivu.modules.database.sudo import is_user_sudo
 
 # --- CONFIGURATION ---
@@ -13,14 +19,13 @@ LOG_GROUP_ID = -1003110990230
 OWNER_ID = 8420981179
 # ---------------------
 
-# Temporary Memory storage for codes (Restart hone par reset ho jayega)
-generated_codes = {}
-generated_waifu_codes = {}
-
 # --- HELPER FUNCTIONS ---
 
-def generate_random_string(length=10):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+def generate_unique_code():
+    """Generates a professional looking code like SIYA-ABCD-1234"""
+    part1 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    part2 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    return f"SIYA-{part1}-{part2}"
 
 async def send_log(context: ContextTypes.DEFAULT_TYPE, text: str):
     """Logs activity to the configured log channel."""
@@ -36,14 +41,14 @@ async def check_auth(update: Update):
         return False
     return True
 
-# --- CURRENCY SYSTEM (GEN & REDEEM) ---
+# --- CURRENCY GENERATION ---
 
 async def gen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     user_id = msg.from_user.id
 
     if not await check_auth(update):
-        await msg.reply_text("⛔ <b>Access Denied:</b> Only authorized users can generate codes.", parse_mode=ParseMode.HTML)
+        await msg.reply_text("⛔ <b>Access Denied</b>", parse_mode=ParseMode.HTML)
         return
 
     try:
@@ -54,98 +59,51 @@ async def gen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = float(context.args[0])
         quantity = int(context.args[1])
     except ValueError:
-        await msg.reply_text("❌ Invalid format. Amount and Quantity must be numbers.", parse_mode=ParseMode.HTML)
+        await msg.reply_text("❌ Invalid format. Use numbers.", parse_mode=ParseMode.HTML)
         return
 
-    code_str = f"@siyaprobot_{generate_random_string()}"
-    generated_codes[code_str] = {
-        'amount': amount, 
-        'quantity': quantity, 
-        'claimed_by': []
+    code_str = generate_unique_code()
+    
+    # Save to MongoDB
+    code_data = {
+        'code': code_str,
+        'type': 'currency',
+        'amount': amount,
+        'quantity': quantity,
+        'claimed_by': [],
+        'created_at': datetime.datetime.utcnow()
     }
+    await codes_collection.insert_one(code_data)
 
     formatted_amount = f"{amount:,.0f}" if amount.is_integer() else f"{amount:,.2f}"
 
     await msg.reply_text(
-        f"✅ <b>Code Generated!</b>\n\n"
+        f"✅ <b>Currency Code Created!</b>\n\n"
         f"🎫 <b>Code:</b> <code>{code_str}</code>\n"
-        f"💰 <b>Amount:</b> {formatted_amount}\n"
-        f"🔢 <b>Quantity:</b> {quantity}",
+        f"💰 <b>Value:</b> {formatted_amount}\n"
+        f"👥 <b>Total Claims:</b> {quantity}\n\n"
+        f"<i>Bot restart hone par bhi ye code work karega.</i>",
         parse_mode=ParseMode.HTML
     )
 
     # --- LOG ---
     executor_name = html.escape(msg.from_user.first_name)
     log_text = (
-        f"📢 <b>#CURRENCY_GEN</b>\n\n"
-        f"<b>Admin:</b> {executor_name} (<code>{user_id}</code>)\n"
-        f"<b>Amount:</b> {formatted_amount}\n"
-        f"<b>Qty:</b> {quantity}\n"
-        f"<b>Code:</b> <code>{code_str}</code>"
+        f"📢 <b>#CURRENCY_GEN</b>\n"
+        f"Admin: {executor_name} (<code>{user_id}</code>)\n"
+        f"Amount: {formatted_amount} | Qty: {quantity}\n"
+        f"Code: <code>{code_str}</code>"
     )
     await send_log(context, log_text)
 
-
-async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    user_id = msg.from_user.id
-
-    if not context.args:
-        await msg.reply_text("Usage: <code>/redeem @siyaprobot_Code</code>", parse_mode=ParseMode.HTML)
-        return
-
-    code = context.args[0]
-
-    if code not in generated_codes:
-        await msg.reply_text("❌ Invalid or expired code.", parse_mode=ParseMode.HTML)
-        return
-
-    code_info = generated_codes[code]
-
-    if user_id in code_info['claimed_by']:
-        await msg.reply_text("⚠️ You have already claimed this code.", parse_mode=ParseMode.HTML)
-        return
-
-    if len(code_info['claimed_by']) >= code_info['quantity']:
-        await msg.reply_text("❌ This code has been fully claimed.", parse_mode=ParseMode.HTML)
-        return
-
-    # Update Database
-    await user_collection.update_one(
-        {'id': user_id},
-        {'$inc': {'balance': float(code_info['amount'])}}
-    )
-
-    code_info['claimed_by'].append(user_id)
-    formatted_amount = f"{code_info['amount']:,.0f}" if code_info['amount'].is_integer() else f"{code_info['amount']:,.2f}"
-
-    await msg.reply_text(
-        f"🎉 <b>Redeemed Successfully!</b>\n\n"
-        f"💰 <b>Added:</b> {formatted_amount} tokens to your wallet.\n"
-        f"🔗 <b>Powered by:</b> <a href='https://t.me/siyaprobot'>Siya</a>",
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True
-    )
-
-    # --- LOG ---
-    user_name = html.escape(msg.from_user.first_name)
-    log_text = (
-        f"📢 <b>#REDEEM_LOG</b>\n\n"
-        f"<b>User:</b> {user_name} (<code>{user_id}</code>)\n"
-        f"<b>Code:</b> <code>{code}</code>\n"
-        f"<b>Amount:</b> {formatted_amount}"
-    )
-    await send_log(context, log_text)
-
-
-# --- WAIFU SYSTEM (SGEN & SREDEEM) ---
+# --- WAIFU GENERATION ---
 
 async def waifu_gen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     user_id = msg.from_user.id
 
     if not await check_auth(update):
-        await msg.reply_text("⛔ <b>Access Denied:</b> Only authorized users can generate waifus.", parse_mode=ParseMode.HTML)
+        await msg.reply_text("⛔ <b>Access Denied</b>", parse_mode=ParseMode.HTML)
         return
 
     try:
@@ -161,103 +119,137 @@ async def waifu_gen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     waifu = await collection.find_one({'id': char_id})
     if not waifu:
-        await msg.reply_text("❌ Character ID not found in database.", parse_mode=ParseMode.HTML)
+        await msg.reply_text("❌ Character ID not found.", parse_mode=ParseMode.HTML)
         return
 
-    code_str = f"@siyaprobot_{generate_random_string()}"
-    generated_waifu_codes[code_str] = {
-        'waifu': waifu,
+    code_str = generate_unique_code()
+
+    # Save to MongoDB
+    code_data = {
+        'code': code_str,
+        'type': 'character',
+        'waifu_data': waifu, # Storing full data ensures safety if char is deleted later
         'quantity': quantity,
-        'claimed_by': []
+        'claimed_by': [],
+        'created_at': datetime.datetime.utcnow()
     }
+    await codes_collection.insert_one(code_data)
 
     await msg.reply_text(
-        f"✅ <b>Waifu Code Generated!</b>\n\n"
+        f"✅ <b>Waifu Code Created!</b>\n\n"
         f"🎫 <b>Code:</b> <code>{code_str}</code>\n"
-        f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
-        f"🔢 <b>Quantity:</b> {quantity}",
+        f"👤 <b>Character:</b> {html.escape(waifu['name'])}\n"
+        f"👥 <b>Total Claims:</b> {quantity}",
         parse_mode=ParseMode.HTML
     )
 
     # --- LOG ---
     executor_name = html.escape(msg.from_user.first_name)
     log_text = (
-        f"📢 <b>#WAIFU_GEN</b>\n\n"
-        f"<b>Admin:</b> {executor_name} (<code>{user_id}</code>)\n"
-        f"<b>Character:</b> {html.escape(waifu['name'])} (<code>{char_id}</code>)\n"
-        f"<b>Qty:</b> {quantity}\n"
-        f"<b>Code:</b> <code>{code_str}</code>"
+        f"📢 <b>#WAIFU_GEN</b>\n"
+        f"Admin: {executor_name} (<code>{user_id}</code>)\n"
+        f"Char: {html.escape(waifu['name'])} (<code>{char_id}</code>)\n"
+        f"Code: <code>{code_str}</code>"
     )
     await send_log(context, log_text)
 
+# --- UNIVERSAL REDEEM COMMAND ---
 
-async def waifu_redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     user_id = msg.from_user.id
 
     if not context.args:
-        await msg.reply_text("Usage: <code>/sredeem @siyaprobot_Code</code>", parse_mode=ParseMode.HTML)
+        await msg.reply_text("Usage: <code>/redeem SIYA-XXXX-XXXX</code>", parse_mode=ParseMode.HTML)
         return
 
     code = context.args[0]
 
-    if code not in generated_waifu_codes:
-        await msg.reply_text("❌ Invalid or expired code.", parse_mode=ParseMode.HTML)
+    # Find in DB
+    code_info = await codes_collection.find_one({'code': code})
+
+    if not code_info:
+        await msg.reply_text("❌ Invalid code.", parse_mode=ParseMode.HTML)
         return
 
-    details = generated_waifu_codes[code]
-
-    if user_id in details['claimed_by']:
-        await msg.reply_text("⚠️ You have already claimed this character.", parse_mode=ParseMode.HTML)
+    # Check Logic
+    if user_id in code_info['claimed_by']:
+        await msg.reply_text("⚠️ You have already claimed this code.", parse_mode=ParseMode.HTML)
         return
 
-    if details['quantity'] <= 0:
-        await msg.reply_text("❌ Out of stock.", parse_mode=ParseMode.HTML)
-        # Optional: cleanup empty code
-        del generated_waifu_codes[code]
+    if len(code_info['claimed_by']) >= code_info['quantity']:
+        await msg.reply_text("❌ This code has been fully claimed.", parse_mode=ParseMode.HTML)
         return
 
-    waifu = details['waifu']
+    # --- HANDLE REWARD TYPE ---
+    
+    if code_info['type'] == 'currency':
+        amount = code_info['amount']
+        await user_collection.update_one({'id': user_id}, {'$inc': {'balance': float(amount)}})
+        
+        formatted_amount = f"{amount:,.0f}" if isinstance(amount, int) or amount.is_integer() else f"{amount:,.2f}"
+        
+        await msg.reply_text(
+            f"🎉 <b>Redeemed Successfully!</b>\n\n"
+            f"💰 <b>Received:</b> {formatted_amount} tokens.\n"
+            f"🔗 <b>Powered by:</b> <a href='https://t.me/siyaprobot'>Siya</a>",
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+        log_detail = f"Amount: {formatted_amount}"
 
-    # Update Database
-    await user_collection.update_one(
-        {'id': user_id},
-        {'$push': {'characters': waifu}}
-    )
+    elif code_info['type'] == 'character':
+        waifu = code_info['waifu_data']
+        await user_collection.update_one({'id': user_id}, {'$push': {'characters': waifu}})
+        
+        await msg.reply_photo(
+            photo=waifu['img_url'],
+            caption=(
+                f"🎉 <b>New Character Unlocked!</b>\n\n"
+                f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
+                f"🏵️ <b>Rarity:</b> {waifu['rarity']}\n"
+                f"📺 <b>Anime:</b> {html.escape(waifu['anime'])}"
+            ),
+            parse_mode=ParseMode.HTML
+        )
+        log_detail = f"Character: {html.escape(waifu['name'])}"
 
-    details['quantity'] -= 1
-    details['claimed_by'].append(user_id)
-
-    # Cleanup if empty
-    if details['quantity'] == 0:
-        del generated_waifu_codes[code]
-
-    caption = (
-        f"🎉 <b>Character Claimed!</b>\n\n"
-        f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
-        f"🏵️ <b>Rarity:</b> {waifu['rarity']}\n"
-        f"📺 <b>Anime:</b> {html.escape(waifu['anime'])}\n\n"
-        f"🔗 <b>Powered by:</b> <a href='https://t.me/siyaprobot'>Siya</a>"
-    )
-
-    await msg.reply_photo(
-        photo=waifu['img_url'],
-        caption=caption,
-        parse_mode=ParseMode.HTML
-    )
+    # Update DB: Add user to claimed list
+    await codes_collection.update_one({'code': code}, {'$push': {'claimed_by': user_id}})
 
     # --- LOG ---
     user_name = html.escape(msg.from_user.first_name)
     log_text = (
-        f"📢 <b>#WAIFU_REDEEM</b>\n\n"
-        f"<b>User:</b> {user_name} (<code>{user_id}</code>)\n"
-        f"<b>Character:</b> {html.escape(waifu['name'])}\n"
-        f"<b>Code:</b> <code>{code}</code>"
+        f"📢 <b>#REDEEM_LOG</b>\n"
+        f"User: {user_name} (<code>{user_id}</code>)\n"
+        f"Code: <code>{code}</code>\n"
+        f"Reward: {log_detail}"
     )
     await send_log(context, log_text)
 
+# --- ADMIN REVOKE COMMAND ---
+
+async def revoke_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not await check_auth(update):
+        return
+
+    if not context.args:
+        await msg.reply_text("Usage: <code>/revoke [Code]</code>", parse_mode=ParseMode.HTML)
+        return
+
+    code = context.args[0]
+    result = await codes_collection.delete_one({'code': code})
+
+    if result.deleted_count > 0:
+        await msg.reply_text(f"🗑️ Code <code>{code}</code> has been deleted from database.", parse_mode=ParseMode.HTML)
+        await send_log(context, f"🗑️ <b>#CODE_REVOKED</b>\nCode: <code>{code}</code>\nBy: {msg.from_user.first_name}")
+    else:
+        await msg.reply_text("❌ Code not found.", parse_mode=ParseMode.HTML)
+
 # --- REGISTER HANDLERS ---
 application.add_handler(CommandHandler("gen", gen_command, block=False))
-application.add_handler(CommandHandler("redeem", redeem_command, block=False))
 application.add_handler(CommandHandler("sgen", waifu_gen_command, block=False))
-application.add_handler(CommandHandler("sredeem", waifu_redeem_command, block=False))
+application.add_handler(CommandHandler("redeem", redeem_command, block=False)) # Sredeem ki zarurat nahi, redeem dono handle karega
+application.add_handler(CommandHandler("sredeem", redeem_command, block=False)) # Alias for old users
+application.add_handler(CommandHandler("revoke", revoke_code_command, block=False))
