@@ -1,4 +1,4 @@
-class Config(object):
+class config(object):
     LOGGER = True
 
     # Get this value from my.telegram.org/apps
