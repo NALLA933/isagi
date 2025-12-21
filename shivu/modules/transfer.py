@@ -1,18 +1,18 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from shivu import application, user_collection
+import html
 
 # --- CONFIGURATION ---
 OWNER_ID = 8420981179
-LOG_GROUP_ID = -1003110990230  # <--- Apne Group ki ID yahan daalein (Must start with -100)
-# ---------------------
+LOG_GROUP_ID = -1003110990230  # <--- Apna Group ID dalein
 
 async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return 
 
     if len(context.args) != 2:
-        await update.message.reply_text('❌ Use: `/transfer <sender_id> <receiver_id>`')
+        await update.message.reply_text('❌ <b>Usage:</b> /transfer <code>sender_id</code> <code>receiver_id</code>', parse_mode='HTML')
         return
 
     try:
@@ -23,28 +23,27 @@ async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receiver = await user_collection.find_one({'id': r_id})
 
         if not sender or not receiver:
-            await update.message.reply_text('❌ User(s) not found in Database.')
+            await update.message.reply_text('❌ <b>User not found in Database.</b>', parse_mode='HTML')
             return
 
         s_waifus = sender.get('characters', [])
         
-        # Sari details callback_data mein store hain (No expiry issue)
         keyboard = [
             [InlineKeyboardButton("✅ Confirm", callback_data=f"TR|{s_id}|{r_id}")],
             [InlineKeyboardButton("❌ Cancel", callback_data="TR|CANCEL")]
         ]
 
-        await update.message.reply_text(
-            f"🔄 **Transfer Request**\n\n"
-            f"**From:** `{s_id}`\n"
-            f"**To:** `{r_id}`\n"
-            f"**Total Characters:** `{len(s_waifus)}` \n\n"
-            "Proceed with transfer?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+        msg = (
+            f"🔄 <b>Transfer Request</b>\n\n"
+            f"<b>From:</b> <code>{s_id}</code>\n"
+            f"<b>To:</b> <code>{r_id}</code>\n"
+            f"<b>Total:</b> <code>{len(s_waifus)}</code> characters\n\n"
+            "Confirm transfer?"
         )
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+
     except ValueError:
-        await update.message.reply_text('❌ Numeric IDs use karein.')
+        await update.message.reply_text('❌ <b>Error:</b> IDs numbers mein honi chahiye.', parse_mode='HTML')
 
 async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -52,7 +51,7 @@ async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if data[1] == "CANCEL":
-        await query.edit_message_text("❌ Transfer aborted by Owner.")
+        await query.edit_message_text("❌ <b>Transfer cancelled by Owner.</b>", parse_mode='HTML')
         return
 
     s_id, r_id = int(data[1]), int(data[2])
@@ -62,29 +61,31 @@ async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s_waifus = sender.get('characters', [])
 
         if not s_waifus:
-            await query.edit_message_text("⚠️ Error: Sender has 0 characters.")
+            await query.edit_message_text("⚠️ <b>Sender has 0 characters.</b>", parse_mode='HTML')
             return
 
-        # Database Updates
+        # DB Update
         await user_collection.update_one({'id': r_id}, {'$push': {'characters': {'$each': s_waifus}}})
         await user_collection.update_one({'id': s_id}, {'$set': {'characters': []}})
 
-        success_msg = f"✅ **Success!** `{len(s_waifus)}` characters moved from `{s_id}` to `{r_id}`."
-        await query.edit_message_text(success_msg, parse_mode='Markdown')
+        await query.edit_message_text(f"✅ <b>Success!</b> Moved <code>{len(s_waifus)}</code> characters.", parse_mode='HTML')
 
-        # --- LOG TO GROUP ---
+        # --- SAFE LOGGING (HTML) ---
+        user_name = html.escape(update.effective_user.first_name) # Special chars fix
         log_text = (
-            f"📢 **#TRANSFER_LOG**\n\n"
-            f"**Owner:** [{update.effective_user.first_name}](tg://user?id={OWNER_ID})\n"
-            f"**From User:** `{s_id}`\n"
-            f"**To User:** `{r_id}`\n"
-            f"**Total Characters:** `{len(s_waifus)}` \n"
-            f"**Status:** Successfully Completed ✅"
+            f"📢 <b>#TRANSFER_LOG</b>\n\n"
+            f"<b>By Owner:</b> {user_name} (<code>{OWNER_ID}</code>)\n"
+            f"<b>From:</b> <code>{s_id}</code>\n"
+            f"<b>To:</b> <code>{r_id}</code>\n"
+            f"<b>Total:</b> <code>{len(s_waifus)}</code>\n"
+            f"<b>Status:</b> Completed ✅"
         )
-        await context.bot.send_message(chat_id=LOG_GROUP_ID, text=log_text, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=LOG_GROUP_ID, text=log_text, parse_mode='HTML')
 
     except Exception as e:
-        await query.edit_message_text(f"❌ Database Error: {str(e)}")
+        # Error message ko bhi escape karna zaroori hai
+        error_msg = html.escape(str(e))
+        await query.edit_message_text(f"❌ <b>Database Error:</b> <code>{error_msg}</code>", parse_mode='HTML')
 
 # Handlers
 application.add_handler(CommandHandler("transfer", transfer))
