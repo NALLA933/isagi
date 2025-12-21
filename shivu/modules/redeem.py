@@ -1,82 +1,129 @@
 import random
 import string
+import logging
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
-from shivu import user_collection, collection, db, shivuu as app
+from Grabber import user_collection, collection, db
 
-# --- CONFIGURATION ---
-LOG_CHANNEL_ID = -1003110990230  
-SUDO_USER_IDS = [8420981179, 5147822244]
+# --- LOGGING SETUP ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# Database collections
-codes_db = db.redeem_codes  
-waifu_codes_db = db.waifu_codes 
+# Authorized IDs (Yahan aap manually IDs add kar sakte hain)
+AUTHORIZED_USERS = [8420981179, 5147822244, 123456789] 
 
-# --- HELPER ---
+codes_db = db.generated_codes 
+
 def generate_random_code():
     code = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
     return f"@siyaprobot_{code}"
 
-# --- ACTIVE CODES COMMAND (/activecodes) ---
-@app.on_message(filters.command(["activecodes"]))
-async def active_codes(client, message):
-    if message.from_user.id not in SUDO_USER_IDS:
-        return
-
-    # 1. Fetch Cash Codes
-    cash_cursor = codes_db.find({})
-    cash_codes = await cash_cursor.to_list(length=100)
+# --- 1. CASH GENERATE (/gen) ---
+@app.on_message(filters.command(["gen"]))
+async def gen(client, message):
+    user_id = message.from_user.id
     
-    # 2. Fetch Waifu Codes
-    waifu_cursor = waifu_codes_db.find({})
-    waifu_codes = await waifu_cursor.to_list(length=100)
-
-    response = "📜 **ᴀʟʟ ᴀᴄᴛɪᴠᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇs**\n\n"
-
-    # Cash Section
-    response += "💰 **ᴄᴀsʜ ᴄᴏᴅᴇs:**\n"
-    cash_found = False
-    for c in cash_codes:
-        left = c['quantity'] - len(c['claimed_by'])
-        if left > 0:
-            response += f"• `{c['code']}` | ₩{c['amount']:,.0f} | ({left} ʟᴇғᴛ)\n"
-            cash_found = True
-    if not cash_found: response += "• _No active cash codes_\n"
-
-    response += "\n🌸 **ᴡᴀɪғᴜ ᴄᴏᴅᴇs:**\n"
-    waifu_found = False
-    for w in waifu_codes:
-        left = w.get('qty', 0) - len(w.get('claimed', []))
-        if left > 0:
-            # Waifu ka naam nikaalne ke liye
-            char = await collection.find_one({'id': w['char_id']})
-            name = char['name'] if char else "Unknown"
-            response += f"• `{w['code']}` | {name} | ({left} ʟᴇғᴛ)\n"
-            waifu_found = True
-    if not waifu_found: response += "• _No active waifu codes_\n"
-
-    await message.reply_text(response)
-
-# --- DELETE CODE COMMAND (/delcode) ---
-@app.on_message(filters.command(["delcode"]))
-async def delete_code(client, message):
-    if message.from_user.id not in SUDO_USER_IDS:
+    # Manual ID Check
+    if user_id not in AUTHORIZED_USERS:
+        await message.reply_text("❌ Unauthorized! Aapke paas access nahi hai.")
         return
 
-    if len(message.command) < 2:
-        await message.reply_text("⚠️ Usage: `/delcode @siyaprobot_XXXX`")
+    try:
+        amount = float(message.command[1])
+        quantity = int(message.command[2])
+    except (IndexError, ValueError):
+        await message.reply_text("⚠️ Usage: `/gen 50000 10` (Amount Qty)")
         return
 
-    target_code = message.command[1].strip()
+    code = generate_random_code()
+
+    # Save to Database
+    await codes_db.insert_one({
+        'code': code,
+        'amount': amount,
+        'quantity': quantity,
+        'claimed_by': [],
+        'type': 'cash'
+    })
+
+    # LOG PRINT (Terminal mein dikhega)
+    print(f">>> [GENLOG] Admin: {message.from_user.first_name} ({user_id}) generated code {code} for ₩{amount}")
+    logger.info(f"GEN: {user_id} generated {code}")
+
+    await message.reply_text(
+        f"✅ **Cash Code Generated!**\n\n"
+        f"🎫 **Code:** `{code}`\n"
+        f"💰 **Amount:** `₩{amount:,.0f}`\n"
+        f"👥 **Quantity:** `{quantity}`"
+    )
+
+# --- 2. WAIFU GENERATE (/sgen) ---
+@app.on_message(filters.command(["sgen"]))
+async def waifugen(client, message):
+    user_id = message.from_user.id
     
-    # Dono DBs se delete karne ki koshish karein
-    res1 = await codes_db.delete_one({'code': target_code})
-    res2 = await waifu_codes_db.delete_one({'code': target_code})
+    if user_id not in AUTHORIZED_USERS:
+        return
 
-    if res1.deleted_count > 0 or res2.deleted_count > 0:
-        await message.reply_text(f"✅ Code `{target_code}` successfully delete kar diya gaya hai.")
-        await client.send_message(LOG_CHANNEL_ID, f"🗑️ #DELETE_CODE\n**Admin:** {message.from_user.mention}\n**Code:** `{target_code}`")
-    else:
-        await message.reply_text("❌ Yeh code database mein nahi mila.")
+    try:
+        char_id = message.command[1]
+        quantity = int(message.command[2])
+    except (IndexError, ValueError):
+        await message.reply_text("⚠️ Usage: `/sgen [CharID] [Qty]`")
+        return
 
-# --- Baki Commands (Gen/Redeem) wahi rahengi jo pehle thin ---
+    waifu = await collection.find_one({'id': char_id})
+    if not waifu:
+        await message.reply_text("❌ Character ID invalid hai.")
+        return
+
+    code = generate_random_code()
+    
+    await codes_db.insert_one({
+        'code': code,
+        'char_id': char_id,
+        'quantity': quantity,
+        'claimed_by': [],
+        'type': 'waifu'
+    })
+
+    # LOG PRINT
+    print(f">>> [SGENLOG] Admin: {user_id} generated Waifu Code {code} for {waifu['name']}")
+
+    await message.reply_text(
+        f"✅ **Waifu Code Generated!**\n\n"
+        f"🎫 **Code:** `{code}`\n"
+        f"👤 **Name:** {waifu['name']}\n"
+        f"👥 **Quantity:** {quantity}"
+    )
+
+# --- 3. REDEEM LOGIC (With Logging) ---
+@app.on_message(filters.command(["redeem"]))
+async def redeem(client, message):
+    user_id = message.from_user.id
+    code = message.command[1] if len(message.command) > 1 else ""
+
+    code_info = await codes_db.find_one({'code': code, 'type': 'cash'})
+    if not code_info:
+        await message.reply_text("❌ Invalid code.")
+        return
+
+    if user_id in code_info['claimed_by']:
+        await message.reply_text("❌ Aap pehle hi claim kar chuke hain.")
+        return
+
+    if len(code_info['claimed_by']) >= code_info['quantity']:
+        await message.reply_text("❌ Code limit khatam ho gayi hai.")
+        return
+
+    # Update Balance and DB
+    await user_collection.update_one({'id': user_id}, {'$inc': {'balance': code_info['amount']}})
+    await codes_db.update_one({'code': code}, {'$push': {'claimed_by': user_id}})
+
+    # LOG PRINT
+    print(f">>> [CLAIM] User: {message.from_user.first_name} ({user_id}) redeemed {code} for ₩{code_info['amount']}")
+
+    await message.reply_text(f"🎉 Success! `₩{code_info['amount']}` aapke wealth mein add kar diye gaye hain.")
