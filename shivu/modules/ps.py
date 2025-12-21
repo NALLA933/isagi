@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {
         "💮 Special Edition": {"weight": 5, "min_price": 35000, "max_price": 60000} 
     }, 
     "refresh_cost": 20000, 
+    "refresh_limit": 3, # Yahan 3 baar ki limit set hai
     "store_items": 3, 
     "cooldown_hours": 24 
 } 
@@ -70,6 +71,7 @@ async def build_caption(char, cfg, page, total, luv_data, balance, uid):
         market_deals.setdefault(uid, {})[cid] = deal
 
     purchased = luv_data.get('purchased', [])
+    ref_count = luv_data.get('refresh_count', 0)
     price_tag = "✅ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴᴇᴅ" if cid in purchased else f"<b>{deal['final']:,} ɢᴏʟᴅ</b>"
 
     return ( 
@@ -84,6 +86,7 @@ async def build_caption(char, cfg, page, total, luv_data, balance, uid):
         f"<b>{Style.DISCOUNT}</b> <code>{deal['percent']}% ᴏꜰꜰ</code>\n"
         f"<b>{Style.DEAL}</b> {price_tag}\n"
         f"{Style.LINE}\n"
+        f"<b>🔄 ʀᴇғʀᴇsʜᴇs:</b> <code>{ref_count}/3</code>\n"
         f"<b>{Style.WALLET}</b> <code>{balance:,} ɢᴏʟᴅ</code>\n"
         f"<b>ᴘᴀɢᴇ :</b> <code>{page}/{total}</code>"
     ), char.get("img_url", ""), deal['final'], cid in purchased 
@@ -95,17 +98,17 @@ async def luv(update: Update, context: CallbackContext):
     user = await user_collection.find_one({"id": uid}) 
     if not user: return await update.message.reply_text("❌ ꜱᴛᴀʀᴛ ʙᴏᴛ ꜰɪʀꜱᴛ!") 
 
-    luv_data = user.get('private_store', {'characters': [], 'last_reset': None, 'purchased': []})
-    
-    # Auto-Reset Logic
+    luv_data = user.get('private_store', {'characters': [], 'last_reset': None, 'purchased': [], 'refresh_count': 0})
     now = datetime.utcnow()
     last_reset = luv_data.get('last_reset')
+    
     if last_reset:
         last_reset = datetime.fromisoformat(last_reset) if isinstance(last_reset, str) else last_reset
     
+    # Reset store if 24h passed
     if not last_reset or (now - last_reset).total_seconds() >= (cfg['cooldown_hours'] * 3600):
         chars = await generate_chars(uid, cfg)
-        luv_data = {'characters': chars, 'last_reset': now.isoformat(), 'purchased': []}
+        luv_data = {'characters': chars, 'last_reset': now.isoformat(), 'purchased': [], 'refresh_count': 0}
         await user_collection.update_one({"id": uid}, {"$set": {"private_store": luv_data}}, upsert=True)
 
     chars = luv_data['characters']
@@ -114,7 +117,9 @@ async def luv(update: Update, context: CallbackContext):
     
     btns = []
     if not owned: btns.append([InlineKeyboardButton("🛒 ᴘᴜʀᴄʜᴀsᴇ ᴅᴇᴀʟ", callback_data=f"luv_buy_{str(chars[0].get('id'))}_{uid}")])
-    btns.append([InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data=f"luv_refresh_{uid}"), InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_1_{uid}")])
+    
+    ref_btn = "🔄 ʀᴇғʀᴇsʜ" if luv_data.get('refresh_count', 0) < 3 else "🚫 ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ"
+    btns.append([InlineKeyboardButton(ref_btn, callback_data=f"luv_refresh_{uid}"), InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_1_{uid}")])
     btns.append([InlineKeyboardButton("⊗ ᴄʟᴏsᴇ sᴛᴏʀᴇ", callback_data=f"luv_close_{uid}")])
     
     msg = await update.message.reply_photo(photo=img, caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btns))
@@ -140,43 +145,48 @@ async def luv_callback(update: Update, context: CallbackContext):
         if not owned: btns.append([InlineKeyboardButton("🛒 ᴘᴜʀᴄʜᴀsᴇ ᴅᴇᴀʟ", callback_data=f"luv_buy_{str(char.get('id'))}_{uid}")])
         nav = []
         if page > 0: nav.append(InlineKeyboardButton("⊲ ᴘʀᴇᴠ", callback_data=f"luv_page_{page-1}_{uid}"))
-        nav.append(InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data=f"luv_refresh_{uid}"))
+        ref_btn = "🔄 ʀᴇғʀᴇsʜ" if luv_data.get('refresh_count', 0) < 3 else "🚫 ʟɪᴍɪᴛ"
+        nav.append(InlineKeyboardButton(ref_btn, callback_data=f"luv_refresh_{uid}"))
         if page < len(luv_data['characters'])-1: nav.append(InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_{page+1}_{uid}"))
         btns.append(nav)
         btns.append([InlineKeyboardButton("⊗ ᴄʟᴏsᴇ sᴛᴏʀᴇ", callback_data=f"luv_close_{uid}")])
-        
         await q.edit_message_media(media=InputMediaPhoto(media=img, caption=caption, parse_mode="HTML"), reply_markup=InlineKeyboardMarkup(btns))
 
     elif data[1] == "refresh":
+        current_refreshes = luv_data.get('refresh_count', 0)
+        if current_refreshes >= 3:
+            return await q.answer("⚠️ You have reached the daily refresh limit (3/3)!", show_alert=True)
+        
         cost = cfg['refresh_cost']
-        if user.get('balance', 0) < cost: return await q.answer(f"❌ ɴᴇᴇᴅ {cost:,} ɢᴏʟᴅ ᴛᴏ ʀᴇғʀᴇsʜ!", show_alert=True)
+        if user.get('balance', 0) < cost: return await q.answer(f"❌ ɴᴇᴇᴅ {cost:,} ɢᴏʟᴅ!", show_alert=True)
         
         await user_collection.update_one({"id": uid}, {"$inc": {"balance": -cost}})
         new_chars = await generate_chars(uid, cfg)
-        luv_data = {'characters': new_chars, 'last_reset': datetime.utcnow().isoformat(), 'purchased': []}
+        new_count = current_refreshes + 1
+        
+        luv_data.update({'characters': new_chars, 'refresh_count': new_count, 'purchased': []})
         await user_collection.update_one({"id": uid}, {"$set": {"private_store": luv_data}})
         
-        await q.answer("🔄 sᴛᴏʀᴇ ᴜᴘᴅᴀᴛᴇᴅ!")
-        # Re-trigger the first page
+        await q.answer(f"🔄 sᴛᴏʀᴇ ʀᴇғʀᴇsʜᴇᴅ ({new_count}/3)!")
         char = new_chars[0]
-        caption, img, f_price, owned = await build_caption(char, cfg, 1, len(new_chars), luv_data, user.get('balance', 0)-cost, uid)
-        btns = [[InlineKeyboardButton("🛒 ᴘᴜʀᴄʜᴀsᴇ ᴅᴇᴀʟ", callback_data=f"luv_buy_{str(char.get('id'))}_{uid}")],
-                [InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data=f"luv_refresh_{uid}"), InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_1_{uid}")],
-                [InlineKeyboardButton("⊗ ᴄʟᴏsᴇ sᴛᴏʀᴇ", callback_data=f"luv_close_{uid}")]]
+        caption, img, f_price, owned = await build_caption(char, cfg, 1, 3, luv_data, user.get('balance', 0)-cost, uid)
+        
+        btns = [[InlineKeyboardButton("🛒 ᴘᴜʀᴄʜᴀsᴇ ᴅᴇᴀʟ", callback_data=f"luv_buy_{str(char.get('id'))}_{uid}")]]
+        ref_btn = "🔄 ʀᴇғʀᴇsʜ" if new_count < 3 else "🚫 ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ"
+        btns.append([InlineKeyboardButton(ref_btn, callback_data=f"luv_refresh_{uid}"), InlineKeyboardButton("ɴᴇxᴛ ⊳", callback_data=f"luv_page_1_{uid}")])
+        btns.append([InlineKeyboardButton("⊗ ᴄʟᴏsᴇ sᴛᴏʀᴇ", callback_data=f"luv_close_{uid}")])
         await q.edit_message_media(media=InputMediaPhoto(media=img, caption=caption, parse_mode="HTML"), reply_markup=InlineKeyboardMarkup(btns))
 
     elif data[1] == "buy":
         cid = data[2]
         deal = market_deals.get(uid, {}).get(cid)
         if user.get('balance', 0) < deal['final']: return await q.answer("❌ ɴᴏᴛ ᴇɴᴏᴜɢʜ ɢᴏʟᴅ!", show_alert=True)
-        
         char = next(c for c in luv_data['characters'] if str(c.get("id")) == cid)
         await user_collection.update_one({"id": uid}, {"$inc": {"balance": -deal['final']}, "$push": {"characters": char, "private_store.purchased": cid}})
         await q.answer("🎊 ᴘᴜʀᴄʜᴀsᴇᴅ!", show_alert=True)
         await q.message.delete()
 
     elif data[1] == "close":
-        await q.answer("sᴛᴏʀᴇ ᴄʟᴏsᴇᴅ")
         await q.message.delete()
 
 application.add_handler(CommandHandler("ps", luv, block=False))
