@@ -1,26 +1,32 @@
 import random
-from telegram.ext import CommandHandler, CallbackContext
+from dataclasses import dataclass
+from datetime import datetime
 from telegram import Update
-from datetime import datetime, timedelta
+from telegram.ext import CommandHandler, CallbackContext
 
-from shivu import (
-    application,
-    user_collection,
-    LOGGER
-)
+from shivu import application, user_collection
 
-# Constants
-COOLDOWN_DURATION = 73  # seconds
-EXPLORE_FEE = 300
-MIN_REWARD = 600
-MAX_REWARD = 1000
-MIN_BALANCE = 500
 
-# Cooldown tracking
+@dataclass(frozen=True)
+class ExploreConfig:
+    cooldown: int = 73
+    fee: int = 300
+    min_reward: int = 600
+    max_reward: int = 1000
+    min_balance: int = 500
+
+
+@dataclass
+class ExploreResult:
+    success: bool
+    message: str
+    reward: int = 0
+
+
+CONFIG = ExploreConfig()
 user_cooldowns = {}
 
-# Exploration messages
-EXPLORE_MESSAGES = [
+EXPLORE_ACTIONS = [
     "explored a dungeon",
     "ventured into a dark forest",
     "discovered ancient ruins",
@@ -29,83 +35,65 @@ EXPLORE_MESSAGES = [
     "survived an orc den"
 ]
 
+
+def check_cooldown(user_id: int) -> int | None:
+    if user_id not in user_cooldowns:
+        return None
+    
+    elapsed = (datetime.utcnow() - user_cooldowns[user_id]).total_seconds()
+    return None if elapsed >= CONFIG.cooldown else int(CONFIG.cooldown - elapsed)
+
+
 async def explore_cmd(update: Update, context: CallbackContext) -> None:
-    """Command to explore and get random rewards"""
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("❌ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴄᴀɴ ᴏɴʟʏ ʙᴇ ᴜsᴇᴅ ɪɴ ɢʀᴏᴜᴘs!")
+        return
+
+    if update.message.reply_to_message:
+        await update.message.reply_text("❌ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴄᴀɴɴᴏᴛ ʙᴇ ᴜsᴇᴅ ᴀs ᴀ ʀᴇᴘʟʏ!")
+        return
+
+    user_id = update.effective_user.id
+
+    if remaining := check_cooldown(user_id):
+        await update.message.reply_text(
+            f"⏰ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {remaining} sᴇᴄᴏɴᴅs ʙᴇғᴏʀᴇ ᴇxᴘʟᴏʀɪɴɢ ᴀɢᴀɪɴ!"
+        )
+        return
+
     try:
-        # Check if command is used in private
-        if update.effective_chat.type == "private":
-            await update.message.reply_text(
-                "❌ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴄᴀɴ ᴏɴʟʏ ʙᴇ ᴜsᴇᴅ ɪɴ ɢʀᴏᴜᴘs!"
-            )
-            return
-
-        # Check if command is a reply
-        if update.message.reply_to_message:
-            await update.message.reply_text(
-                "❌ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴄᴀɴɴᴏᴛ ʙᴇ ᴜsᴇᴅ ᴀs ᴀ ʀᴇᴘʟʏ!"
-            )
-            return
-
-        user_id = update.effective_user.id
-        current_time = datetime.utcnow()
-
-        # Check cooldown
-        if user_id in user_cooldowns:
-            time_passed = (current_time - user_cooldowns[user_id]).total_seconds()
-            if time_passed < COOLDOWN_DURATION:
-                remaining = int(COOLDOWN_DURATION - time_passed)
-                await update.message.reply_text(
-                    f"⏰ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {remaining} sᴇᴄᴏɴᴅs ʙᴇғᴏʀᴇ ᴇxᴘʟᴏʀɪɴɢ ᴀɢᴀɪɴ!"
-                )
-                return
-
-        # Get user's balance
         user = await user_collection.find_one({'id': user_id})
+        
         if not user:
             await update.message.reply_text("❌ ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴ ᴀᴄᴄᴏᴜɴᴛ ʏᴇᴛ!")
             return
 
-        balance = user.get('balance', 0)
-        
-        # Check minimum balance
-        if balance < MIN_BALANCE:
+        if user.get('balance', 0) < CONFIG.min_balance:
             await update.message.reply_text(
-                f"❌ ʏᴏᴜ ɴᴇᴇᴅ ᴀᴛ ʟᴇᴀsᴛ {MIN_BALANCE} ᴛᴏᴋᴇɴs ᴛᴏ ᴇxᴘʟᴏʀᴇ!"
+                f"❌ ʏᴏᴜ ɴᴇᴇᴅ ᴀᴛ ʟᴇᴀsᴛ {CONFIG.min_balance} ᴛᴏᴋᴇɴs ᴛᴏ ᴇxᴘʟᴏʀᴇ!"
             )
             return
 
-        # Deduct exploration fee
+        reward = random.randint(CONFIG.min_reward, CONFIG.max_reward)
+        
         await user_collection.update_one(
             {'id': user_id},
-            {'$inc': {'balance': -EXPLORE_FEE}}
+            {'$inc': {'balance': reward - CONFIG.fee}}
         )
 
-        # Calculate reward and update balance
-        reward = random.randint(MIN_REWARD, MAX_REWARD)
-        await user_collection.update_one(
-            {'id': user_id},
-            {'$inc': {'balance': reward}}
-        )
+        user_cooldowns[user_id] = datetime.utcnow()
 
-        # Update cooldown
-        user_cooldowns[user_id] = current_time
-
-        # Send result message
-        action = random.choice(EXPLORE_MESSAGES)
+        action = random.choice(EXPLORE_ACTIONS)
         await update.message.reply_text(
             f"🗺️ ʏᴏᴜ {action} ᴀɴᴅ ғᴏᴜɴᴅ {reward} ᴛᴏᴋᴇɴs!\n"
-            f"💰 ᴇxᴘʟᴏʀᴀᴛɪᴏɴ ғᴇᴇ: -{EXPLORE_FEE} ᴛᴏᴋᴇɴs"
+            f"💰 ᴇxᴘʟᴏʀᴀᴛɪᴏɴ ғᴇᴇ: -{CONFIG.fee} ᴛᴏᴋᴇɴs"
         )
 
     except Exception as e:
-        LOGGER.error(f"Error in explore command: {e}")
         await update.message.reply_text(
-            "❌ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴇxᴘʟᴏʀɪɴɢ!"
+            f"❌ ᴇʀʀᴏʀ: <code>{str(e)}</code>",
+            parse_mode='HTML'
         )
 
-def register_handlers():
-    """Register the explore command handler"""
-    application.add_handler(CommandHandler("explore", explore_cmd))
 
-# Register handlers
-register_handlers()
+application.add_handler(CommandHandler("explore", explore_cmd))
