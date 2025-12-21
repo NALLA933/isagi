@@ -7,7 +7,7 @@ from telegram.ext import CommandHandler, CallbackContext
 from shivu import application, user_collection
 
 # Configuration
-OWNER_ID = 5147822244
+OWNER_ID = 8420981179
 LOG_GROUP_ID = -1002956939145  # Aapka Log Group
 
 @dataclass
