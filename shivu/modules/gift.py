@@ -9,14 +9,14 @@ LOG_CHANNEL_ID = -1002900862232
 GIFT_TIMEOUT = 60
 pending_gifts = {}
 
-# --- UNICODE SMALL CAPS STYLE ---
+# --- UNICODE SMALL CAPS STYLE (WITH CUSTOM ꜱ) ---
 class Style:
-    GIFT = "🎁 ɢɪғᴛ ᴛʀᴀɴsғᴇʀ"
+    GIFT = "🎁 ɢɪꜰᴛ ᴛʀᴀɴꜱꜰᴇʀ"
     TO = "👤 ʀᴇᴄɪᴘɪᴇɴᴛ :"
-    FROM = "👤 sᴇɴᴅᴇʀ :"
+    FROM = "👤 ꜱᴇɴᴅᴇʀ :"
     CHAR = "🍥 ᴄʜᴀʀᴀᴄᴛᴇʀ :"
     ID = "🆔 ɪᴅ :"
-    STATUS = "✨ sᴛᴀᴛᴜs :"
+    STATUS = "✨ ꜱᴛᴀᴛᴜꜱ :"
     LINE = "──────────────────"
 
 # --- UTILS ---
@@ -50,24 +50,24 @@ async def handle_gift_command(update: Update, context: CallbackContext):
     sender_id = msg.from_user.id
 
     if not msg.reply_to_message:
-        return await msg.reply_text("<b>❌ Please reply to a user to send a gift.</b>", parse_mode='HTML')
+        return await msg.reply_text("<b>❌ ᴘʟᴇᴀꜱᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜꜱᴇʀ ᴛᴏ ꜱᴇɴᴅ ᴀ ɢɪꜰᴛ.</b>", parse_mode='HTML')
 
     receiver = msg.reply_to_message.from_user
     if sender_id == receiver.id or receiver.is_bot:
-        return await msg.reply_text("<b>❌ Invalid User for gift.</b>", parse_mode='HTML')
+        return await msg.reply_text("<b>❌ ɪɴᴠᴀʟɪᴅ ᴜꜱᴇʀ ꜰᴏʀ ɢɪꜰᴛ.</b>", parse_mode='HTML')
 
     if len(context.args) != 1:
-        return await msg.reply_text("<b>💡 Usage:</b> <code>/gift character_id</code>", parse_mode='HTML')
+        return await msg.reply_text("<b>💡 ᴜꜱᴀɢᴇ:</b> <code>/gift character_id</code>", parse_mode='HTML')
 
     char_id = context.args[0]
     sender_data = await user_collection.find_one({'id': sender_id})
     character = next((c for c in sender_data.get('characters', []) if str(c.get('id')) == str(char_id)), None)
     
     if not character:
-        return await msg.reply_text("<b>❌ You don't own this character.</b>", parse_mode='HTML')
+        return await msg.reply_text("<b>❌ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪꜱ ᴄʜᴀʀᴀᴄᴛᴇʀ.</b>", parse_mode='HTML')
 
     if sender_id in pending_gifts:
-        return await msg.reply_text("<b>⚠️ One gift is already in progress...</b>", parse_mode='HTML')
+        return await msg.reply_text("<b>⚠️ ᴏɴᴇ ɢɪꜰᴛ ɪꜱ ᴀʟʀᴇᴀᴅʏ ɪɴ ᴘʀᴏɢʀᴇꜱꜱ...</b>", parse_mode='HTML')
 
     pending_gifts[sender_id] = {
         'character': character,
@@ -75,7 +75,7 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         'receiver_name': receiver.first_name
     }
 
-    # Aesthetic Small Caps Caption
+    # Aesthetic Small Caps Caption with custom 'ꜱ'
     caption = (
         f"<b>{Style.GIFT}</b>\n"
         f"{Style.LINE}\n"
@@ -83,17 +83,16 @@ async def handle_gift_command(update: Update, context: CallbackContext):
         f"<b>{Style.CHAR}</b> <code>{html.escape(character['name'])}</code>\n"
         f"<b>{Style.ID}</b> <code>#{character['id']}</code>\n"
         f"{Style.LINE}\n"
-        f"<i>⏳ ᴄᴏɴғɪʀᴍ ᴡɪᴛʜɪɴ {GIFT_TIMEOUT}s ᴛᴏ sᴇɴᴅ.</i>"
+        f"<i>⏳ ᴄᴏɴꜰɪʀᴍ ᴡɪᴛʜɪɴ {GIFT_TIMEOUT}ꜱ ᴛᴏ ꜱᴇɴᴅ.</i>"
     )
 
     keyboard = [[
-        InlineKeyboardButton("✅ ᴄᴏɴғɪʀᴍ", callback_data=f"gift_z:{sender_id}"),
+        InlineKeyboardButton("✅ ᴄᴏɴꜰɪʀᴍ", callback_data=f"gift_z:{sender_id}"),
         InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data=f"gift_v:{sender_id}")
     ]]
 
     sent_msg = await reply_media_message(msg, character.get('img_url'), caption, InlineKeyboardMarkup(keyboard))
     
-    # Auto-expiry task
     async def expire():
         await asyncio.sleep(GIFT_TIMEOUT)
         if sender_id in pending_gifts:
@@ -108,13 +107,13 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
     action, sender_id = action_data[0], int(action_data[1])
 
     if query.from_user.id != sender_id:
-        return await query.answer("⚠️ Not your request!", show_alert=True)
+        return await query.answer("⚠️ ɴᴏᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛ!", show_alert=True)
 
     gift_data = pending_gifts.get(sender_id)
     if not gift_data:
         try: await query.message.delete()
         except: pass
-        return await query.answer("❌ Request Expired.", show_alert=True)
+        return await query.answer("❌ ʀᴇǫᴜᴇꜱᴛ ᴇxᴘɪʀᴇᴅ.", show_alert=True)
 
     char = gift_data['character']
 
@@ -131,31 +130,30 @@ async def handle_gift_callback(update: Update, context: CallbackContext):
                 upsert=True
             )
             
-            # Final Success Design
             final_caption = (
-                f"<b>🎊 ɢɪғᴛ ᴅᴇʟɪᴠᴇʀᴇᴅ 🎊</b>\n"
+                f"<b>🎊 ɢɪꜰᴛ ᴅᴇʟɪᴠᴇʀᴇᴅ 🎊</b>\n"
                 f"{Style.LINE}\n"
                 f"<b>{Style.TO}</b> <a href='tg://user?id={gift_data['receiver_id']}'>{html.escape(gift_data['receiver_name'])}</a>\n"
                 f"<b>{Style.CHAR}</b> <code>{char['name']}</code>\n"
                 f"{Style.LINE}\n"
-                f"<i>✓ ᴄʜᴀʀᴀᴄᴛᴇʀ sᴜᴄᴄᴇssғᴜʟʟʏ ᴛʀᴀɴsғᴇʀʀᴇᴅ.</i>"
+                f"<i>✓ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴛʀᴀɴꜱꜰᴇʀʀᴇᴅ.</i>"
             )
             await query.edit_message_caption(caption=final_caption, parse_mode='HTML')
 
             log_msg = (
-                f"📢 <b>#ɢɪғᴛ_ʟᴏɢ</b>\n\n"
+                f"📢 <b>#ɢɪꜰᴛ_ʟᴏɢ</b>\n\n"
                 f"<b>{Style.FROM}</b> {query.from_user.mention_html()}\n"
                 f"<b>{Style.TO}</b> <a href='tg://user?id={gift_data['receiver_id']}'>{html.escape(gift_data['receiver_name'])}</a>\n"
-                f"<b>{Style.CHAR}</b> {char['name']} (ID: {char['id']})\n"
-                f"<b>{Style.STATUS}</b> sᴜᴄᴄᴇss ✅"
+                f"<b>{Style.CHAR}</b> {char['name']} (ɪᴅ: {char['id']})\n"
+                f"<b>{Style.STATUS}</b> ꜱᴜᴄᴄᴇꜱꜱ ✅"
             )
             await send_log(context, log_msg)
         else:
-            await query.answer("❌ Transfer failed.", show_alert=True)
+            await query.answer("❌ ᴛʀᴀɴꜱꜰᴇʀ ꜰᴀɪʟᴇᴅ.", show_alert=True)
 
     elif action == "gift_v":
         await query.message.delete()
-        await send_log(context, f"❌ <b>#ɢɪғᴛ_ᴄᴀɴᴄᴇʟʟᴇᴅ</b>\nʙʏ: {query.from_user.mention_html()}")
+        await send_log(context, f"❌ <b>#ɢɪꜰᴛ_ᴄᴀɴᴄᴇʟʟᴇᴅ</b>\nʙʏ: {query.from_user.mention_html()}")
 
     pending_gifts.pop(sender_id, None)
 
