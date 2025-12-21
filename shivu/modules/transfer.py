@@ -1,89 +1,123 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler
-from shivu import application, user_collection
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from shivu import application, user_collection, db
 
-# Replace OWNER_ID with the actual owner's user ID
+# Configuration
 OWNER_ID = 8420981179
+LOG_CHANNEL_ID = -1003110990230  # Apna Log Channel ID yahan dalein
 
-async def transfer(update, context):
+async def get_user_name(user_id):
+    """Database se user ka naam nikalne ke liye helper function"""
+    user = await user_collection.find_one({'id': user_id})
+    return user.get('username', 'Unknown') if user else "Unknown"
+
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Check if the user is the owner
         user_id = update.effective_user.id
+        
+        # 1. Authorization Check
         if user_id != OWNER_ID:
-            await update.message.reply_text('You are not authorized to use this command.')
+            await update.message.reply_text('🚫 **Access Denied:** Only the developer can perform mass transfers.')
             return
 
-        # Ensure the command has the correct number of arguments
+        # 2. Argument Check
         if len(context.args) != 2:
-            await update.message.reply_text('Please provide two valid user IDs for the transfer.')
+            await update.message.reply_text('ℹ️ **Usage:** `/transfer <sender_id> <receiver_id>`')
             return
 
-        sender_id = int(context.args[0])
-        receiver_id = int(context.args[1])
+        s_id = int(context.args[0])
+        r_id = int(context.args[1])
 
-        # Retrieve sender's and receiver's information
-        sender = await user_collection.find_one({'id': sender_id})
-        receiver = await user_collection.find_one({'id': receiver_id})
+        if s_id == r_id:
+            await update.message.reply_text('❌ Sender and Receiver cannot be the same.')
+            return
 
-        # Check if both sender and receiver exist
+        # 3. Data Fetching
+        sender = await user_collection.find_one({'id': s_id})
+        receiver = await user_collection.find_one({'id': r_id})
+
         if not sender:
-            await update.message.reply_text(f'Sender with ID {sender_id} not found.')
+            await update.message.reply_text(f'❌ Sender `{s_id}` not found in Database.')
             return
-
         if not receiver:
-            await update.message.reply_text(f'Receiver with ID {receiver_id} not found.')
+            await update.message.reply_text(f'❌ Receiver `{r_id}` not found in Database.')
             return
 
-        # Store the IDs temporarily in the user_data for later use
-        context.user_data['transfer'] = {'sender_id': sender_id, 'receiver_id': receiver_id}
+        s_waifus = sender.get('characters', [])
+        if not s_waifus:
+            await update.message.reply_text('⚠️ Sender has no characters to transfer.')
+            return
 
-        # Create inline keyboard buttons for confirmation
+        # 4. Preparation for Confirmation
+        s_name = sender.get('first_name', 'User1')
+        r_name = receiver.get('first_name', 'User2')
+        
+        context.user_data['tr_data'] = {'s': s_id, 'r': r_id, 'count': len(s_waifus)}
+
         keyboard = [
-            [InlineKeyboardButton("✅ Yes, Transfer", callback_data='confirm_transfer')],
-            [InlineKeyboardButton("❌ No, Cancel", callback_data='cancel_transfer')]
+            [InlineKeyboardButton("✅ Confirm Transfer", callback_data='confirm_tr')],
+            [InlineKeyboardButton("❌ Abort", callback_data='cancel_tr')]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Ask for confirmation
-        await update.message.reply_text(
-            f"Are you sure you want to transfer all waifus from User {sender_id} to User {receiver_id}?",
-            reply_markup=reply_markup
+        msg = (
+            f"🔄 **Transfer Initiation**\n\n"
+            f"**From:** {s_name} (`{s_id}`)\n"
+            f"**To:** {r_name} (`{r_id}`)\n"
+            f"**Amount:** `{len(s_waifus)}` Characters\n\n"
+            f"Do you want to proceed? This action is irreversible."
         )
+        
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
     except ValueError:
-        await update.message.reply_text('Invalid User IDs provided.')
+        await update.message.reply_text('❌ Please provide valid numeric IDs.')
+    except Exception as e:
+        logging.error(f"Error in transfer: {e}")
 
-async def transfer_confirm(update, context):
+async def transfer_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    data = context.user_data.get('tr_data')
 
-    if query.data == 'confirm_transfer':
-        # Retrieve sender and receiver IDs from user_data
-        transfer_data = context.user_data.get('transfer')
-        if transfer_data:
-            sender_id = transfer_data['sender_id']
-            receiver_id = transfer_data['receiver_id']
+    if query.data == 'confirm_tr':
+        if not data:
+            await query.edit_message_text("❌ Session expired. Re-run the command.")
+            return
 
-            # Perform the transfer
-            sender = await user_collection.find_one({'id': sender_id})
-            receiver = await user_collection.find_one({'id': receiver_id})
+        s_id, r_id, count = data['s'], data['r'], data['count']
+        
+        try:
+            # Atomic update (Dono ko ek saath update karna)
+            sender = await user_collection.find_one({'id': s_id})
+            s_waifus = sender.get('characters', [])
 
-            receiver_waifus = receiver.get('characters', [])
-            receiver_waifus.extend(sender.get('characters', []))
+            # Receiver update: Push all characters from sender
+            await user_collection.update_one(
+                {'id': r_id},
+                {'$push': {'characters': {'$each': s_waifus}}}
+            )
+            
+            # Sender update: Clear characters
+            await user_collection.update_one({'id': s_id}, {'$set': {'characters': []}})
 
-            await user_collection.update_one({'id': receiver_id}, {'$set': {'characters': receiver_waifus}})
-            await user_collection.update_one({'id': sender_id}, {'$set': {'characters': []}})
+            success_text = f"✅ **Success!**\n`{count}` characters moved from `{s_id}` to `{r_id}`."
+            await query.edit_message_text(success_text, parse_mode='Markdown')
 
-            await query.edit_message_text('All waifus have been successfully transferred!')
-        else:
-            await query.edit_message_text('Error: Transfer data not found.')
+            # Log to Channel
+            await context.bot.send_message(
+                LOG_CHANNEL_ID,
+                f"#TRANSFER_LOG\nOwner: {OWNER_ID}\nFrom: `{s_id}`\nTo: `{r_id}`\nTotal: `{count}`"
+            )
 
-    elif query.data == 'cancel_transfer':
-        # Cancel the transfer
-        await query.edit_message_text('Transfer has been canceled.')
+        except Exception as e:
+            await query.edit_message_text(f"⚠️ **Database Error:** {e}")
+        
+        context.user_data.pop('tr_data', None)
 
-# ... (your other code for transfer and handle_transfer_confirmation) 
+    elif query.data == 'cancel_tr':
+        await query.edit_message_text("❌ Transfer operation cancelled.")
+        context.user_data.pop('tr_data', None)
 
-# Register the handlers 
+# Registration
 application.add_handler(CommandHandler("transfer", transfer))
-application.add_handler(CallbackQueryHandler(transfer_confirm, pattern='^confirm_transfer|^cancel_transfer$')) # Register with correct function name
+application.add_handler(CallbackQueryHandler(transfer_confirm, pattern='^confirm_tr|^cancel_tr$'))
