@@ -1,4 +1,3 @@
-import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from shivu import application, user_collection
@@ -6,74 +5,81 @@ from shivu import application, user_collection
 OWNER_ID = 8420981179
 
 async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return # Chup-chaap return kar do agar owner nahi hai
+
+    if len(context.args) != 2:
+        await update.message.reply_text('❌ Sahi tarika: `/transfer 123 456`')
+        return
+
     try:
-        if update.effective_user.id != OWNER_ID:
-            await update.message.reply_text('🚫 Unauthorized.')
-            return
-
-        if len(context.args) != 2:
-            await update.message.reply_text('ℹ️ Use: `/transfer <sender_id> <receiver_id>`')
-            return
-
         s_id = int(context.args[0])
         r_id = int(context.args[1])
 
+        # Database se check karein ki users hain ya nahi
         sender = await user_collection.find_one({'id': s_id})
         receiver = await user_collection.find_one({'id': r_id})
 
         if not sender or not receiver:
-            await update.message.reply_text('❌ User not found in DB.')
+            await update.message.reply_text('❌ User database mein nahi mila.')
             return
 
-        count = len(sender.get('characters', []))
-        if count == 0:
-            await update.message.reply_text('⚠️ Sender has no characters.')
-            return
-
-        # Yahan humne IDs ko callback_data mein daal diya hai (S: Sender, R: Receiver)
+        s_waifus = sender.get('characters', [])
+        
+        # Sari details callback_data mein bhar di hain
+        # Format: TR|SenderID|ReceiverID
         keyboard = [
-            [InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_tr|{s_id}|{r_id}")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_tr")]
+            [InlineKeyboardButton("✅ Confirm", callback_data=f"TR|{s_id}|{r_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="TR|CANCEL")]
         ]
 
         await update.message.reply_text(
-            f"🔄 **Transfer Details**\nFrom: `{s_id}`\nTo: `{r_id}`\nCharacters: `{count}`\n\nConfirm?",
+            f"🔄 **Mass Transfer**\n\n"
+            f"From: `{s_id}`\n"
+            f"To: `{r_id}`\n"
+            f"Total: `{len(s_waifus)}` characters\n\n"
+            "Kya aap pakka transfer karna chahte hain?",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
-
     except ValueError:
-        await update.message.reply_text('❌ Use numeric IDs.')
+        await update.message.reply_text('❌ IDs sirf numbers honi chahiye.')
 
-async def transfer_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    data = query.data.split('|') # Data ko split kar rahe hain
+    
     await query.answer()
 
-    if query.data.startswith('confirm_tr'):
-        # Data ko split karke IDs nikalna
-        try:
-            _, s_id, r_id = query.data.split('|')
-            s_id, r_id = int(s_id), int(r_id)
+    if data[1] == "CANCEL":
+        await query.edit_message_text("❌ Transfer cancel kar diya gaya.")
+        return
 
-            sender = await user_collection.find_one({'id': s_id})
-            s_waifus = sender.get('characters', [])
+    # Button se IDs nikalna
+    s_id = int(data[1])
+    r_id = int(data[2])
 
-            if not s_waifus:
-                await query.edit_message_text("❌ Sender already has 0 characters.")
-                return
+    try:
+        sender = await user_collection.find_one({'id': s_id})
+        s_waifus = sender.get('characters', [])
 
-            # Main Transfer Logic
-            await user_collection.update_one({'id': r_id}, {'$push': {'characters': {'$each': s_waifus}}})
-            await user_collection.update_one({'id': s_id}, {'$set': {'characters': []}})
+        if not s_waifus:
+            await query.edit_message_text("⚠️ Transfer fail: Sender ke paas kuch nahi hai.")
+            return
 
-            await query.edit_message_text(f"✅ **Success!** Moved `{len(s_waifus)}` characters to `{r_id}`.")
-        
-        except Exception as e:
-            await query.edit_message_text(f"⚠️ Error: {str(e)}")
+        # 1. Receiver mein add karein
+        await user_collection.update_one(
+            {'id': r_id},
+            {'$push': {'characters': {'$each': s_waifus}}}
+        )
+        # 2. Sender se remove karein
+        await user_collection.update_one({'id': s_id}, {'$set': {'characters': []}})
 
-    elif query.data == 'cancel_tr':
-        await query.edit_message_text("❌ Transfer cancelled.")
+        await query.edit_message_text(f"✅ Success! `{len(s_waifus)}` characters transferred to `{r_id}`.")
+    
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error: {str(e)}")
 
-# Handlers (Note: pattern updated for split data)
+# Handlers register karein (Dhyan se dekhien pattern)
 application.add_handler(CommandHandler("transfer", transfer))
-application.add_handler(CallbackQueryHandler(transfer_confirm, pattern='^confirm_tr|cancel_tr'))
+application.add_handler(CallbackQueryHandler(transfer_callback, pattern="^TR\|"))
