@@ -1,18 +1,28 @@
+import html
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from shivu import application, user_collection
-import html
 
 # --- CONFIGURATION ---
 OWNER_ID = 8420981179
-LOG_GROUP_ID = -1003110990230  # <--- Apna Group ID dalein
+LOG_GROUP_ID = -1003110990230 
+
+# --- UNICODE SMALL CAPS STYLE ---
+class Style:
+    HEADER = "🔄 ᴛʀᴀɴꜱꜰᴇʀ ʀᴇǫᴜᴇꜱᴛ"
+    FROM = "👤 ꜰʀᴏᴍ :"
+    TO = "👤 ᴛᴏ :"
+    TOTAL = "🍥 ᴛᴏᴛᴀʟ :"
+    BY = "👤 ʙʏ ᴏᴡɴᴇʀ :"
+    STATUS = "✨ ꜱᴛᴀᴛᴜꜱ :"
+    LINE = "──────────────────"
 
 async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return 
 
     if len(context.args) != 2:
-        await update.message.reply_text('❌ <b>Usage:</b> /transfer <code>sender_id</code> <code>receiver_id</code>', parse_mode='HTML')
+        await update.message.reply_text(f'<b>❌ ᴜꜱᴀɢᴇ:</b> <code>/transfer [sender_id] [receiver_id]</code>', parse_mode='HTML')
         return
 
     try:
@@ -23,27 +33,29 @@ async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receiver = await user_collection.find_one({'id': r_id})
 
         if not sender or not receiver:
-            await update.message.reply_text('❌ <b>User not found in Database.</b>', parse_mode='HTML')
+            await update.message.reply_text('<b>❌ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ ɪɴ ᴅᴀᴛᴀʙᴀꜱᴇ.</b>', parse_mode='HTML')
             return
 
         s_waifus = sender.get('characters', [])
         
         keyboard = [
-            [InlineKeyboardButton("✅ Confirm", callback_data=f"TR|{s_id}|{r_id}")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="TR|CANCEL")]
+            [InlineKeyboardButton("✅ ᴄᴏɴꜰɪʀᴍ", callback_data=f"TR|{s_id}|{r_id}")],
+            [InlineKeyboardButton("❌ ᴄᴀɴᴄᴇʟ", callback_data="TR|CANCEL")]
         ]
 
         msg = (
-            f"🔄 <b>Transfer Request</b>\n\n"
-            f"<b>From:</b> <code>{s_id}</code>\n"
-            f"<b>To:</b> <code>{r_id}</code>\n"
-            f"<b>Total:</b> <code>{len(s_waifus)}</code> characters\n\n"
-            "Confirm transfer?"
+            f"<b>{Style.HEADER}</b>\n"
+            f"{Style.LINE}\n"
+            f"<b>{Style.FROM}</b> <code>{s_id}</code>\n"
+            f"<b>{Style.TO}</b> <code>{r_id}</code>\n"
+            f"<b>{Style.TOTAL}</b> <code>{len(s_waifus)}</code> ᴄʜᴀʀᴀᴄᴛᴇʀꜱ\n"
+            f"{Style.LINE}\n"
+            f"<i>💡 ᴄᴏɴꜰɪʀᴍ ᴛᴏ ᴍᴏᴠᴇ ᴀʟʟ ᴅᴀᴛᴀ.</i>"
         )
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
     except ValueError:
-        await update.message.reply_text('❌ <b>Error:</b> IDs numbers mein honi chahiye.', parse_mode='HTML')
+        await update.message.reply_text('<b>❌ ᴇʀʀᴏʀ: ɪᴅꜱ ᴍᴜꜱᴛ ʙᴇ ɪɴ ɴᴜᴍʙᴇʀꜱ.</b>', parse_mode='HTML')
 
 async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -51,7 +63,7 @@ async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if data[1] == "CANCEL":
-        await query.edit_message_text("❌ <b>Transfer cancelled by Owner.</b>", parse_mode='HTML')
+        await query.edit_message_text(f"<b>❌ ᴛʀᴀɴꜱꜰᴇʀ ᴄᴀɴᴄᴇʟʟᴇᴅ ʙʏ ᴏᴡɴᴇʀ.</b>", parse_mode='HTML')
         return
 
     s_id, r_id = int(data[1]), int(data[2])
@@ -61,32 +73,32 @@ async def transfer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s_waifus = sender.get('characters', [])
 
         if not s_waifus:
-            await query.edit_message_text("⚠️ <b>Sender has 0 characters.</b>", parse_mode='HTML')
+            await query.edit_message_text(f"<b>⚠️ ꜱᴇɴᴅᴇʀ ʜᴀꜱ 𝟶 ᴄʜᴀʀᴀᴄᴛᴇʀꜱ.</b>", parse_mode='HTML')
             return
 
-        # DB Update
+        # Atomic Database Update
         await user_collection.update_one({'id': r_id}, {'$push': {'characters': {'$each': s_waifus}}})
         await user_collection.update_one({'id': s_id}, {'$set': {'characters': []}})
 
-        await query.edit_message_text(f"✅ <b>Success!</b> Moved <code>{len(s_waifus)}</code> characters.", parse_mode='HTML')
+        await query.edit_message_text(f"<b>✅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴍᴏᴠᴇᴅ {len(s_waifus)} ᴄʜᴀʀᴀᴄᴛᴇʀꜱ!</b>", parse_mode='HTML')
 
-        # --- SAFE LOGGING (HTML) ---
-        user_name = html.escape(update.effective_user.first_name) # Special chars fix
+        # --- LOGGING ---
+        user_name = html.escape(update.effective_user.first_name)
         log_text = (
-            f"📢 <b>#TRANSFER_LOG</b>\n\n"
-            f"<b>By Owner:</b> {user_name} (<code>{OWNER_ID}</code>)\n"
-            f"<b>From:</b> <code>{s_id}</code>\n"
-            f"<b>To:</b> <code>{r_id}</code>\n"
-            f"<b>Total:</b> <code>{len(s_waifus)}</code>\n"
-            f"<b>Status:</b> Completed ✅"
+            f"📢 <b>#ᴛʀᴀɴꜱꜰᴇʀ_ʟᴏɢ</b>\n"
+            f"{Style.LINE}\n"
+            f"<b>{Style.BY}</b> {user_name} (<code>{OWNER_ID}</code>)\n"
+            f"<b>{Style.FROM}</b> <code>{s_id}</code>\n"
+            f"<b>{Style.TO}</b> <code>{r_id}</code>\n"
+            f"<b>{Style.TOTAL}</b> <code>{len(s_waifus)}</code>\n"
+            f"<b>{Style.STATUS}</b> ᴄᴏᴍᴘʟᴇᴛᴇᴅ ✅"
         )
         await context.bot.send_message(chat_id=LOG_GROUP_ID, text=log_text, parse_mode='HTML')
 
     except Exception as e:
-        # Error message ko bhi escape karna zaroori hai
         error_msg = html.escape(str(e))
-        await query.edit_message_text(f"❌ <b>Database Error:</b> <code>{error_msg}</code>", parse_mode='HTML')
+        await query.edit_message_text(f"<b>❌ ᴅᴀᴛᴀʙᴀꜱᴇ ᴇʀʀᴏʀ:</b> <code>{error_msg}</code>", parse_mode='HTML')
 
-# Handlers
+# Handlers Registration
 application.add_handler(CommandHandler("transfer", transfer))
 application.add_handler(CallbackQueryHandler(transfer_callback, pattern="^TR\|"))
