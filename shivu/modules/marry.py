@@ -1,321 +1,166 @@
 import asyncio 
 import time 
 import random 
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup 
 from telegram.ext import CommandHandler, CallbackContext 
 from telegram.error import TelegramError 
 from shivu import application, user_collection, collection 
  
-# Configuration 
+# --- CONFIGURATION ---
 PROPOSAL_COST = 2000 
-DICE_COOLDOWN = 1800  # 30 minutes 
-PROPOSE_COOLDOWN = 300  # 5 minutes 
-SUPPORT_GROUP_USERNAME = "THE_DRAGON_SUPPORT"  # Support group username 
-SUPPORT_GROUP_LINK = "https://t.me/THE_DRAGON_SUPPORT" 
+DICE_COOLDOWN = 1800  
+PROPOSE_COOLDOWN = 300  
+UPDATE_CHANNEL_USERNAME = "PICK_X_UPDATE"  # Required Channel
+LOG_GROUP_ID = -1003139865857 # Log Group ID
  
-# Cooldown storage 
 cooldowns = {'dice': {}, 'propose': {}} 
- 
-# Messages 
-SUCCESS_MSGS = [ 
-    "ᴀᴄᴄᴇᴘᴛᴇᴅ ʏᴏᴜʀ ᴘʀᴏᴘᴏsᴀʟ", 
-    "sᴀɪᴅ ʏᴇs ᴛᴏ ʏᴏᴜʀ ʜᴇᴀʀᴛ", 
-    "ɪs ɴᴏᴡ ʏᴏᴜʀs ғᴏʀᴇᴠᴇʀ", 
-    "ᴊᴏɪɴᴇᴅ ʏᴏᴜʀ ʜᴀʀᴇᴍ", 
-    "ғᴇʟʟ ғᴏʀ ʏᴏᴜ" 
-] 
- 
-FAIL_MSGS = [ 
-    "sʜᴇ ʀᴇᴊᴇᴄᴛᴇᴅ ʏᴏᴜ ᴀɴᴅ ʀᴀɴ ᴀᴡᴀʏ", 
-    "sʜᴇ sᴀɪᴅ ɴᴏ ᴀɴᴅ ʟᴇғᴛ", 
-    "sʜᴇ ᴡᴀʟᴋᴇᴅ ᴀᴡᴀʏ ғʀᴏᴍ ʏᴏᴜ", 
-    "sʜᴇ ᴅɪsᴀᴘᴘᴇᴀʀᴇᴅ ɪɴ ᴛʜᴇ ᴡɪɴᴅ", 
-    "ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ" 
-] 
- 
- 
+
+class Icons:
+    SUCCESS = "💖"
+    FAIL = "💔"
+    DICE = "🎲"
+    GOLD = "💰"
+    TIME = "⏰"
+    STAR = "✨"
+
+# --- LOGGING SYSTEM ---
+async def send_log(context: CallbackContext, user_id, first_name, char, cmd_name):
+    """Sends a log of the win to the specified group"""
+    try:
+        log_text = (
+            f"<b>#NEW_WIN 🏆</b>\n\n"
+            f"<b>👤 ᴜsᴇʀ:</b> <a href='tg://user?id={user_id}'>{first_name}</a>\n"
+            f"<b>🆔 ɪᴅ:</b> <code>{user_id}</code>\n"
+            f"<b>🕹️ ᴄᴏᴍᴍᴀɴᴅ:</b> /{cmd_name}\n"
+            f"<b>🌸 ᴄʜᴀʀᴀᴄᴛᴇʀ:</b> {char['name']}\n"
+            f"<b>💎 ʀᴀʀɪᴛʏ:</b> {char['rarity']}\n"
+            f"<b>📅 ᴅᴀᴛᴇ:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+        await context.bot.send_photo(
+            chat_id=LOG_GROUP_ID,
+            photo=char['img_url'],
+            caption=log_text,
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        print(f"Log Error: {e}")
+
+# --- CHANNEL JOIN CHECK ---
+async def is_user_joined(context: CallbackContext, user_id: int) -> bool:
+    try:
+        member = await context.bot.get_chat_member(f"@{UPDATE_CHANNEL_USERNAME}", user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception:
+        return False
+
+# --- UI HELPERS ---
+def get_join_button():
+    keyboard = [[InlineKeyboardButton("📢 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ", url=f"https://t.me/{UPDATE_CHANNEL_USERNAME}")]]
+    return InlineKeyboardMarkup(keyboard)
+
 def check_cooldown(user_id, cmd_type, cooldown_time): 
-    """Check and update cooldown""" 
-    try: 
-        if user_id in cooldowns[cmd_type]: 
-            elapsed = time.time() - cooldowns[cmd_type][user_id] 
-            if elapsed < cooldown_time: 
-                remaining = int(cooldown_time - elapsed) 
-                return False, remaining 
-        cooldowns[cmd_type][user_id] = time.time() 
-        return True, 0 
-    except Exception as e: 
-        print(f"Cooldown check error: {e}") 
-        return True, 0 
- 
- 
-async def is_user_in_support_group(context: CallbackContext, user_id: int) -> bool: 
-    """Check if user is member of support group""" 
-    try: 
-        chat = await context.bot.get_chat(f"@{SUPPORT_GROUP_USERNAME}") 
-        member = await context.bot.get_chat_member(chat.id, user_id) 
-        return member.status in ['member', 'administrator', 'creator'] 
-    except TelegramError as e: 
-        print(f"Error checking support group membership: {e}") 
-        return False 
-    except Exception as e: 
-        print(f"Unexpected error checking membership: {e}") 
-        return False 
- 
- 
-def get_support_group_button(): 
-    """Get inline keyboard button for support group""" 
-    keyboard = [[InlineKeyboardButton("🔗 ᴊᴏɪɴ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ", url=SUPPORT_GROUP_LINK)]] 
-    return InlineKeyboardMarkup(keyboard) 
- 
- 
+    if user_id in cooldowns[cmd_type]: 
+        elapsed = time.time() - cooldowns[cmd_type][user_id] 
+        if elapsed < cooldown_time: 
+            return False, int(cooldown_time - elapsed) 
+    cooldowns[cmd_type][user_id] = time.time() 
+    return True, 0 
+
+# --- CORE LOGIC ---
 async def get_unique_chars(user_id, rarities=None, count=1): 
-    """Fetch unique characters not in user's collection""" 
-    try: 
-        rarities = rarities or ['🟢 Common', '🟣 Rare', '🟡 Legendary'] 
-        user_data = await user_collection.find_one({'id': user_id}) 
-        claimed_ids = [c.get('id') for c in user_data.get('characters', [])] if user_data else [] 
- 
-        pipeline = [ 
-            {'$match': {'rarity': {'$in': rarities}, 'id': {'$nin': claimed_ids}}}, 
-            {'$sample': {'size': count}} 
-        ] 
- 
-        chars = await collection.aggregate(pipeline).to_list(length=None) 
-        return chars if chars else [] 
-    except Exception as e: 
-        print(f"Error fetching characters: {e}") 
-        return [] 
- 
- 
+    rarities = rarities or ['🟢 Common', '🟣 Rare', '🟡 Legendary'] 
+    user_data = await user_collection.find_one({'id': user_id}) 
+    claimed_ids = [c.get('id') for c in user_data.get('characters', [])] if user_data else [] 
+    pipeline = [{'$match': {'rarity': {'$in': rarities}, 'id': {'$nin': claimed_ids}}}, {'$sample': {'size': count}}] 
+    return await collection.aggregate(pipeline).to_list(length=None) 
+
 async def add_char_to_user(user_id, username, first_name, char): 
-    """Add character to user's collection""" 
-    try: 
-        user_data = await user_collection.find_one({'id': user_id}) 
-        if user_data: 
-            await user_collection.update_one( 
-                {'id': user_id}, 
-                {'$push': {'characters': char}, '$set': {'username': username, 'first_name': first_name}} 
-            ) 
-        else: 
-            await user_collection.insert_one({ 
-                'id': user_id, 
-                'username': username, 
-                'first_name': first_name, 
-                'characters': [char], 
-                'balance': 0 
-            }) 
-        return True 
-    except Exception as e: 
-        print(f"Error adding character: {e}") 
-        return False 
- 
- 
-def format_char_msg(user_id, first_name, char, is_win=True, dice_val=None): 
-    """Format character message""" 
-    if is_win and char: 
-        event_txt = f"\nᴇᴠᴇɴᴛ: <b>{char['event']['name']}</b>" if char.get('event', {}).get('name') else "" 
-        msg = random.choice(SUCCESS_MSGS) 
-        
-        # Get additional character details
-        origin = f"\nᴏʀɪɢɪɴ: <b>{char['origin']}</b>" if char.get('origin') else ""
-        abilities = f"\nᴀʙɪʟɪᴛɪᴇs: <b>{char['abilities']}</b>" if char.get('abilities') else ""
-        description = f"\nᴅᴇsᴄʀɪᴘᴛɪᴏɴ: <b>{char['description']}</b>" if char.get('description') else ""
-        
-        caption = f"""{"ᴅɪᴄᴇ ʀᴇsᴜʟᴛ: " + str(dice_val) if dice_val else ""}
-ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs <a href='tg://user?id={user_id}'>{first_name}</a>
-{char['name']} {msg}
-ɴᴀᴍᴇ: <b>{char['name']}</b>
-ʀᴀʀɪᴛʏ: <b>{char['rarity']}</b>
-ᴀɴɪᴍᴇ: <b>{char['anime']}</b>
-ɪᴅ: <code>{char['id']}</code>{event_txt}{origin}{abilities}{description}
-ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✨""" 
-    else: 
-        msg = random.choice(FAIL_MSGS) 
-        caption = f"""ᴅɪᴄᴇ ʀᴇsᴜʟᴛ: <b>{dice_val}</b>
-{msg}
-ᴘʟᴀʏᴇʀ: <a href='tg://user?id={user_id}'>{first_name}</a>
-ɴᴇᴇᴅᴇᴅ: <b>1</b> ᴏʀ <b>6</b>
-ᴛʀʏ ᴀɢᴀɪɴ ɪɴ 30 ᴍɪɴᴜᴛᴇs ⏰""" 
- 
-    return caption 
- 
- 
+    await user_collection.update_one( 
+        {'id': user_id}, 
+        {'$push': {'characters': char}, '$set': {'username': username, 'first_name': first_name}},
+        upsert=True
+    ) 
+    return True
+
+# --- COMMANDS ---
 async def dice_marry(update: Update, context: CallbackContext): 
-    """Dice marry command - works in any group""" 
-    try: 
-        user_id = update.effective_user.id 
-        first_name = update.effective_user.first_name 
-        username = update.effective_user.username 
- 
-        # Check cooldown 
-        can_use, remaining = check_cooldown(user_id, 'dice', DICE_COOLDOWN) 
-        if not can_use: 
-            mins = remaining // 60 
-            secs = remaining % 60 
-            await update.message.reply_text( 
-                f"ᴡᴀɪᴛ <b>{mins}ᴍ {secs}s</b> ʙᴇғᴏʀᴇ ʀᴏʟʟɪɴɢ ᴀɢᴀɪɴ ⏳",  
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Check if user exists 
-        user_data = await user_collection.find_one({'id': user_id}) 
-        if not user_data: 
-            await update.message.reply_text( 
-                "ʏᴏᴜ ɴᴇᴇᴅ ᴛᴏ ɢʀᴀʙ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ғɪʀsᴛ\nᴜsᴇ /grab",  
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Roll dice 
-        dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎲') 
-        dice_val = dice_msg.dice.value 
-        await asyncio.sleep(3) 
- 
-        # Check if won 
-        if dice_val in [1, 6]: 
-            chars = await get_unique_chars(user_id) 
-            if not chars: 
-                await update.message.reply_text( 
-                    "ɴᴏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs\nᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ 💔",  
-                    parse_mode='HTML' 
-                ) 
-                return 
- 
-            char = chars[0] 
-            if not await add_char_to_user(user_id, username, first_name, char): 
-                await update.message.reply_text("ᴇʀʀᴏʀ ᴀᴅᴅɪɴɢ ᴄʜᴀʀᴀᴄᴛᴇʀ ⚠️", parse_mode='HTML') 
-                return 
- 
-            caption = format_char_msg(user_id, first_name, char, True, dice_val) 
-            await update.message.reply_photo(
-                photo=char['img_url'],
-                caption=caption,
-                parse_mode='HTML'
-            )
-        else: 
-            caption = format_char_msg(user_id, first_name, None, False, dice_val) 
-            await update.message.reply_text(caption, parse_mode='HTML') 
- 
-    except Exception as e: 
-        print(f"Error in dice_marry: {e}") 
-        await update.message.reply_text( 
-            "ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ ⚠️", 
-            parse_mode='HTML' 
-        ) 
- 
- 
+    user = update.effective_user
+    can_use, rem = check_cooldown(user.id, 'dice', DICE_COOLDOWN) 
+    if not can_use: 
+        return await update.message.reply_text(f"<b>{Icons.TIME} ᴄᴏᴏʟᴅᴏᴡɴ:</b> ᴡᴀɪᴛ <code>{rem//60}ᴍ {rem%60}s</code>", parse_mode='HTML') 
+
+    dice_msg = await context.bot.send_dice(update.effective_chat.id, emoji='🎲') 
+    dice_val = dice_msg.dice.value 
+    await asyncio.sleep(3) 
+
+    if dice_val in [1, 6]: 
+        chars = await get_unique_chars(user.id) 
+        if not chars: return await update.message.reply_text("<b>ɴᴏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs!</b>", parse_mode='HTML') 
+        
+        char = chars[0] 
+        await add_char_to_user(user.id, user.username, user.first_name, char) 
+        
+        caption = (
+            f"<b>{Icons.DICE} ᴅɪᴄᴇ ʀᴇsᴜʟᴛ: {dice_val}</b>\n"
+            f"<b>{Icons.SUCCESS} ᴄᴏɴɢʀᴀᴛs <a href='tg://user?id={user.id}'>{user.first_name}</a>!</b>\n\n"
+            f"🌸 ɴᴀᴍᴇ: <b>{char['name']}</b>\n"
+            f"💎 ʀᴀʀɪᴛʏ: <b>{char['rarity']}</b>\n"
+            f"🎬 ᴀɴɪᴍᴇ: <b>{char['anime']}</b>\n"
+            f"🆔 ɪᴅ: <code>{char['id']}</code>\n\n"
+            f"✨ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ ʜᴀʀᴇᴍ!"
+        )
+        await update.message.reply_photo(photo=char['img_url'], caption=caption, parse_mode='HTML')
+        await send_log(context, user.id, user.first_name, char, "dice")
+    else: 
+        await update.message.reply_text(f"<b>{Icons.FAIL} sʜᴇ ʀᴇᴊᴇᴄᴛᴇᴅ ʏᴏᴜ!</b>\nᴅɪᴄᴇ ʀᴇsᴜʟᴛ: <b>{dice_val}</b>\nɴᴇᴇᴅᴇᴅ: <b>1</b> ᴏʀ <b>6</b>", parse_mode='HTML') 
+
 async def propose(update: Update, context: CallbackContext): 
-    """Propose command - requires support group membership""" 
-    try: 
-        user_id = update.effective_user.id 
-        first_name = update.effective_user.first_name 
-        username = update.effective_user.username 
- 
-        # Check if user is in support group 
-        is_member = await is_user_in_support_group(context, user_id) 
-        if not is_member: 
-            await update.message.reply_text( 
-                "❌ ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ ᴛᴏ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ!\n\n" 
-                "ᴊᴏɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ 💕", 
-                reply_markup=get_support_group_button(), 
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Check if user exists 
-        user_data = await user_collection.find_one({'id': user_id}) 
-        if not user_data: 
-            await update.message.reply_text( 
-                "ᴘʟᴇᴀsᴇ sᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ ғɪʀsᴛ\nᴄʟɪᴄᴋ ➡️ /start",  
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Check cooldown 
-        can_use, remaining = check_cooldown(user_id, 'propose', PROPOSE_COOLDOWN) 
-        if not can_use: 
-            mins = remaining // 60 
-            secs = remaining % 60 
-            await update.message.reply_text( 
-                f"ᴄᴏᴏʟᴅᴏᴡɴ: ᴡᴀɪᴛ <b>{mins}ᴍ {secs}s</b> ⏳",  
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Check balance 
-        balance = user_data.get('balance', 0) 
-        if balance < PROPOSAL_COST: 
-            await update.message.reply_text( 
-                f"💰 ʏᴏᴜ ɴᴇᴇᴅ <b>{PROPOSAL_COST}</b> ɢᴏʟᴅ ᴄᴏɪɴs ᴛᴏ ᴘʀᴏᴘᴏsᴇ\n" 
-                f"ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: <b>{balance}</b>",  
-                parse_mode='HTML' 
-            ) 
-            return 
- 
-        # Deduct cost 
-        await user_collection.update_one({'id': user_id}, {'$inc': {'balance': -PROPOSAL_COST}}) 
- 
-        # Propose sequence 
-        await update.message.reply_photo( 
-            photo='https://te.legra.ph/file/4d0f83726fe8cd637d3ff.jpg', 
-            caption='ғɪɴᴀʟʟʏ ᴛʜᴇ ᴛɪᴍᴇ ᴛᴏ ᴘʀᴏᴘᴏsᴇ 💍' 
-        ) 
-        await asyncio.sleep(2) 
-        await update.message.reply_text("ᴘʀᴏᴘᴏsɪɴɢ... 💕") 
-        await asyncio.sleep(2) 
- 
-        # 40% success rate 
-        if random.random() > 0.4: 
-            await update.message.reply_photo( 
-                photo='https://graph.org/file/48c147582d2742105e6ec.jpg', 
-                caption='sʜᴇ ʀᴇᴊᴇᴄᴛᴇᴅ ʏᴏᴜʀ ᴘʀᴏᴘᴏsᴀʟ ᴀɴᴅ ʀᴀɴ ᴀᴡᴀʏ 💔' 
-            ) 
-        else: 
-            chars = await get_unique_chars( 
-                user_id, 
-                rarities=['💮 Special Edition', '💫 Neon', '✨ Manga', '🎐 Celestial'] 
-            ) 
-            if not chars: 
-                # Refund if no characters available 
-                await user_collection.update_one({'id': user_id}, {'$inc': {'balance': PROPOSAL_COST}}) 
-                await update.message.reply_text( 
-                    "ɴᴏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs\nᴄᴏɪɴs ʀᴇғᴜɴᴅᴇᴅ 💔",  
-                    parse_mode='HTML' 
-                ) 
-                return 
- 
-            char = chars[0] 
-            if not await add_char_to_user(user_id, username, first_name, char): 
-                # Refund on error 
-                await user_collection.update_one({'id': user_id}, {'$inc': {'balance': PROPOSAL_COST}}) 
-                await update.message.reply_text( 
-                    "ᴇʀʀᴏʀ ᴀᴅᴅɪɴɢ ᴄʜᴀʀᴀᴄᴛᴇʀ\nᴄᴏɪɴs ʀᴇғᴜɴᴅᴇᴅ ⚠️",  
-                    parse_mode='HTML' 
-                ) 
-                return 
- 
-            caption = format_char_msg(user_id, first_name, char, True) 
-            await update.message.reply_photo(
-                photo=char['img_url'],
-                caption=caption,
-                parse_mode='HTML'
-            )
- 
-    except Exception as e: 
-        print(f"Error in propose: {e}") 
-        # Refund on error 
-        try: 
-            await user_collection.update_one({'id': user_id}, {'$inc': {'balance': PROPOSAL_COST}}) 
-        except: 
-            pass 
-        await update.message.reply_text( 
-            "ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ. ᴄᴏɪɴs ʀᴇғᴜɴᴅᴇᴅ ⚠️", 
-            parse_mode='HTML' 
-        ) 
- 
- 
-# Register handlers 
+    user = update.effective_user
+    
+    # Channel Join Check
+    if not await is_user_joined(context, user.id):
+        return await update.message.reply_text(
+            f"<b>❌ ᴀᴄᴄᴇss ᴅᴇɴɪᴇᴅ!</b>\n\nʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴏᴜʀ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴘʀᴏᴘᴏsᴇ ᴄᴏᴍᴍᴀɴᴅ.",
+            reply_markup=get_join_button(),
+            parse_mode='HTML'
+        )
+
+    user_data = await user_collection.find_one({'id': user.id}) 
+    if not user_data or user_data.get('balance', 0) < PROPOSAL_COST: 
+        return await update.message.reply_text(f"<b>{Icons.GOLD} ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ!</b>\nɴᴇᴇᴅ: <code>{PROPOSAL_COST}</code>", parse_mode='HTML') 
+
+    can_use, rem = check_cooldown(user.id, 'propose', PROPOSE_COOLDOWN) 
+    if not can_use: 
+        return await update.message.reply_text(f"<b>{Icons.TIME} ᴄᴏᴏʟᴅᴏᴡɴ:</b> <code>{rem//60}ᴍ {rem%60}s</code>", parse_mode='HTML') 
+
+    await user_collection.update_one({'id': user.id}, {'$inc': {'balance': -PROPOSAL_COST}}) 
+    msg = await update.message.reply_text("<b>💍 ᴘʀᴏᴘᴏsɪɴɢ ᴛᴏ ᴛʜᴇ ʙᴇsᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ...</b>", parse_mode='HTML')
+    await asyncio.sleep(2) 
+
+    if random.random() > 0.4: 
+        await msg.edit_text(f"<b>{Icons.FAIL} sʜᴇ ʀᴇᴊᴇᴄᴛᴇᴅ ʏᴏᴜʀ ᴘʀᴏᴘᴏsᴀʟ ᴀɴᴅ ʀᴀɴ ᴀᴡᴀʏ!</b>", parse_mode='HTML')
+    else: 
+        chars = await get_unique_chars(user.id, rarities=['💮 Special Edition', '💫 Neon', '✨ Manga', '🎐 Celestial']) 
+        if not chars: 
+            await user_collection.update_one({'id': user.id}, {'$inc': {'balance': PROPOSAL_COST}}) 
+            return await msg.edit_text("<b>ɴᴏ ʀᴀʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ. ʀᴇғᴜɴᴅᴇᴅ!</b>") 
+
+        char = chars[0] 
+        await add_char_to_user(user.id, user.username, user.first_name, char) 
+        await msg.delete()
+        
+        caption = (
+            f"<b>{Icons.SUCCESS} sʜᴇ sᴀɪᴅ ʏᴇs!</b>\n\n"
+            f"🌸 ɴᴀᴍᴇ: <b>{char['name']}</b>\n"
+            f"💎 ʀᴀʀɪᴛʏ: <b>{char['rarity']}</b>\n"
+            f"🎬 ᴀɴɪᴍᴇ: <b>{char['anime']}</b>\n"
+            f"🆔 ɪᴅ: <code>{char['id']}</code>\n\n"
+            f"✨ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ ʟᴇɢᴇɴᴅᴀʀʏ ʜᴀʀᴇᴍ!"
+        )
+        await update.message.reply_photo(photo=char['img_url'], caption=caption, parse_mode='HTML')
+        await send_log(context, user.id, user.first_name, char, "propose")
+
+# --- HANDLERS ---
 application.add_handler(CommandHandler(['dice', 'marry'], dice_marry, block=False)) 
 application.add_handler(CommandHandler(['propose'], propose, block=False))
