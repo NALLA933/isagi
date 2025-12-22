@@ -22,6 +22,7 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
         user_data = await user_collection.find_one({'id': user_id}, {'characters.id': 1})
         claimed_ids = [c['id'] for c in user_data.get('characters', [])] if user_data else []
 
+        # Luck System
         if is_streak_bonus:
             target_rarity = "🟡 Legendary"
         else:
@@ -34,7 +35,6 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
             {'$match': {'rarity': target_rarity, 'id': {'$nin': claimed_ids}}},
             {'$sample': {'size': 1}}
         ]
-        
         cursor = collection.aggregate(pipeline)
         result = await cursor.to_list(length=1)
 
@@ -67,7 +67,7 @@ async def hclaim(update: Update, context: CallbackContext):
                 remaining = timedelta(hours=CONFIG.COOLDOWN_HOURS) - elapsed
                 h, r = divmod(int(remaining.total_seconds()), 3600)
                 m, s = divmod(r, 60)
-                await update.message.reply_text(f"🕒 <b>Sʟᴏᴡ Dᴏᴡɴ Bᴜᴅᴅʏ!</b>\n\n⌛ Yᴏᴜ ᴄᴀɴ ᴄʟᴀɪᴍ ᴀɢᴀɪɴ ɪɴ:\n<code>{h}ʜᴏᴜʀs {m}ᴍɪɴs {s}sᴇᴄs</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"🕒 <b>Sʟᴏᴡ Dᴏᴡɴ Bᴜᴅᴅʏ!</b>\n\n⌛ Nᴇxᴛ ᴄʟᴀɪᴍ ɪɴ: <code>{h}ʜ {m}ᴍ {s}s</code>", parse_mode=ParseMode.HTML)
                 return
             
             if elapsed > timedelta(hours=48): streak = 0
@@ -78,7 +78,7 @@ async def hclaim(update: Update, context: CallbackContext):
 
         char = await get_pro_character(user.id, is_streak_bonus=is_bonus)
         if not char:
-            await update.message.reply_text("❗ <b>Nᴏ ᴍᴏʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ʟᴇғᴛ ᴛᴏ ᴄᴏʟʟᴇᴄᴛ!</b>")
+            await update.message.reply_text("❗ <b>Nᴏ ᴍᴏʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ʟᴇғᴛ!</b>")
             return
 
         await user_collection.update_one(
@@ -90,10 +90,10 @@ async def hclaim(update: Update, context: CallbackContext):
             upsert=True
         )
 
-        # --- PREMIUM UI BUTTONS ---
-        # Yahan humne aapke user_id wala logic add kiya hai
+        # --- 🎯 FIXED BUTTON FORMAT ---
+        # Isse click karte hi @botname collection.{id} likha aayega
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎒 Mʏ Cᴏʟʟᴇᴄᴛɪᴏɴ", url=f"t.me/{context.bot.username}?start=collection_{user.id}")],
+            [InlineKeyboardButton("🎒 Mʏ Cᴏʟʟᴇᴄᴛɪᴏɴ", switch_inline_query_current_chat=f"collection.{user.id}")],
             [InlineKeyboardButton("🐉 Sᴜᴘᴘᴏʀᴛ", url=CONFIG.SUPPORT_LINK)]
         ])
 
@@ -109,7 +109,7 @@ async def hclaim(update: Update, context: CallbackContext):
             f"📈 <b>Sᴛʀᴇᴀᴋ:</b> {streak}/7\n"
             f"{streak_bar}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎁 <i>Cᴏᴍᴇ ʙᴀᴄᴋ ᴛᴏᴍᴏʀʀᴏᴡ ғᴏʀ {streak+1}/7 sᴛʀᴇᴀᴋ!</i>"
+            f"🎁 <i>Cᴏᴍᴇ ʙᴀᴄᴋ ᴛᴏᴍᴏʀʀᴏᴡ ғᴏʀ sᴛʀᴇᴀᴋ ʙᴏɴᴜs!</i>"
         )
 
         await update.message.reply_photo(
@@ -119,7 +119,7 @@ async def hclaim(update: Update, context: CallbackContext):
             parse_mode=ParseMode.HTML
         )
 
-        # --- DETAILED LOG SYSTEM ---
+        # --- 📜 LOG SYSTEM WITH ALL DETAILS ---
         log_caption = (
             f"<b>#DAILY_CLAIM_LOG</b>\n\n"
             f"👤 <b>Usᴇʀ:</b> {user.first_name} (<code>{user.id}</code>)\n"
@@ -131,7 +131,6 @@ async def hclaim(update: Update, context: CallbackContext):
             f"📍 <b>Cʜᴀᴛ:</b> {update.effective_chat.title or 'Pʀɪᴠᴀᴛᴇ'}"
         )
         
-        # Log mein image ke saath details bhej rahe hain
         await context.bot.send_photo(
             chat_id=CONFIG.LOG_GROUP_ID,
             photo=char.get('img_url'),
@@ -140,7 +139,7 @@ async def hclaim(update: Update, context: CallbackContext):
         )
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ <b>Sʏsᴛᴇᴍ Eʀʀᴏʀ:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"⚠️ <b>Eʀʀᴏʀ:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
     finally:
         claim_lock.discard(user.id)
 
