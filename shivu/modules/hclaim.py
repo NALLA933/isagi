@@ -10,7 +10,7 @@ from shivu import application, user_collection, collection
 @dataclass(frozen=True)
 class ClaimConfig:
     main_group_id: int = -1003100468240
-    main_group_link: str = "https://t.me/PICK_X_SUPPORT"
+    main_group_link: str = "https://t.me/THE_DRAGON_SUPPORT"
     rarities: tuple = ('🟢 Common', '🟣 Rare', '🟡 Legendary')
 
 
