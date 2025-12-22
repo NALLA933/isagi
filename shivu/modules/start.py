@@ -1,4 +1,4 @@
-Import random
+import random
 import time
 from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
