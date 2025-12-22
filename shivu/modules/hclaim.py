@@ -1,133 +1,137 @@
 import random
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
 
 from shivu import application, user_collection, collection
 
 @dataclass(frozen=True)
 class ClaimConfig:
-    # Pakka karein ki ye ID wahi hai jahan aap member ho
-    MAIN_GROUP_ID: int = -1003100468240 
-    MAIN_GROUP_LINK: str = "https://t.me/THE_DRAGON_SUPPORT"
-    RARITIES: tuple = ('🟢 Common', '🟣 Rare', '🟡 Legendary')
+    LOG_GROUP_ID: int = -1002956939145
+    SUPPORT_LINK: str = "https://t.me/THE_DRAGON_SUPPORT"
     COOLDOWN_HOURS: int = 24
 
 CONFIG = ClaimConfig()
 claim_lock = set()
 
-def format_time(delta: timedelta) -> str:
-    seconds = int(delta.total_seconds())
-    h, remainder = divmod(seconds, 3600)
-    m, s = divmod(remainder, 60)
-    return f"{h}ʜ {m}ᴍ {s}s"
-
-async def get_unique_character(user_id: int) -> dict | None:
+async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict | None:
     try:
-        user_data = await user_collection.find_one({'id': user_id})
-        claimed_ids = {c.get('id') for c in user_data.get('characters', [])} if user_data else set()
-        
-        # Performance fix: Direct MongoDB filter
-        available = [
-            char async for char in collection.find({
-                'rarity': {'$in': CONFIG.RARITIES},
-                'id': {'$nin': list(claimed_ids)}
-            })
+        user_data = await user_collection.find_one({'id': user_id}, {'characters.id': 1})
+        claimed_ids = [c['id'] for c in user_data.get('characters', [])] if user_data else []
+
+        # --- LUCK SYSTEM (Idea 2) ---
+        if is_streak_bonus:
+            target_rarity = "🟡 Legendary" # 7th day bonus
+        else:
+            luck = random.randint(1, 100)
+            if luck <= 5: target_rarity = "🟡 Legendary"
+            elif luck <= 30: target_rarity = "🟣 Rare"
+            else: target_rarity = "🟢 Common"
+
+        # --- MONGODB AGGREGATION (Idea 1) ---
+        pipeline = [
+            {'$match': {'rarity': target_rarity, 'id': {'$nin': claimed_ids}}},
+            {'$sample': {'size': 1}}
         ]
-        return random.choice(available) if available else None
-    except Exception:
+        
+        cursor = collection.aggregate(pipeline)
+        result = await cursor.to_list(length=1)
+
+        if not result: # Fallback
+            cursor = collection.aggregate([{'$match': {'id': {'$nin': claimed_ids}}}, {'$sample': {'size': 1}}])
+            result = await cursor.to_list(length=1)
+
+        return result[0] if result else None
+    except Exception as e:
+        logging.error(f"Fetch error: {e}")
         return None
 
 async def hclaim(update: Update, context: CallbackContext):
     user = update.effective_user
-    chat = update.effective_chat
-    
-    # --- 🛡️ FIX: MEMBERSHIP VERIFICATION START ---
-    try:
-        # Ye line check karegi ki user Main Group ka member hai ya nahi
-        # Chahe wo kisi bhi group/DM mein command chalaye
-        member = await context.bot.get_chat_member(chat_id=CONFIG.MAIN_GROUP_ID, user_id=user.id)
-        
-        if member.status in ['left', 'kicked']:
-            raise ValueError("Not a member")
-            
-    except (BadRequest, Exception):
-        # Agar bot group mein nahi hai ya user member nahi hai
-        keyboard = [[InlineKeyboardButton("🔗 ᴊᴏɪɴ ᴍᴀɪɴ ɢʀᴏᴜᴘ", url=CONFIG.MAIN_GROUP_LINK)]]
-        await update.message.reply_text(
-            f"⚠️ <b>Access Denied!</b>\n\nHi {user.first_name}, daily claims are exclusive for our group members.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
-        )
-        return
-    # --- 🛡️ FIX END ---
-
-    if user.id in claim_lock:
-        await update.message.reply_text("⏳ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ, ʏᴏᴜʀ ᴄʟᴀɪᴍ ɪs ʙᴇɪɴɢ ᴘʀᴏᴄᴇssᴇᴅ...")
-        return
-    
+    if user.id in claim_lock: return
     claim_lock.add(user.id)
     
     try:
-        # Timezone fix for accurate 24h cooldown
         now = datetime.now(timezone.utc)
-        user_data = await user_collection.find_one({'id': user.id})
+        user_data = await user_collection.find_one({'id': user.id}) or {}
         
-        if user_data and (last_claimed := user_data.get('last_daily_claim')):
-            # Add UTC timezone if missing from DB
-            if last_claimed.tzinfo is None:
-                last_claimed = last_claimed.replace(tzinfo=timezone.utc)
-                
+        # --- COOLDOWN & STREAK LOGIC (Idea 3) ---
+        last_claimed = user_data.get('last_daily_claim')
+        streak = user_data.get('claim_streak', 0)
+        
+        if last_claimed:
+            if last_claimed.tzinfo is None: last_claimed = last_claimed.replace(tzinfo=timezone.utc)
             elapsed = now - last_claimed
+            
             if elapsed < timedelta(hours=CONFIG.COOLDOWN_HOURS):
                 remaining = timedelta(hours=CONFIG.COOLDOWN_HOURS) - elapsed
-                await update.message.reply_text(
-                    f"⏰ ᴀʟʀᴇᴀᴅʏ ᴄʟᴀɪᴍᴇᴅ ᴛᴏᴅᴀʏ\n⏳ ɴᴇxᴛ ᴄʟᴀɪᴍ ɪɴ: <code>{format_time(remaining)}</code>",
-                    parse_mode=ParseMode.HTML
-                )
+                h, r = divmod(int(remaining.total_seconds()), 3600)
+                m, s = divmod(r, 60)
+                await update.message.reply_text(f"⏰ <b>Wait!</b>\nNext claim in: <code>{h}h {m}m {s}s</code>", parse_mode=ParseMode.HTML)
                 return
-
-        char = await get_unique_character(user.id)
-        if not char:
-            await update.message.reply_text("❌ ɴᴏ ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴛʜᴇsᴇ ʀᴀʀɪᴛɪᴇs!")
-            return
+            
+            # Agar 48 hours se zyada ho gaye toh streak reset
+            if elapsed > timedelta(hours=48):
+                streak = 0
         
+        streak += 1
+        is_bonus = (streak == 7)
+        if streak > 7: streak = 1 # Reset streak after bonus
+
+        char = await get_pro_character(user.id, is_streak_bonus=is_bonus)
+        if not char:
+            await update.message.reply_text("❌ No characters left to claim!")
+            return
+
+        # --- DATABASE UPDATE ---
         await user_collection.update_one(
             {'id': user.id},
             {
                 '$push': {'characters': char},
                 '$set': {
                     'last_daily_claim': now,
-                    'first_name': user.first_name,
-                    'username': user.username
+                    'claim_streak': streak,
+                    'first_name': user.first_name
                 }
             },
             upsert=True
         )
-        
-        # Caption with clean HTML
+
+        # --- UI/UX BUTTONS (Idea 5) ---
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎒 My Collection", switch_inline_query_current_chat="/collection")],
+            [InlineKeyboardButton("🌍 Support Group", url=CONFIG.SUPPORT_LINK)]
+        ])
+
+        streak_msg = f"🔥 <b>Streak:</b> {streak}/7" + (" (BONUS! 🎁)" if is_bonus else "")
         caption = (
-            f"<b>🎊 ᴅᴀɪʟʏ ᴄʟᴀɪᴍ sᴜᴄᴄᴇss</b>\n"
+            f"<b>🎊 DAILY CLAIM SUCCESS</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💫 ᴄᴏɴɢʀᴀᴛs <a href='tg://user?id={user.id}'>{user.first_name}</a>\n"
-            f"🎴 ɴᴀᴍᴇ: <b>{char.get('name')}</b>\n"
-            f"⭐ ʀᴀʀɪᴛʏ: <b>{char.get('rarity')}</b>\n"
-            f"🎯 ᴀɴɪᴍᴇ: <b>{char.get('anime')}</b>\n"
-            f"🆔 ɪᴅ: <code>{char.get('id')}</code>\n\n"
-            f"✨ ᴄᴏᴍᴇ ʙᴀᴄᴋ ɪɴ 24 ʜᴏᴜʀs!"
+            f"👤 <b>Player:</b> <a href='tg://user?id={user.id}'>{user.first_name}</a>\n"
+            f"🎴 <b>Name:</b> {char.get('name')}\n"
+            f"⭐ <b>Rarity:</b> {char.get('rarity')}\n"
+            f"🆔 <b>ID:</b> <code>{char.get('id')}</code>\n"
+            f"{streak_msg}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"✨ Come back tomorrow for more!"
         )
 
         await update.message.reply_photo(
-            photo=char.get('img_url', 'https://i.imgur.com/placeholder.png'),
+            photo=char.get('img_url'),
             caption=caption,
+            reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
-    
+
+        # --- LOG SYSTEM ---
+        log_msg = f"#CLAIM\n👤 {user.first_name}\n🎴 {char.get('name')}\n⭐ {char.get('rarity')}\n🔥 Streak: {streak}"
+        await context.bot.send_message(chat_id=CONFIG.LOG_GROUP_ID, text=log_msg)
+
     except Exception as e:
-        await update.message.reply_text(f"❌ ᴇʀʀᴏʀ: <code>{str(e)}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"❌ Error: {e}")
     finally:
         claim_lock.discard(user.id)
 
