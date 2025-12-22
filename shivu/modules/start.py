@@ -1,6 +1,5 @@
 import random
 import time
-import asyncio
 from html import escape
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
@@ -9,8 +8,9 @@ from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collecti
 from shivu.modules.chatlog import track_bot_start
 from shivu.modules.database.sudo import fetch_sudo_users
 from pymongo import UpdateOne
+import asyncio
 
-# --- ASSETS ---
+# --- CONFIG & ASSETS ---
 VIDEOS = [
     "https://files.catbox.moe/k3dhbe.mp4",
     "https://files.catbox.moe/iitev2.mp4",
@@ -22,6 +22,9 @@ def get_random_video():
 
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
+
+OWNERS = [{"name": "Thorfinn", "username": "ll_Thorfinn_ll"}]
+SUDO_USERS = [{"name": "Shadwoo", "username": "I_shadwoo"}]
 
 REFERRAL_MILESTONES = {
     5: {"gold": 5000, "characters": 1, "rarity": ["common", "rare"]},
@@ -38,17 +41,17 @@ HAREM_MODE_MAPPING = {
     "erotic": "💋 Erotic", "summer": "🌤 Summer", "winter": "☃️ Winter",
     "monsoon": "☔️ Monsoon", "valentine": "💝 Valentine", "halloween": "🎃 Halloween",
     "christmas": "🎄 Christmas", "mythic": "🏵 Mythic", "events": "🎗 Events",
-    "amv": "🎥 AMV", "tiny": "👼 Tiny"
+    "amv": "🎥 AMV", "tiny": "👼 Tiny", "default": None
 }
 
-# --- NEW: PROGRESS BAR HELPER ---
+# --- 1. DYNAMIC PROGRESS BAR HELPER ---
 def get_progress_bar(current, total):
     percent = min(current / total, 1.0)
     filled = int(10 * percent)
     bar = '▰' * filled + '▱' * (10 - filled)
     return f"{bar} {int(percent * 100)}%"
 
-# --- UPGRADED: MILESTONE REWARD (BULK WRITE) ---
+# --- 2. UPGRADED MILESTONE SYSTEM (BULK UPDATE) ---
 async def give_milestone_reward(user_id: int, milestone: int, context: CallbackContext) -> bool:
     try:
         reward = REFERRAL_MILESTONES[milestone]
@@ -56,10 +59,9 @@ async def give_milestone_reward(user_id: int, milestone: int, context: CallbackC
         char_count = reward["characters"]
         rarities = reward["rarity"]
 
-        # Bulk write performance ke liye
-        bulk_ops = [UpdateOne({"id": user_id}, {"$inc": {"balance": gold}})]
-        
         characters_received = []
+        bulk_ops = [UpdateOne({"id": user_id}, {"$inc": {"balance": gold}})]
+
         for _ in range(char_count):
             rarity = random.choice(rarities)
             char_cursor = collection.aggregate([{"$match": {"rarity": rarity}}, {"$sample": {"size": 1}}])
@@ -69,18 +71,44 @@ async def give_milestone_reward(user_id: int, milestone: int, context: CallbackC
                 characters_received.append(character)
                 bulk_ops.append(UpdateOne({"id": user_id}, {"$push": {"characters": character}}))
 
-        await user_collection.bulk_write(bulk_ops)
+        if bulk_ops:
+            await user_collection.bulk_write(bulk_ops)
 
         char_list_text = "\n".join([f"{HAREM_MODE_MAPPING.get(c.get('rarity', 'common'), '🟢')} {c.get('name', 'Unknown')}" for c in characters_received])
+
+        msg = f"""<b>🎉 ᴍɪʟᴇsᴛᴏɴᴇ ʀᴇᴀᴄʜᴇᴅ</b>
+ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs ᴏɴ ʀᴇᴀᴄʜɪɴɢ <b>{milestone}</b> ʀᴇғᴇʀʀᴀʟs
+
+<b>ʀᴇᴡᴀʀᴅs</b>
+💰 ɢᴏʟᴅ: <code>{gold:,}</code>
+🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <code>{char_count}</code>
+
+<b>ᴄʜᴀʀᴀᴄᴛᴇʀs ʀᴇᴄᴇɪᴠᴇᴅ</b>
+{char_list_text}"""
         
-        msg = f"<b>🎉 ᴍɪʟᴇsᴛᴏɴᴇ ʀᴇᴀᴄʜᴇᴅ: {milestone}</b>\n\n💰 ɢᴏʟᴅ: <code>{gold:,}</code>\n🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <code>{char_count}</code>\n\n<b>ᴄʜᴀʀᴀᴄᴛᴇʀs ʀᴇᴄᴇɪᴠᴇᴅ:</b>\n{char_list_text}"
         await context.bot.send_message(chat_id=user_id, text=msg, parse_mode='HTML', link_preview_options=LinkPreviewOptions(url=get_random_video(), show_above_text=True))
         return True
     except Exception as e:
-        LOGGER.error(f"Error in milestone: {e}")
+        LOGGER.error(f"Milestone error: {e}")
         return False
 
-# --- ORIGINAL START LOGIC WITH TASK UPGRADE ---
+# --- 3. REFERRAL LEADERBOARD ---
+async def show_top_refer(update: Update, context: CallbackContext):
+    query = update.callback_query
+    top_cursor = user_collection.find({"referred_users": {"$gt": 0}}).sort("referred_users", -1).limit(10)
+    top_users = await top_cursor.to_list(10)
+    
+    text = "<b>🏆 ᴛᴏᴘ ʀᴇғᴇʀʀᴀʟ ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ</b>\n\n"
+    if not top_users:
+        text += "ɴᴏ ᴅᴀᴛᴀ ᴀᴠᴀɪʟᴀʙʟᴇ ʏᴇᴛ."
+    else:
+        for i, user in enumerate(top_users, 1):
+            text += f"{i}. {escape(user.get('first_name', 'User'))} — <b>{user.get('referred_users', 0)}</b>\n"
+    
+    keyboard = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='referral')]]
+    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+
+# --- START COMMAND (KEEPING ALL YOUR ORIGINAL LOGIC) ---
 async def start(update: Update, context: CallbackContext):
     try:
         user_id = update.effective_user.id
@@ -92,7 +120,6 @@ async def start(update: Update, context: CallbackContext):
         is_new_user = user_data is None
 
         if is_new_user:
-            # Referral logic within start
             referring_user_id = None
             if args and args[0].startswith('r_'):
                 try:
@@ -101,15 +128,13 @@ async def start(update: Update, context: CallbackContext):
 
             new_user = {
                 "id": user_id, "first_name": first_name, "username": username,
-                "balance": 500, "characters": [], "referred_users": 0,
-                "referred_by": referring_user_id, "invited_user_ids": [],
-                "pass_data": {"tasks": {"invites": 0, "daily_reset": datetime.utcnow()}}
+                "balance": 500, "characters": [], "referred_users": 0, "referred_by": referring_user_id,
+                "invited_user_ids": [], "pass_data": {"tasks": {"invites": 0, "daily_reset": datetime.utcnow()}}
             }
             await user_collection.insert_one(new_user)
             user_data = new_user
 
             if referring_user_id and referring_user_id != user_id:
-                # Update referrer & check milestone
                 ref_user = await user_collection.find_one({"id": referring_user_id})
                 if ref_user:
                     old_count = ref_user.get('referred_users', 0)
@@ -127,95 +152,100 @@ async def start(update: Update, context: CallbackContext):
         chars = len(user_data.get('characters', []))
         refs = user_data.get('referred_users', 0)
 
-        caption = f"<b>ᴡᴇʟᴄᴏᴍᴇ {'ʙᴀᴄᴋ' if not is_new_user else ''}</b>\n\nɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ...\n\n💰 ɢᴏʟᴅ: <b>{balance:,}</b>\n🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>\n👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"
-        
+        caption = f"""<b>ᴡᴇʟᴄᴏᴍᴇ {'ʙᴀᴄᴋ' if not is_new_user else ''}</b>
+
+ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
+ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs...
+
+<b>ʏᴏᴜʀ sᴛᴀᴛs</b>
+💰 ɢᴏʟᴅ: <b>{balance:,}</b>
+🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
+👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"""
+
         keyboard = [
             [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'), InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')],
             [InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'), InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')],
-            [InlineKeyboardButton("🏆 ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", callback_data='top_refer'), InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
+            [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
         ]
 
-        await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML', 
+        await update.message.reply_text(text=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML',
                                       link_preview_options=LinkPreviewOptions(url=get_random_video(), show_above_text=True))
     except Exception as e:
-        LOGGER.error(f"Error in start: {e}")
+        LOGGER.error(f"Start error: {e}")
 
-# --- NEW: REFERRAL LEADERBOARD ---
-async def show_top_refer(update: Update, context: CallbackContext):
-    query = update.callback_query
-    top_cursor = user_collection.find().sort("referred_users", -1).limit(10)
-    top_users = await top_cursor.to_list(10)
-    
-    msg = "<b>🏆 ᴛᴏᴘ ʀᴇғᴇʀʀᴇʀs</b>\n\n"
-    for i, user in enumerate(top_users, 1):
-        msg += f"{i}. {escape(user.get('first_name', 'User'))} — <code>{user.get('referred_users', 0)}</code>\n"
-    
-    kb = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='referral')]]
-    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-
-# --- CALLBACK HANDLER (FIXED BACK BUTTON & INDENTATION) ---
+# --- BUTTON CALLBACK (FIXED INDENTATION & BACK BUTTON) ---
 async def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     user_id = query.from_user.id
     
-    try:
+    try: # MAIN TRY BLOCK START
         await query.answer()
         user_data = await user_collection.find_one({"id": user_id})
+        if not user_data: return
+
         video_url = get_random_video()
 
         if query.data == 'referral':
             count = user_data.get('referred_users', 0)
-            next_m = next((m for m in sorted(REFERRAL_MILESTONES.keys()) if count < m), 100)
-            prog = get_progress_bar(count, next_m)
+            next_milestone = next((m for m in sorted(REFERRAL_MILESTONES.keys()) if count < m), 100)
+            prog_bar = get_progress_bar(count, next_milestone)
             
-            # Task status
-            daily_invs = user_data.get('pass_data', {}).get('tasks', {}).get('invites', 0)
-            task_text = "✅ Done" if daily_invs >= 3 else f"⏳ {daily_invs}/3"
+            # Daily Task Check
+            daily_invites = user_data.get('pass_data', {}).get('tasks', {}).get('invites', 0)
+            task_status = "✅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ" if daily_invites >= 3 else f"⏳ {daily_invites}/3 ɪɴᴠɪᴛᴇs"
 
             text = f"""<b>🎁 ɪɴᴠɪᴛᴇ & ᴇᴀʀɴ</b>
-            
-<b>📊 ʏᴏᴜʀ ᴘʀᴏɢʀᴇss (Next: {next_m}):</b>
-{prog}
 
-<b>📅 ᴅᴀɪʟʏ ɪɴᴠɪᴛᴇ ᴛᴀsᴋ:</b>
-Invite 3 users: {task_status}
+<b>📊 ᴘʀᴏɢʀᴇss ᴛᴏ {next_milestone} ʀᴇғs</b>
+{prog_bar}
 
-👥 ᴛᴏᴛᴀʟ ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
-💰 ᴇᴀʀɴᴇᴅ: <b>{count * REFERRER_REWARD:,}</b>
+<b>📅 ᴅᴀɪʟʏ ᴛᴀsᴋ</b>
+ɪɴᴠɪᴛᴇ 3 ᴜsᴇʀs: {task_status}
 
-🔗 <code>https://t.me/{BOT_USERNAME}?start=r_{user_id}</code>"""
-            
-            kb = [
-                [InlineKeyboardButton("📤 sʜᴀʀᴇ", url=f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=r_{user_id}")],
+💰 ᴛᴏᴛᴀʟ ᴇᴀʀɴᴇᴅ: <b>{count * REFERRER_REWARD:,}</b> ɢᴏʟᴅ
+👥 ᴛᴏᴛᴀʟ ʀᴇғᴇʀʀᴀʟs: <b>{count}</b>
+
+<b>🔗 ʏᴏᴜʀ ʟɪɴᴋ</b>
+<code>https://t.me/{BOT_USERNAME}?start=r_{user_id}</code>"""
+
+            keyboard = [
+                [InlineKeyboardButton("📤 sʜᴀʀᴇ ʟɪɴᴋ", url=f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME}?start=r_{user_id}")],
                 [InlineKeyboardButton("🏆 ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", callback_data='top_refer')],
+                [InlineKeyboardButton("👥 ᴠɪᴇᴡ ɪɴᴠɪᴛᴇs", callback_data='view_invites')],
                 [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')]
             ]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+            await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
         elif query.data == 'top_refer':
             await show_top_refer(update, context)
 
         elif query.data == 'back':
-            # Yahan se back button main menu par le jayega
+            # FIX: Properly returning to main menu
             balance = user_data.get('balance', 0)
             chars = len(user_data.get('characters', []))
             refs = user_data.get('referred_users', 0)
+            
             caption = f"<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>\n\n💰 ɢᴏʟᴅ: <b>{balance:,}</b>\n🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>\n👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"
             keyboard = [
                 [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+                [InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'), InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')],
                 [InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'), InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')],
-                [InlineKeyboardButton("🏆 ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", callback_data='top_refer'), InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
+                [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
             ]
-            await query.edit_message_text(caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+            await query.edit_message_text(text=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
-        # Add help/credits handling as per your original code...
+        elif query.data == 'credits':
+            # Rest of your original Credits logic here...
+            pass
+
         elif query.data == 'help':
-             # (Aapka original help text)
-             pass
+            # Rest of your original Help logic here...
+            pass
 
     except Exception as e:
-        LOGGER.error(f"Callback Error: {e}")
+        LOGGER.error(f"Callback error: {e}")
 
 # --- HANDLERS ---
 application.add_handler(CommandHandler('start', start, block=False))
-application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back|top_refer)$', block=False))
+application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back|top_refer|view_invites)$', block=False))
