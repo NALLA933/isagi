@@ -6,7 +6,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext
 from telegram.constants import ParseMode
 
-from shivu import application, user_collection, collection
+# shivu se zaroori cheezein import kar rahe hain
+from shivu import application, user_collection, collection, sudo_users
 
 @dataclass(frozen=True)
 class ClaimConfig:
@@ -17,12 +18,18 @@ class ClaimConfig:
 CONFIG = ClaimConfig()
 claim_lock = set()
 
+# --- HELPER FUNCTIONS ---
+def format_time(delta: timedelta) -> str:
+    seconds = int(delta.total_seconds())
+    h, r = divmod(seconds, 3600)
+    m, s = divmod(r, 60)
+    return f"{h}ʜ {m}ᴍ {s}s"
+
 async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict | None:
     try:
         user_data = await user_collection.find_one({'id': user_id}, {'characters.id': 1})
         claimed_ids = [c['id'] for c in user_data.get('characters', [])] if user_data else []
 
-        # Luck System
         if is_streak_bonus:
             target_rarity = "🟡 Legendary"
         else:
@@ -31,6 +38,7 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
             elif luck <= 25: target_rarity = "🟣 Rare"
             else: target_rarity = "🟢 Common"
 
+        # MongoDB Aggregation (Idea 1 & 2)
         pipeline = [
             {'$match': {'rarity': target_rarity, 'id': {'$nin': claimed_ids}}},
             {'$sample': {'size': 1}}
@@ -47,6 +55,34 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
         logging.error(f"Fetch error: {e}")
         return None
 
+# --- OWNER ONLY COMMAND: /pro ---
+async def pro_reset(update: Update, context: CallbackContext):
+    user = update.effective_user
+    
+    # Sudo check
+    if str(user.id) not in sudo_users:
+        await update.message.reply_text("❌ <b>ᴛʜɪs ɪs ᴀɴ ᴏᴡɴᴇʀ-ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ!</b>", parse_mode=ParseMode.HTML)
+        return
+
+    # Check if ID is provided
+    if not context.args:
+        await update.message.reply_text("⚠️ <b>ᴜsᴀɢᴇ:</b> <code>/pro [User_ID]</code>", parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        target_id = int(context.args[0])
+        # Purani date set karke cooldown bypass karna
+        old_date = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        
+        await user_collection.update_one(
+            {'id': target_id},
+            {'$set': {'last_daily_claim': old_date}}
+        )
+        await update.message.reply_text(f"✅ <b>Sᴜᴄᴄᴇss!</b>\nUsᴇʀ <code>{target_id}</code> ᴄᴀɴ ɴᴏᴡ ᴄʟᴀɪᴍ ᴀɢᴀɪɴ.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ ᴇʀʀᴏʀ: {e}")
+
+# --- MAIN COMMAND: /hclaim ---
 async def hclaim(update: Update, context: CallbackContext):
     user = update.effective_user
     if user.id in claim_lock: return
@@ -65,12 +101,10 @@ async def hclaim(update: Update, context: CallbackContext):
             
             if elapsed < timedelta(hours=CONFIG.COOLDOWN_HOURS):
                 remaining = timedelta(hours=CONFIG.COOLDOWN_HOURS) - elapsed
-                h, r = divmod(int(remaining.total_seconds()), 3600)
-                m, s = divmod(r, 60)
-                await update.message.reply_text(f"🕒 <b>Sʟᴏᴡ Dᴏᴡɴ Bᴜᴅᴅʏ!</b>\n\n⌛ Nᴇxᴛ ᴄʟᴀɪᴍ ɪɴ: <code>{h}ʜ {m}ᴍ {s}s</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"🕒 <b>Sʟᴏᴡ Dᴏᴡɴ Bᴜᴅᴅʏ!</b>\n\n⌛ Nᴇxᴛ ᴄʟᴀɪᴍ ɪɴ: <code>{format_time(remaining)}</code>", parse_mode=ParseMode.HTML)
                 return
             
-            if elapsed > timedelta(hours=48): streak = 0
+            if elapsed > timedelta(hours=48): streak = 0 # 1 din miss toh streak reset
         
         streak += 1
         is_bonus = (streak == 7)
@@ -78,7 +112,7 @@ async def hclaim(update: Update, context: CallbackContext):
 
         char = await get_pro_character(user.id, is_streak_bonus=is_bonus)
         if not char:
-            await update.message.reply_text("❗ <b>Nᴏ ᴍᴏʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ʟᴇғᴛ!</b>")
+            await update.message.reply_text("❗ <b>Nᴏ ᴍᴏʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ!</b>")
             return
 
         await user_collection.update_one(
@@ -90,8 +124,7 @@ async def hclaim(update: Update, context: CallbackContext):
             upsert=True
         )
 
-        # --- 🎯 FIXED BUTTON FORMAT ---
-        # Isse click karte hi @botname collection.{id} likha aayega
+        # EXACT BUTTON FORMAT: @botusername collection.{id}
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎒 Mʏ Cᴏʟʟᴇᴄᴛɪᴏɴ", switch_inline_query_current_chat=f"collection.{user.id}")],
             [InlineKeyboardButton("🐉 Sᴜᴘᴘᴏʀᴛ", url=CONFIG.SUPPORT_LINK)]
@@ -112,35 +145,17 @@ async def hclaim(update: Update, context: CallbackContext):
             f"🎁 <i>Cᴏᴍᴇ ʙᴀᴄᴋ ᴛᴏᴍᴏʀʀᴏᴡ ғᴏʀ sᴛʀᴇᴀᴋ ʙᴏɴᴜs!</i>"
         )
 
-        await update.message.reply_photo(
-            photo=char.get('img_url'),
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
+        await update.message.reply_photo(photo=char.get('img_url'), caption=caption, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-        # --- 📜 LOG SYSTEM WITH ALL DETAILS ---
-        log_caption = (
-            f"<b>#DAILY_CLAIM_LOG</b>\n\n"
-            f"👤 <b>Usᴇʀ:</b> {user.first_name} (<code>{user.id}</code>)\n"
-            f"🎴 <b>Cʜᴀʀᴀᴄᴛᴇʀ:</b> {char.get('name')}\n"
-            f"🎬 <b>Aɴɪᴍᴇ:</b> {char.get('anime')}\n"
-            f"⭐ <b>Rᴀʀɪᴛʏ:</b> {char.get('rarity')}\n"
-            f"🆔 <b>ID:</b> <code>{char.get('id')}</code>\n"
-            f"🔥 <b>Sᴛʀᴇᴀᴋ:</b> {streak}\n"
-            f"📍 <b>Cʜᴀᴛ:</b> {update.effective_chat.title or 'Pʀɪᴠᴀᴛᴇ'}"
-        )
-        
-        await context.bot.send_photo(
-            chat_id=CONFIG.LOG_GROUP_ID,
-            photo=char.get('img_url'),
-            caption=log_caption,
-            parse_mode=ParseMode.HTML
-        )
+        # DETAILED LOGS WITH IMAGE
+        log_cap = f"<b>#DAILY_CLAIM_LOG</b>\n\n👤 {user.first_name} (<code>{user.id}</code>)\n🎴 {char.get('name')}\n🎬 {char.get('anime')}\n⭐ {char.get('rarity')}\n🆔 <code>{char.get('id')}</code>\n🔥 Streak: {streak}"
+        await context.bot.send_photo(chat_id=CONFIG.LOG_GROUP_ID, photo=char.get('img_url'), caption=log_cap, parse_mode=ParseMode.HTML)
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ <b>Eʀʀᴏʀ:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"❌ ᴇʀʀᴏʀ: <code>{e}</code>", parse_mode=ParseMode.HTML)
     finally:
         claim_lock.discard(user.id)
 
+# Handlers Register
 application.add_handler(CommandHandler(['hclaim', 'claim'], hclaim, block=False))
+application.add_handler(CommandHandler('pro', pro_reset, block=False))
