@@ -322,7 +322,7 @@ sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪ
 🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
 👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>{bonus}"""
 
-keyboard = [
+        keyboard = [
             [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
                 InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
@@ -435,7 +435,7 @@ async def button_callback(update: Update, context: CallbackContext):
         LOGGER.error(f"Error answering callback query: {e}")
         return
 
-try:
+    try:
         user_id = query.from_user.id
         user_data = await user_collection.find_one({"id": user_id})
 
@@ -531,140 +531,4 @@ sᴘᴇᴄɪᴀʟ ᴛʜᴀɴᴋs ᴛᴏ ᴇᴠᴇʀʏᴏɴᴇ ᴡʜᴏ ᴍᴀᴅ
 
             milestone_text = "\n".join([
                 f"{'✅' if count >= m else '🔒'} <b>{m}</b> → {r['gold']:,} + {r['characters']} ᴄʜᴀʀs"
-                for m, r in sorted(REFERRAL_MILESTONES.items())
-            ])
-
-            text = f"""<b>🎁 ɪɴᴠɪᴛᴇ & ᴇᴀʀɴ</b>
-
-<b>📊 ʏᴏᴜʀ sᴛᴀᴛs</b>
-👥 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b>
-💰 ᴇᴀʀɴᴇᴅ: <b>{total_earned:,}</b> ɢᴏʟᴅ
-
-<b>💎 ʀᴇᴡᴀʀᴅs</b>
-• ʏᴏᴜ: <b>{REFERRER_REWARD:,}</b> ɢᴏʟᴅ
-• ғʀɪᴇɴᴅ: <b>{NEW_USER_BONUS:,}</b> ɢᴏʟᴅ
-
-<b>🏆 ᴍɪʟᴇsᴛᴏɴᴇs</b>
-{milestone_text}"""
-
-if next_milestone:
-                remaining = next_milestone - count
-                reward = REFERRAL_MILESTONES[next_milestone]
-                text += f"\n\n<b>🎯 ɴᴇxᴛ</b>\n{remaining} ᴍᴏʀᴇ → <b>{reward['gold']:,}</b> + <b>{reward['characters']}</b> ᴄʜᴀʀs"
-
-            text += f"\n\n<code>{link}</code>"
-
-            keyboard = [
-                [InlineKeyboardButton("📤 sʜᴀʀᴇ", url=f"https://t.me/share/url?url={link}&text=Join Pick Catcher! Get {NEW_USER_BONUS:,} gold bonus 🎁")],
-                [InlineKeyboardButton("👥 ᴠɪᴇᴡ ɪɴᴠɪᴛᴇs", callback_data='view_invites')],
-                [InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='back')]
-            ]
-
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML',
-                link_preview_options=LinkPreviewOptions(url=video_url, show_above_text=True, prefer_large_media=True)
-            )
-
-        elif query.data == 'view_invites':
-            count = user_data.get('referred_users', 0)
-            invited_ids = user_data.get('invited_user_ids', [])
-
-            if count == 0:
-                text = """<b>👥 ʏᴏᴜʀ ɪɴᴠɪᴛᴇs</b>
-
-ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ɪɴᴠɪᴛᴇᴅ ᴀɴʏᴏɴᴇ ʏᴇᴛ
-
-sᴛᴀʀᴛ sʜᴀʀɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ ᴛᴏ ᴇᴀʀɴ ʀᴇᴡᴀʀᴅs"""
-            else:
-                invited_users = []
-                for uid in invited_ids[:10]:
-                    try:
-                        invited = await user_collection.find_one({"id": uid})
-                        if invited:
-                            name = invited.get('first_name', 'User')
-                            invited_users.append(f"• {escape(name)}")
-                    except:
-                        pass
-
-                users_text = "\n".join(invited_users) if invited_users else "• ɴᴏ ᴅᴀᴛᴀ"
-                more = f"\n\n<i>+{count - 10} ᴍᴏʀᴇ...</i>" if count > 10 else ""
-
-                text = f"""<b>👥 ʏᴏᴜʀ ɪɴᴠɪᴛᴇs</b>
-
-<b>ᴛᴏᴛᴀʟ:</b> {count} ᴜsᴇʀs
-<b>ᴇᴀʀɴᴇᴅ:</b> {count * REFERRER_REWARD:,} ɢᴏʟᴅ
-
-<b>ʀᴇᴄᴇɴᴛ ɪɴᴠɪᴛᴇs</b>
-{users_text}{more}"""
-
-            keyboard = [[InlineKeyboardButton("ʙᴀᴄᴋ", callback_data='referral')]]
-
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML',
-                link_preview_options=LinkPreviewOptions(url=video_url, show_above_text=True, prefer_large_media=True)
-            )
-
-        elif query.data == 'back':
-            balance = user_data.get('balance', 0)
-
-            try:
-                characters = user_data.get('characters', [])
-                unique_char_ids = set()
-                for char in characters:
-                    if isinstance(char, dict):
-                        char_id = char.get('id')
-                        if char_id:
-                            unique_char_ids.add(char_id)
-                chars = len(unique_char_ids)
-            except:
-                chars = 0
-
-            refs = user_data.get('referred_users', 0)
-
-            caption = f"""<b>ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ</b>
-
-ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
-ᴄᴏʟʟᴇᴄᴛ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs
-
-<b>ʏᴏᴜʀ sᴛᴀᴛs</b>
-💰 ɢᴏʟᴅ: <b>{balance:,}</b>
-🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
-👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>"""
-
-            keyboard = [
-                [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
-                [
-                    InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
-                    InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
-                ],
-                [
-                    InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'),
-                    InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')
-                ],
-                [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
-            ]
-
-await query.edit_message_text(
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML',
-                link_preview_options=LinkPreviewOptions(url=video_url, show_above_text=True, prefer_large_media=True)
-            )
-
-    except Exception as e:
-        LOGGER.error(f"Error in button callback: {e}", exc_info=True)
-        try:
-            await query.answer("⚠️ An error occurred. Please try again.", show_alert=True)
-        except:
-            pass
-
-
-application.add_handler(CommandHandler('start', start, block=False))
-application.add_handler(CommandHandler('refer', refer_command, block=False))
-application.add_handler(CallbackQueryHandler(button_callback, pattern='^(help|referral|credits|back|view_invites)$', block=False))
-
-LOGGER.info("✓ Start module loaded successfully")
+                for m, r in sorted(REFERRAL_MILESTONES.items
