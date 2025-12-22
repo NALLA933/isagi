@@ -10,7 +10,7 @@ from shivu import application, user_collection, collection
 @dataclass(frozen=True)
 class ClaimConfig:
     MAIN_GROUP_ID: int = -1003100468240
-    MAIN_GROUP_LINK: str = "https://t.me/PICK_X_SUPPORT"
+    MAIN_GROUP_LINK: str = "https://t.me/THE_DRAGON_SUPPORT"
     # Isse naye rarities add karna aasan hoga
     RARITIES: tuple = ('🟢 Common', '🟣 Rare', '🟡 Legendary', '✨ Manga', '💫 Neon')
     COOLDOWN_HOURS: int = 24
