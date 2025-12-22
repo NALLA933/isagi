@@ -22,16 +22,14 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
         user_data = await user_collection.find_one({'id': user_id}, {'characters.id': 1})
         claimed_ids = [c['id'] for c in user_data.get('characters', [])] if user_data else []
 
-        # --- LUCK SYSTEM (Idea 2) ---
         if is_streak_bonus:
-            target_rarity = "🟡 Legendary" # 7th day bonus
+            target_rarity = "🟡 Legendary"
         else:
             luck = random.randint(1, 100)
             if luck <= 5: target_rarity = "🟡 Legendary"
-            elif luck <= 30: target_rarity = "🟣 Rare"
+            elif luck <= 25: target_rarity = "🟣 Rare"
             else: target_rarity = "🟢 Common"
 
-        # --- MONGODB AGGREGATION (Idea 1) ---
         pipeline = [
             {'$match': {'rarity': target_rarity, 'id': {'$nin': claimed_ids}}},
             {'$sample': {'size': 1}}
@@ -40,7 +38,7 @@ async def get_pro_character(user_id: int, is_streak_bonus: bool = False) -> dict
         cursor = collection.aggregate(pipeline)
         result = await cursor.to_list(length=1)
 
-        if not result: # Fallback
+        if not result:
             cursor = collection.aggregate([{'$match': {'id': {'$nin': claimed_ids}}}, {'$sample': {'size': 1}}])
             result = await cursor.to_list(length=1)
 
@@ -58,7 +56,6 @@ async def hclaim(update: Update, context: CallbackContext):
         now = datetime.now(timezone.utc)
         user_data = await user_collection.find_one({'id': user.id}) or {}
         
-        # --- COOLDOWN & STREAK LOGIC (Idea 3) ---
         last_claimed = user_data.get('last_daily_claim')
         streak = user_data.get('claim_streak', 0)
         
@@ -70,53 +67,49 @@ async def hclaim(update: Update, context: CallbackContext):
                 remaining = timedelta(hours=CONFIG.COOLDOWN_HOURS) - elapsed
                 h, r = divmod(int(remaining.total_seconds()), 3600)
                 m, s = divmod(r, 60)
-                await update.message.reply_text(f"⏰ <b>Wait!</b>\nNext claim in: <code>{h}h {m}m {s}s</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"🕒 <b>Sʟᴏᴡ Dᴏᴡɴ Bᴜᴅᴅʏ!</b>\n\n⌛ Yᴏᴜ ᴄᴀɴ ᴄʟᴀɪᴍ ᴀɢᴀɪɴ ɪɴ:\n<code>{h}ʜᴏᴜʀs {m}ᴍɪɴs {s}sᴇᴄs</code>", parse_mode=ParseMode.HTML)
                 return
             
-            # Agar 48 hours se zyada ho gaye toh streak reset
-            if elapsed > timedelta(hours=48):
-                streak = 0
+            if elapsed > timedelta(hours=48): streak = 0
         
         streak += 1
         is_bonus = (streak == 7)
-        if streak > 7: streak = 1 # Reset streak after bonus
+        if streak > 7: streak = 1
 
         char = await get_pro_character(user.id, is_streak_bonus=is_bonus)
         if not char:
-            await update.message.reply_text("❌ No characters left to claim!")
+            await update.message.reply_text("❗ <b>Nᴏ ᴍᴏʀᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ʟᴇғᴛ ᴛᴏ ᴄᴏʟʟᴇᴄᴛ!</b>")
             return
 
-        # --- DATABASE UPDATE ---
         await user_collection.update_one(
             {'id': user.id},
             {
                 '$push': {'characters': char},
-                '$set': {
-                    'last_daily_claim': now,
-                    'claim_streak': streak,
-                    'first_name': user.first_name
-                }
+                '$set': {'last_daily_claim': now, 'claim_streak': streak, 'first_name': user.first_name}
             },
             upsert=True
         )
 
-        # --- UI/UX BUTTONS (Idea 5) ---
+        # --- PREMIUM UI BUTTONS ---
+        # Yahan humne aapke user_id wala logic add kiya hai
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎒 My Collection", switch_inline_query_current_chat="/collection")],
-            [InlineKeyboardButton("🌍 Support Group", url=CONFIG.SUPPORT_LINK)]
+            [InlineKeyboardButton("🎒 Mʏ Cᴏʟʟᴇᴄᴛɪᴏɴ", url=f"t.me/{context.bot.username}?start=collection_{user.id}")],
+            [InlineKeyboardButton("🐉 Sᴜᴘᴘᴏʀᴛ", url=CONFIG.SUPPORT_LINK)]
         ])
 
-        streak_msg = f"🔥 <b>Streak:</b> {streak}/7" + (" (BONUS! 🎁)" if is_bonus else "")
+        streak_bar = "🔥" * streak + "⏳" * (7 - streak)
         caption = (
-            f"<b>🎊 DAILY CLAIM SUCCESS</b>\n"
+            f"<b>🎊 Dᴀɪʟʏ Cʟᴀɪᴍ Sᴜᴄᴄᴇssғᴜʟ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 <b>Player:</b> <a href='tg://user?id={user.id}'>{user.first_name}</a>\n"
-            f"🎴 <b>Name:</b> {char.get('name')}\n"
-            f"⭐ <b>Rarity:</b> {char.get('rarity')}\n"
-            f"🆔 <b>ID:</b> <code>{char.get('id')}</code>\n"
-            f"{streak_msg}\n"
+            f"👤 <b>Pʟᴀʏᴇʀ:</b> <a href='tg://user?id={user.id}'>{user.first_name}</a>\n"
+            f"🎴 <b>Nᴀᴍᴇ:</b> <code>{char.get('name')}</code>\n"
+            f"🎬 <b>Aɴɪᴍᴇ:</b> <code>{char.get('anime')}</code>\n"
+            f"⭐ <b>Rᴀʀɪᴛʏ:</b> {char.get('rarity')}\n"
+            f"🆔 <b>ID:</b> <code>{char.get('id')}</code>\n\n"
+            f"📈 <b>Sᴛʀᴇᴀᴋ:</b> {streak}/7\n"
+            f"{streak_bar}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"✨ Come back tomorrow for more!"
+            f"🎁 <i>Cᴏᴍᴇ ʙᴀᴄᴋ ᴛᴏᴍᴏʀʀᴏᴡ ғᴏʀ {streak+1}/7 sᴛʀᴇᴀᴋ!</i>"
         )
 
         await update.message.reply_photo(
@@ -126,12 +119,28 @@ async def hclaim(update: Update, context: CallbackContext):
             parse_mode=ParseMode.HTML
         )
 
-        # --- LOG SYSTEM ---
-        log_msg = f"#CLAIM\n👤 {user.first_name}\n🎴 {char.get('name')}\n⭐ {char.get('rarity')}\n🔥 Streak: {streak}"
-        await context.bot.send_message(chat_id=CONFIG.LOG_GROUP_ID, text=log_msg)
+        # --- DETAILED LOG SYSTEM ---
+        log_caption = (
+            f"<b>#DAILY_CLAIM_LOG</b>\n\n"
+            f"👤 <b>Usᴇʀ:</b> {user.first_name} (<code>{user.id}</code>)\n"
+            f"🎴 <b>Cʜᴀʀᴀᴄᴛᴇʀ:</b> {char.get('name')}\n"
+            f"🎬 <b>Aɴɪᴍᴇ:</b> {char.get('anime')}\n"
+            f"⭐ <b>Rᴀʀɪᴛʏ:</b> {char.get('rarity')}\n"
+            f"🆔 <b>ID:</b> <code>{char.get('id')}</code>\n"
+            f"🔥 <b>Sᴛʀᴇᴀᴋ:</b> {streak}\n"
+            f"📍 <b>Cʜᴀᴛ:</b> {update.effective_chat.title or 'Pʀɪᴠᴀᴛᴇ'}"
+        )
+        
+        # Log mein image ke saath details bhej rahe hain
+        await context.bot.send_photo(
+            chat_id=CONFIG.LOG_GROUP_ID,
+            photo=char.get('img_url'),
+            caption=log_caption,
+            parse_mode=ParseMode.HTML
+        )
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(f"⚠️ <b>Sʏsᴛᴇᴍ Eʀʀᴏʀ:</b> <code>{e}</code>", parse_mode=ParseMode.HTML)
     finally:
         claim_lock.discard(user.id)
 
