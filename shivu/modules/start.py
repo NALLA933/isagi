@@ -5,13 +5,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LinkPreviewOptions
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
-from telegram.error import TelegramError, Forbidden, BadRequest
 from shivu import application, SUPPORT_CHAT, BOT_USERNAME, LOGGER, user_collection, collection
 from shivu.modules.chatlog import track_bot_start
 from shivu.modules.database.sudo import fetch_sudo_users
 import asyncio
 
-# ==================== CONFIGURATION ====================
 VIDEOS = [
     "https://files.catbox.moe/k3dhbe.mp4",
     "https://files.catbox.moe/iitev2.mp4",
@@ -20,8 +18,8 @@ VIDEOS = [
 
 REFERRER_REWARD = 1000
 NEW_USER_BONUS = 500
-REFERRAL_COOLDOWN = 5  # seconds between referral processing
-MAX_REFERRALS_PER_HOUR = 10  # Anti-spam limit
+LEADERBOARD_SIZE = 10
+CACHE_DURATION = 300  # 5 minutes
 
 OWNERS = [{"name": "Thorfinn", "username": "ll_Thorfinn_ll"}]
 SUDO_USERS = [{"name": "Shadwoo", "username": "I_shadwoo"}]
@@ -44,139 +42,162 @@ HAREM_MODE_MAPPING = {
     "amv": "🎥 AMV", "tiny": "👼 Tiny", "default": None
 }
 
-# Cache for recent referrals (user_id: timestamp)
-referral_cache = {}
+# Anti-spam & Rate limiting
+user_last_action = {}
+RATE_LIMIT_SECONDS = 3
 
-# ==================== UTILITY FUNCTIONS ====================
+# Leaderboard cache
+leaderboard_cache = {"data": None, "timestamp": 0}
 
-def clean_referral_cache():
-    """Clean old entries from referral cache"""
-    current_time = time.time()
-    expired = [uid for uid, timestamp in referral_cache.items() 
-               if current_time - timestamp > 3600]  # 1 hour
-    for uid in expired:
-        del referral_cache[uid]
+# Fraud detection
+suspicious_users = set()
+MAX_REFERRALS_PER_HOUR = 10
 
 
-async def check_spam_protection(user_id: int, referring_user_id: int) -> tuple[bool, str]:
-    """
-    Check if referral is spam or fraud
-    Returns: (is_valid, error_message)
-    """
-    current_time = time.time()
+class RateLimiter:
+    """Rate limiting for preventing spam"""
     
-    # Clean old cache entries
-    clean_referral_cache()
-    
-    # Check if referrer has too many recent referrals
-    referrer_key = f"ref_{referring_user_id}"
-    if referrer_key in referral_cache:
-        time_diff = current_time - referral_cache[referrer_key]
-        if time_diff < REFERRAL_COOLDOWN:
-            return False, f"⏳ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {int(REFERRAL_COOLDOWN - time_diff)} sᴇᴄᴏɴᴅs"
-    
-    # Check hourly limit
-    referring_user = await user_collection.find_one({"id": referring_user_id})
-    if referring_user:
-        last_hour_refs = referring_user.get('referrals_last_hour', [])
-        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-        recent_refs = [r for r in last_hour_refs if r > one_hour_ago]
+    @staticmethod
+    def check_rate_limit(user_id: int) -> bool:
+        current_time = time.time()
         
-        if len(recent_refs) >= MAX_REFERRALS_PER_HOUR:
-            return False, "⚠️ ʀᴇғᴇʀʀᴀʟ ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ. ᴛʀʏ ʟᴀᴛᴇʀ"
+        if user_id in user_last_action:
+            time_diff = current_time - user_last_action[user_id]
+            if time_diff < RATE_LIMIT_SECONDS:
+                return False
+        
+        user_last_action[user_id] = current_time
+        return True
     
-    # Update cache
-    referral_cache[referrer_key] = current_time
-    
-    return True, ""
+    @staticmethod
+    def get_cooldown_time(user_id: int) -> int:
+        if user_id not in user_last_action:
+            return 0
+        
+        elapsed = time.time() - user_last_action[user_id]
+        remaining = max(0, RATE_LIMIT_SECONDS - elapsed)
+        return int(remaining)
 
 
-async def get_user_stats(user_id: int) -> Dict:
-    """Get comprehensive user statistics"""
+class FraudDetector:
+    """Detect suspicious referral patterns"""
+    
+    @staticmethod
+    async def check_suspicious_activity(user_id: int, referring_user_id: int) -> Dict[str, any]:
+        try:
+            # Check if referrer is making too many referrals quickly
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            
+            # Get referring user's recent referrals
+            referring_user = await user_collection.find_one({"id": referring_user_id})
+            if not referring_user:
+                return {"is_suspicious": False}
+            
+            invited_ids = referring_user.get('invited_user_ids', [])
+            
+            # Check if too many referrals in short time
+            recent_count = 0
+            if len(invited_ids) > 0:
+                # Simple check: if more than MAX_REFERRALS_PER_HOUR in last entries
+                recent_count = len(invited_ids[-MAX_REFERRALS_PER_HOUR:])
+            
+            is_suspicious = recent_count >= MAX_REFERRALS_PER_HOUR
+            
+            if is_suspicious:
+                suspicious_users.add(referring_user_id)
+                LOGGER.warning(f"Suspicious activity detected: User {referring_user_id} has {recent_count} recent referrals")
+            
+            return {
+                "is_suspicious": is_suspicious,
+                "recent_referrals": recent_count,
+                "reason": "Too many referrals in short time" if is_suspicious else None
+            }
+            
+        except Exception as e:
+            LOGGER.error(f"Error in fraud detection: {e}")
+            return {"is_suspicious": False}
+
+
+async def get_leaderboard(force_refresh: bool = False) -> List[Dict]:
+    """Get referral leaderboard with caching"""
     try:
-        user_data = await user_collection.find_one({"id": user_id})
-        if not user_data:
-            return {}
+        current_time = time.time()
         
-        balance = user_data.get('balance', 0)
+        # Use cache if available and not expired
+        if not force_refresh and leaderboard_cache["data"] and (current_time - leaderboard_cache["timestamp"]) < CACHE_DURATION:
+            return leaderboard_cache["data"]
         
-        # Count unique characters
-        characters = user_data.get('characters', [])
-        unique_char_ids = set()
-        for char in characters:
-            if isinstance(char, dict) and char.get('id'):
-                unique_char_ids.add(char.get('id'))
-        
-        refs = user_data.get('referred_users', 0)
-        
-        # Calculate total earnings from referrals
-        base_earned = refs * REFERRER_REWARD
-        milestone_earned = sum(
-            REFERRAL_MILESTONES[m]["gold"]
-            for m in sorted(REFERRAL_MILESTONES.keys())
-            if refs >= m
-        )
-        total_earned = base_earned + milestone_earned
-        
-        return {
-            'balance': balance,
-            'characters': len(unique_char_ids),
-            'referrals': refs,
-            'total_earned': total_earned,
-            'user_data': user_data
-        }
-    except Exception as e:
-        LOGGER.error(f"Error getting user stats: {e}")
-        return {}
-
-
-async def get_referral_leaderboard(limit: int = 10) -> List[Dict]:
-    """Get top referrers"""
-    try:
+        # Fetch top referrers from database
         pipeline = [
             {"$match": {"referred_users": {"$gt": 0}}},
             {"$sort": {"referred_users": -1}},
-            {"$limit": limit},
+            {"$limit": LEADERBOARD_SIZE},
             {"$project": {
                 "id": 1,
                 "first_name": 1,
                 "username": 1,
-                "referred_users": 1
+                "referred_users": 1,
+                "balance": 1
             }}
         ]
         
-        leaderboard = await user_collection.aggregate(pipeline).to_list(limit)
+        cursor = user_collection.aggregate(pipeline)
+        leaderboard = await cursor.to_list(LEADERBOARD_SIZE)
+        
+        # Update cache
+        leaderboard_cache["data"] = leaderboard
+        leaderboard_cache["timestamp"] = current_time
+        
         return leaderboard
+        
     except Exception as e:
         LOGGER.error(f"Error fetching leaderboard: {e}")
         return []
 
 
+async def get_user_rank(user_id: int) -> Optional[int]:
+    """Get user's rank in referral leaderboard"""
+    try:
+        # Count users with more referrals
+        user_data = await user_collection.find_one({"id": user_id})
+        if not user_data:
+            return None
+        
+        user_referrals = user_data.get('referred_users', 0)
+        
+        higher_users = await user_collection.count_documents({
+            "referred_users": {"$gt": user_referrals}
+        })
+        
+        return higher_users + 1
+        
+    except Exception as e:
+        LOGGER.error(f"Error getting user rank: {e}")
+        return None
+
+
 def create_progress_bar(current: int, target: int, length: int = 10) -> str:
     """Create a visual progress bar"""
     if target == 0:
-        return "▱" * length
+        return "░" * length
     
-    filled = int((current / target) * length)
-    filled = min(filled, length)
+    percentage = min(current / target, 1.0)
+    filled = int(percentage * length)
+    empty = length - filled
     
-    bar = "▰" * filled + "▱" * (length - filled)
-    percentage = int((current / target) * 100)
-    
-    return f"{bar} {percentage}%"
+    bar = "█" * filled + "░" * empty
+    return f"{bar} {int(percentage * 100)}%"
 
-
-# ==================== CORE FUNCTIONS ====================
 
 async def give_milestone_reward(user_id: int, milestone: int, context: CallbackContext) -> bool:
-    """Give milestone rewards with enhanced error handling"""
+    """Give milestone rewards with better error handling"""
     try:
         reward = REFERRAL_MILESTONES[milestone]
         gold = reward["gold"]
         char_count = reward["characters"]
         rarities = reward["rarity"]
 
-        # Update gold
+        # Update gold balance
         result = await user_collection.update_one(
             {"id": user_id},
             {"$inc": {"balance": gold}}
@@ -184,8 +205,8 @@ async def give_milestone_reward(user_id: int, milestone: int, context: CallbackC
         
         if result.modified_count == 0:
             LOGGER.warning(f"Failed to update balance for user {user_id}")
+            return False
 
-        # Give characters
         characters = []
         for _ in range(char_count):
             rarity = random.choice(rarities)
@@ -204,26 +225,24 @@ async def give_milestone_reward(user_id: int, milestone: int, context: CallbackC
                     {"$push": {"characters": character}}
                 )
 
-        # Create reward message
         char_list_text = "\n".join([
             f"{HAREM_MODE_MAPPING.get(c.get('rarity', 'common'), '🟢')} {c.get('name', 'Unknown')}"
             for c in characters
-        ]) or "• ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs"
+        ]) if characters else "ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ"
 
-        msg = f"""<b>🎉 ᴍɪʟᴇsᴛᴏɴᴇ ʀᴇᴀᴄʜᴇᴅ!</b>
+        msg = f"""<b>🎉 ᴍɪʟᴇsᴛᴏɴᴇ ᴀᴄʜɪᴇᴠᴇᴅ</b>
 
-ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs ᴏɴ ʀᴇᴀᴄʜɪɴɢ <b>{milestone}</b> ʀᴇғᴇʀʀᴀʟs! 🎊
+ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs ᴏɴ ʀᴇᴀᴄʜɪɴɢ <b>{milestone}</b> ʀᴇғᴇʀʀᴀʟs 🎊
 
 <b>🎁 ʀᴇᴡᴀʀᴅs</b>
 💰 ɢᴏʟᴅ: <code>{gold:,}</code>
 🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <code>{char_count}</code>
 
-<b>📦 ᴄʜᴀʀᴀᴄᴛᴇʀs ʀᴇᴄᴇɪᴠᴇᴅ</b>
+<b>✨ ᴄʜᴀʀᴀᴄᴛᴇʀs ʀᴇᴄᴇɪᴠᴇᴅ</b>
 {char_list_text}
 
-<i>ᴋᴇᴇᴘ ɪɴᴠɪᴛɪɴɢ ғᴏʀ ᴍᴏʀᴇ ʀᴇᴡᴀʀᴅs!</i> 🌟"""
+ᴋᴇᴇᴘ ɪɴᴠɪᴛɪɴɢ ғᴏʀ ᴍᴏʀᴇ ʀᴇᴡᴀʀᴅs 🚀"""
 
-        # Send notification
         try:
             await context.bot.send_message(
                 chat_id=user_id,
@@ -235,68 +254,51 @@ async def give_milestone_reward(user_id: int, milestone: int, context: CallbackC
                     prefer_large_media=True
                 )
             )
-            
-            # Log milestone achievement
-            await user_collection.update_one(
-                {"id": user_id},
-                {"$push": {
-                    "milestone_history": {
-                        "milestone": milestone,
-                        "timestamp": datetime.utcnow(),
-                        "gold": gold,
-                        "characters": char_count
-                    }
-                }}
-            )
-            
-            LOGGER.info(f"✓ Milestone {milestone} reward sent to user {user_id}")
-            return True
-            
-        except Forbidden:
-            LOGGER.warning(f"User {user_id} blocked the bot")
-            return False
         except Exception as e:
             LOGGER.error(f"Could not send milestone notification to {user_id}: {e}")
-            return False
+
+        return True
 
     except Exception as e:
         LOGGER.error(f"Error giving milestone reward: {e}", exc_info=True)
         return False
 
 
-async def process_referral(user_id: int, first_name: str, referring_user_id: int, context: CallbackContext) -> bool:
-    """Process referral with spam protection and validation"""
+async def process_referral(user_id: int, first_name: str, referring_user_id: int, context: CallbackContext) -> Dict[str, any]:
+    """Process referral with fraud detection"""
     try:
-        # Basic validation
         if not user_id or not referring_user_id or user_id == referring_user_id:
             LOGGER.warning(f"Invalid referral: user={user_id}, referrer={referring_user_id}")
-            return False
+            return {"success": False, "reason": "Invalid referral data"}
 
-        # Check spam protection
-        is_valid, error_msg = await check_spam_protection(user_id, referring_user_id)
-        if not is_valid:
-            LOGGER.warning(f"Spam protection triggered: {error_msg}")
-            return False
+        # Check for fraud
+        fraud_check = await FraudDetector.check_suspicious_activity(user_id, referring_user_id)
+        
+        if fraud_check["is_suspicious"]:
+            LOGGER.warning(f"Suspicious referral blocked: {user_id} -> {referring_user_id}")
+            return {
+                "success": False,
+                "reason": "Suspicious activity detected",
+                "is_suspicious": True
+            }
 
-        # Check if referring user exists
         referring_user = await user_collection.find_one({"id": referring_user_id})
         if not referring_user:
             LOGGER.warning(f"Referring user {referring_user_id} not found")
-            return False
+            return {"success": False, "reason": "Referrer not found"}
 
-        # Check if new user already referred
         new_user = await user_collection.find_one({"id": user_id})
         if new_user and new_user.get('referred_by'):
             LOGGER.info(f"User {user_id} already referred by {new_user.get('referred_by')}")
-            return False
+            return {"success": False, "reason": "Already referred"}
 
-        # Update new user
+        # Process referral
         await user_collection.update_one(
             {"id": user_id},
             {
                 "$set": {
                     "referred_by": referring_user_id,
-                    "referral_timestamp": datetime.utcnow()
+                    "referral_date": datetime.utcnow()
                 },
                 "$inc": {"balance": NEW_USER_BONUS}
             }
@@ -305,7 +307,6 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
         old_count = referring_user.get('referred_users', 0)
         new_count = old_count + 1
 
-        # Update referring user with hourly tracking
         await user_collection.update_one(
             {"id": referring_user_id},
             {
@@ -315,16 +316,13 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
                     "pass_data.tasks.invites": 1,
                     "pass_data.total_invite_earnings": REFERRER_REWARD
                 },
-                "$push": {
-                    "invited_user_ids": user_id,
-                    "referrals_last_hour": datetime.utcnow()
-                }
+                "$push": {"invited_user_ids": user_id}
             }
         )
 
-        LOGGER.info(f"✓ Referral processed: {user_id} -> {referring_user_id} (count: {new_count})")
+        LOGGER.info(f"Referral processed: {user_id} -> {referring_user_id} (count: {new_count})")
 
-        # Check for milestone
+        # Check for milestones
         milestone_reached = None
         for milestone in sorted(REFERRAL_MILESTONES.keys()):
             if old_count < milestone <= new_count:
@@ -332,39 +330,35 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
                 break
 
         if milestone_reached:
-            LOGGER.info(f"🏆 Milestone {milestone_reached} reached for user {referring_user_id}")
+            LOGGER.info(f"Milestone {milestone_reached} reached for user {referring_user_id}")
             await give_milestone_reward(referring_user_id, milestone_reached, context)
 
-        # Get next milestone info
+        # Calculate next milestone progress
         next_milestone = next(
             (m for m in sorted(REFERRAL_MILESTONES.keys()) if new_count < m),
             None
         )
+        
+        progress_bar = ""
+        if next_milestone:
+            progress_bar = create_progress_bar(new_count, next_milestone)
 
-        # Create notification message
-        msg = f"""<b>✨ ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss!</b>
+        msg = f"""<b>✨ ʀᴇғᴇʀʀᴀʟ sᴜᴄᴄᴇss</b>
 
-<b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ! 🎉
+<b>{escape(first_name)}</b> ᴊᴏɪɴᴇᴅ ᴠɪᴀ ʏᴏᴜʀ ʟɪɴᴋ 🎉
 
 <b>💰 ʀᴇᴡᴀʀᴅs</b>
-• ɢᴏʟᴅ: <code>+{REFERRER_REWARD:,}</code>
-• ɪɴᴠɪᴛᴇ ᴛᴀsᴋ: <code>+1</code>
-
-<b>📊 ʏᴏᴜʀ sᴛᴀᴛs</b>
-👥 ᴛᴏᴛᴀʟ ʀᴇғᴇʀʀᴀʟs: <b>{new_count}</b>"""
+• ɢᴏʟᴅ: <code>{REFERRER_REWARD:,}</code>
+• ɪɴᴠɪᴛᴇ ᴛᴀsᴋ: +1
+• ᴛᴏᴛᴀʟ ʀᴇғᴇʀʀᴀʟs: <b>{new_count}</b>"""
 
         if next_milestone:
             remaining = next_milestone - new_count
             reward = REFERRAL_MILESTONES[next_milestone]
-            progress = create_progress_bar(new_count, next_milestone, 10)
-            
-            msg += f"""
+            msg += f"\n\n<b>🎯 ɴᴇxᴛ ᴍɪʟᴇsᴛᴏɴᴇ</b>"
+            msg += f"\n{progress_bar}"
+            msg += f"\n{remaining} ᴍᴏʀᴇ ғᴏʀ {reward['gold']:,} ɢᴏʟᴅ + {reward['characters']} ᴄʜᴀʀs"
 
-<b>🎯 ɴᴇxᴛ ᴍɪʟᴇsᴛᴏɴᴇ</b>
-{progress}
-<code>{remaining}</code> ᴍᴏʀᴇ ғᴏʀ <b>{reward['gold']:,}</b> ɢᴏʟᴅ + <b>{reward['characters']}</b> ᴄʜᴀʀᴀᴄᴛᴇʀs"""
-
-        # Send notification to referrer
         try:
             await context.bot.send_message(
                 chat_id=referring_user_id,
@@ -376,16 +370,18 @@ async def process_referral(user_id: int, first_name: str, referring_user_id: int
                     prefer_large_media=True
                 )
             )
-        except Forbidden:
-            LOGGER.warning(f"Referrer {referring_user_id} blocked the bot")
         except Exception as e:
             LOGGER.error(f"Could not notify referrer {referring_user_id}: {e}")
 
-        return True
+        return {
+            "success": True,
+            "new_count": new_count,
+            "milestone_reached": milestone_reached
+        }
 
     except Exception as e:
         LOGGER.error(f"Referral processing error: {e}", exc_info=True)
-        return False
+        return {"success": False, "reason": str(e)}
 
 
 async def safe_track_bot_start(user_id: int, first_name: str, username: str, is_new_user: bool):
@@ -399,15 +395,13 @@ async def safe_track_bot_start(user_id: int, first_name: str, username: str, is_
     except asyncio.TimeoutError:
         LOGGER.warning(f"track_bot_start timed out for user {user_id}")
     except ImportError:
-        pass
+        LOGGER.warning("chatlog module not available, skipping bot start tracking")
     except Exception as e:
         LOGGER.error(f"Error in safe_track_bot_start: {e}")
 
 
-# ==================== COMMAND HANDLERS ====================
-
 async def start(update: Update, context: CallbackContext):
-    """Enhanced start command with better error handling"""
+    """Enhanced start command with rate limiting"""
     try:
         if not update or not update.effective_user:
             LOGGER.error("No update or effective_user in start command")
@@ -418,24 +412,30 @@ async def start(update: Update, context: CallbackContext):
         username = update.effective_user.username or ""
         args = context.args
 
-        LOGGER.info(f"📍 Start command: user={user_id} (@{username}) args={args}")
+        # Rate limiting check
+        if not RateLimiter.check_rate_limit(user_id):
+            cooldown = RateLimiter.get_cooldown_time(user_id)
+            await update.message.reply_text(
+                f"⏳ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {cooldown} sᴇᴄᴏɴᴅs ʙᴇғᴏʀᴇ ᴜsɪɴɢ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴀɢᴀɪɴ"
+            )
+            return
 
-        # Parse referral code
+        LOGGER.info(f"Start command from user {user_id} (@{username}) with args: {args}")
+
         referring_user_id = None
         if args and len(args) > 0 and args[0].startswith('r_'):
             try:
                 referring_user_id = int(args[0][2:])
-                LOGGER.info(f"🔗 Referral detected: referrer={referring_user_id}")
+                LOGGER.info(f"Detected referral link: referrer={referring_user_id}")
             except (ValueError, IndexError) as e:
                 LOGGER.error(f"Invalid referral code {args[0]}: {e}")
                 referring_user_id = None
 
-        # Get or create user
         user_data = await user_collection.find_one({"id": user_id})
         is_new_user = user_data is None
 
         if is_new_user:
-            LOGGER.info(f"➕ Creating new user {user_id}")
+            LOGGER.info(f"Creating new user {user_id}")
             
             new_user = {
                 "id": user_id,
@@ -446,9 +446,7 @@ async def start(update: Update, context: CallbackContext):
                 "referred_users": 0,
                 "referred_by": None,
                 "invited_user_ids": [],
-                "referrals_last_hour": [],
-                "milestone_history": [],
-                "created_at": datetime.utcnow(),
+                "registration_date": datetime.utcnow(),
                 "pass_data": {
                     "tier": "free",
                     "weekly_claims": 0,
@@ -468,27 +466,29 @@ async def start(update: Update, context: CallbackContext):
             await user_collection.insert_one(new_user)
             user_data = new_user
 
-            # Track bot start asynchronously
             context.application.create_task(
                 safe_track_bot_start(user_id, first_name, username, True)
             )
 
-            # Process referral if exists
             if referring_user_id:
-                LOGGER.info(f"🎁 Processing referral: {user_id} <- {referring_user_id}")
-                await process_referral(user_id, first_name, referring_user_id, context)
+                LOGGER.info(f"Processing referral for new user {user_id} from {referring_user_id}")
+                result = await process_referral(user_id, first_name, referring_user_id, context)
+                
+                if not result["success"] and result.get("is_suspicious"):
+                    await update.message.reply_text(
+                        "⚠️ sᴜsᴘɪᴄɪᴏᴜs ᴀᴄᴛɪᴠɪᴛʏ ᴅᴇᴛᴇᴄᴛᴇᴅ. ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ."
+                    )
 
         else:
-            LOGGER.info(f"👤 Existing user {user_id} started bot")
+            LOGGER.info(f"Existing user {user_id} started bot")
             
-            # Update user info
             await user_collection.update_one(
                 {"id": user_id},
                 {
                     "$set": {
                         "first_name": first_name,
                         "username": username,
-                        "last_seen": datetime.utcnow()
+                        "last_interaction": datetime.utcnow()
                     }
                 }
             )
@@ -497,42 +497,56 @@ async def start(update: Update, context: CallbackContext):
                 safe_track_bot_start(user_id, first_name, username, False)
             )
 
-        # Get user stats
-        stats = await get_user_stats(user_id)
-        balance = stats.get('balance', 0)
-        chars = stats.get('characters', 0)
-        refs = stats.get('referrals', 0)
+        balance = user_data.get('balance', 0)
 
-        # Create welcome message
+        try:
+            characters = user_data.get('characters', [])
+            unique_char_ids = set()
+            for char in characters:
+                if isinstance(char, dict):
+                    char_id = char.get('id')
+                    if char_id:
+                        unique_char_ids.add(char_id)
+            chars = len(unique_char_ids)
+        except Exception as e:
+            LOGGER.error(f"Error counting characters: {e}")
+            chars = 0
+
+        refs = user_data.get('referred_users', 0)
+
+        # Get user's rank if they have referrals
+        rank_text = ""
+        if refs > 0:
+            rank = await get_user_rank(user_id)
+            if rank:
+                rank_text = f"\n🏆 ʀᴀɴᴋ: <b>#{rank}</b>"
+
         welcome = "ᴡᴇʟᴄᴏᴍᴇ" if is_new_user else "ᴡᴇʟᴄᴏᴍᴇ ʙᴀᴄᴋ"
-        bonus = f"\n\n<b>🎁 ʙᴏɴᴜs</b>\n💰 +{NEW_USER_BONUS} ɢᴏʟᴅ ʀᴇᴄᴇɪᴠᴇᴅ!" if (is_new_user and referring_user_id) else ""
+        bonus = f"\n\n<b>🎁 +{NEW_USER_BONUS}</b> ɢᴏʟᴅ ʙᴏɴᴜs" if (is_new_user and referring_user_id) else ""
 
         video_url = random.choice(VIDEOS)
-        caption = f"""<b>✨ {welcome}!</b>
+        caption = f"""<b>{welcome}</b>
 
-ɪ ᴀᴍ <b>ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ</b> 🎴
-
-ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ. ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ!
+ɪ ᴀᴍ ᴘɪᴄᴋ ᴄᴀᴛᴄʜᴇʀ
+ɪ sᴘᴀᴡɴ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘs ᴀɴᴅ ʟᴇᴛ ᴜsᴇʀs ᴄᴏʟʟᴇᴄᴛ ᴛʜᴇᴍ
+sᴏ ᴡʜᴀᴛ ᴀʀᴇ ʏᴏᴜ ᴡᴀɪᴛɪɴɢ ғᴏʀ ᴀᴅᴅ ᴍᴇ ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ ʙʏ ᴄʟɪᴄᴋ ᴏɴ ᴛʜᴇ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴ
 
 <b>📊 ʏᴏᴜʀ sᴛᴀᴛs</b>
-💰 ɢᴏʟᴅ: <code>{balance:,}</code>
-🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <code>{chars}</code>
-👥 ʀᴇғᴇʀʀᴀʟs: <code>{refs}</code>{bonus}"""
+💰 ɢᴏʟᴅ: <b>{balance:,}</b>
+🎴 ᴄʜᴀʀᴀᴄᴛᴇʀs: <b>{chars}</b>
+👥 ʀᴇғᴇʀʀᴀʟs: <b>{refs}</b>{rank_text}{bonus}"""
 
         keyboard = [
-            [InlineKeyboardButton("➕ ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ", url=f'https://t.me/{BOT_USERNAME}?startgroup=new')],
             [
-                InlineKeyboardButton("💬 sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
-                InlineKeyboardButton("📢 ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
+                InlineKeyboardButton("sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+                InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url='https://t.me/PICK_X_UPDATE')
             ],
             [
-                InlineKeyboardButton("❓ ʜᴇʟᴘ", callback_data='help'),
-                InlineKeyboardButton("🎁 ɪɴᴠɪᴛᴇ", callback_data='referral')
+                InlineKeyboardButton("ʜᴇʟᴘ", callback_data='help'),
+                InlineKeyboardButton("ɪɴᴠɪᴛᴇ", callback_data='referral')
             ],
-            [
-                InlineKeyboardButton("🏆 ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ", callback_data='leaderboard'),
-                InlineKeyboardButton("👥 ᴄʀᴇᴅɪᴛs", callback_data='credits')
-            ]
+            [InlineKeyboardButton("ᴄʀᴇᴅɪᴛs", callback_data='credits')]
         ]
 
         await update.message.reply_text(
@@ -546,15 +560,12 @@ async def start(update: Update, context: CallbackContext):
             )
         )
 
-        LOGGER.info(f"✓ Start command completed for user {user_id}")
+        LOGGER.info(f"Start command completed for user {user_id}")
 
     except Exception as e:
-        LOGGER.error(f"❌ Critical error in start command: {e}", exc_info=True)
+        LOGGER.error(f"Critical error in start command: {e}", exc_info=True)
         try:
-            await update.message.reply_text(
-                "⚠️ <b>ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ</b>\n\nᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ ᴏʀ ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ.",
-                parse_mode='HTML'
-            )
+            await update.message.reply_text("⚠️ An error occurred. Please try again later.")
         except:
             pass
 
@@ -563,47 +574,47 @@ async def refer_command(update: Update, context: CallbackContext):
     """Enhanced refer command with analytics"""
     try:
         user_id = update.effective_user.id
-        stats = await get_user_stats(user_id)
         
-        if not stats:
+        # Rate limiting
+        if not RateLimiter.check_rate_limit(user_id):
+            cooldown = RateLimiter.get_cooldown_time(user_id)
             await update.message.reply_text(
-                "⚠️ <b>sᴛᴀʀᴛ ʙᴏᴛ ғɪʀsᴛ</b>\n\nᴜsᴇ /start ᴛᴏ ʙᴇɢɪɴ",
-                parse_mode='HTML'
+                f"⏳ ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ {cooldown} sᴇᴄᴏɴᴅs"
             )
             return
 
-        link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
-        count = stats.get('referrals', 0)
-        total_earned = stats.get('total_earned', 0)
+        user_data = await user_collection.find_one({"id": user_id})
 
-        # Get next milestone
+        if not user_data:
+            await update.message.reply_text("⚠️ sᴛᴀʀᴛ ʙᴏᴛ ғɪʀsᴛ ᴜsɪɴɢ /start")
+            return
+
+        link = f"https://t.me/{BOT_USERNAME}?start=r_{user_id}"
+        count = user_data.get('referred_users', 0)
+        base_earned = count * REFERRER_REWARD
+        milestone_earned = sum(
+            REFERRAL_MILESTONES[m]["gold"] 
+            for m in sorted(REFERRAL_MILESTONES.keys()) 
+            if count >= m
+        )
+        total_earned = base_earned + milestone_earned
+
+        # Get user rank
+        rank = await get_user_rank(user_id)
+        rank_text = f"🏆 ʀᴀɴᴋ: <b>#{rank}</b>\n" if rank else ""
+
         next_milestone = next(
             (m for m in sorted(REFERRAL_MILESTONES.keys()) if count < m),
             None
         )
         
-        # Create milestone list
         milestone_text = "\n".join([
-            f"{'✅' if count >= m else '🔒'} <b>{m}</b> ʀᴇғs → <code>{r['gold']:,}</code> ɢᴏʟᴅ + <code>{r['characters']}</code> ᴄʜᴀʀs"
+            f"{'✅' if count >= m else '🔒'} <b>{m}</b> ʀᴇғs → {r['gold']:,} ɢᴏʟᴅ + {r['characters']} ᴄʜᴀʀs"
             for m, r in sorted(REFERRAL_MILESTONES.items())
         ])
 
-        # Progress to next milestone
+        # Progress bar for next milestone
         progress_text = ""
         if next_milestone:
-            remaining = next_milestone - count
-            progress = create_progress_bar(count, next_milestone, 12)
-            reward = REFERRAL_MILESTONES[next_milestone]
-            
-            progress_text = f"""
-<b>🎯 ɴᴇxᴛ ᴍɪʟᴇsᴛᴏɴᴇ</b>
-{progress}
-<code>{remaining}</code> ᴍᴏʀᴇ ғᴏʀ <b>{reward['gold']:,}</b> ɢᴏʟᴅ + <b>{reward['characters']}</b> ᴄʜᴀʀs"""
-
-        text = f"""<b>🎁 ɪɴᴠɪᴛᴇ & ᴇᴀʀɴ ʀᴇᴡᴀʀᴅs</b>
-
-<b>📊 ʏᴏᴜʀ sᴛᴀᴛs</b>
-👥 ɪɴᴠɪᴛᴇᴅ: <b>{count}</b> ᴜsᴇʀs
-💰 ᴛᴏᴛᴀʟ ᴇᴀʀɴᴇᴅ: <code>{total_earned:,}</code> ɢᴏʟᴅ
-
-<b>💎 ᴘᴇʀ ʀ
+            progress_bar = create_progress_bar(count, next_milestone)
+            progress_text = f"\n\n<b>📈 ᴘʀ
