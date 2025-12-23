@@ -7,6 +7,7 @@ from cachetools import TTLCache, LRUCache
 from pymongo import ASCENDING, TEXT
 from functools import lru_cache
 import hashlib
+from datetime import datetime, timedelta
 
 from telegram import Update, InlineQueryResultPhoto, InlineQueryResultVideo, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultGif, InlineQueryResultCachedPhoto, SwitchInlineQueryChosenChat
 from telegram.ext import InlineQueryHandler, CallbackQueryHandler, ChosenInlineResultHandler
@@ -60,6 +61,8 @@ user_cache = TTLCache(maxsize=50000, ttl=1200)
 query_cache = LRUCache(maxsize=15000)
 count_cache = TTLCache(maxsize=30000, ttl=1800)
 feedback_cache = TTLCache(maxsize=10000, ttl=3600)
+market_cache = TTLCache(maxsize=5000, ttl=900)
+comparison_cache = TTLCache(maxsize=8000, ttl=1800)
 
 CAPS = str.maketrans(
     'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
@@ -68,12 +71,10 @@ CAPS = str.maketrans(
 
 @lru_cache(maxsize=65536)
 def sc(t: str) -> str:
-    """Small caps text transformation"""
     return t.translate(CAPS)
 
 @lru_cache(maxsize=32768)
 def parse_rar(r: str) -> Rarity:
-    """Parse rarity string into Rarity object"""
     if not r or not isinstance(r, str):
         return Rarity("🟢", "Common", 20)
     
@@ -87,15 +88,12 @@ def parse_rar(r: str) -> Rarity:
     return Rarity(parts[0] if parts else "🟢", parts[1] if len(parts) > 1 else "Common", 20)
 
 def trunc(t: str, l: int = 22) -> str:
-    """Truncate text to length l"""
     return t[:l-2] + '..' if len(t) > l else t
 
 def cache_key(*args) -> str:
-    """Generate cache key from arguments"""
     return hashlib.md5(str(args).encode()).hexdigest()
 
 async def get_user(uid: int) -> Optional[Dict]:
-    """Get user from cache or database"""
     k = f"u{uid}"
     if k in user_cache:
         return user_cache[k]
@@ -105,7 +103,6 @@ async def get_user(uid: int) -> Optional[Dict]:
     return u
 
 async def bulk_count(ids: List[str]) -> Dict[str, int]:
-    """Get ownership counts for multiple character IDs"""
     if not ids:
         return {}
     k = cache_key('bulk', tuple(sorted(ids[:150])))
@@ -126,7 +123,6 @@ async def bulk_count(ids: List[str]) -> Dict[str, int]:
     return counts
 
 async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
-    """Get top owners of a character"""
     k = f"o{cid}{lim}"
     if k in count_cache:
         return count_cache[k]
@@ -153,8 +149,124 @@ async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
     count_cache[k] = owners
     return owners
 
+async def get_rarity_distribution(cid: str) -> Dict:
+    k = f"rd{cid}"
+    if k in comparison_cache:
+        return comparison_cache[k]
+    
+    ch = await collection.find_one({'id': cid}, {'_id': 0, 'rarity': 1, 'anime': 1})
+    if not ch:
+        return {}
+    
+    same_rarity = await collection.count_documents({'rarity': ch.get('rarity')})
+    same_anime = await collection.count_documents({'anime': ch.get('anime')})
+    total_chars = await collection.count_documents({})
+    
+    result = {
+        'same_rarity': same_rarity,
+        'same_anime': same_anime,
+        'total': total_chars
+    }
+    comparison_cache[k] = result
+    return result
+
+async def get_market_value(cid: str) -> Dict:
+    k = f"mv{cid}"
+    if k in market_cache:
+        return market_cache[k]
+    
+    owners = await get_owners(cid, 200)
+    if not owners:
+        return {'value': 0, 'demand': 'low', 'supply': 'none'}
+    
+    total_owned = sum(o.get('count', 0) for o in owners)
+    unique_owners = len(owners)
+    
+    rarity_dist = await get_rarity_distribution(cid)
+    rarity_count = rarity_dist.get('same_rarity', 1)
+    
+    scarcity_score = max(1, 100 - (unique_owners / 10))
+    demand_score = min(100, total_owned / 2)
+    rarity_score = max(1, 100 - (rarity_count / 5))
+    
+    market_value = (scarcity_score * 0.4 + demand_score * 0.3 + rarity_score * 0.3)
+    
+    if market_value >= 80:
+        demand = 'extreme'
+    elif market_value >= 60:
+        demand = 'high'
+    elif market_value >= 40:
+        demand = 'medium'
+    else:
+        demand = 'low'
+    
+    if unique_owners < 5:
+        supply = 'rare'
+    elif unique_owners < 20:
+        supply = 'limited'
+    elif unique_owners < 50:
+        supply = 'moderate'
+    else:
+        supply = 'common'
+    
+    result = {
+        'value': round(market_value, 1),
+        'demand': demand,
+        'supply': supply,
+        'unique_owners': unique_owners,
+        'total_owned': total_owned
+    }
+    
+    market_cache[k] = result
+    return result
+
+async def get_character_trends(cid: str) -> Dict:
+    k = f"tr{cid}"
+    if k in feedback_cache:
+        return feedback_cache[k]
+    
+    recent_picks = feedback_cache.get(f'pick_{cid}', 0)
+    
+    owners = await get_owners(cid, 10)
+    recent_grabs = sum(1 for o in owners if o.get('count', 0) > 0)
+    
+    if recent_picks > 20 or recent_grabs > 15:
+        trend = 'rising'
+        emoji = '📈'
+    elif recent_picks > 10 or recent_grabs > 8:
+        trend = 'stable'
+        emoji = '➡️'
+    elif recent_picks > 5:
+        trend = 'growing'
+        emoji = '📊'
+    else:
+        trend = 'new'
+        emoji = '🆕'
+    
+    result = {
+        'trend': trend,
+        'emoji': emoji,
+        'picks': recent_picks,
+        'activity': recent_grabs
+    }
+    
+    feedback_cache[k] = result
+    return result
+
+async def get_anime_characters(anime: str, limit: int = 10) -> List[Dict]:
+    k = cache_key('anime', anime, limit)
+    if k in query_cache:
+        return query_cache[k]
+    
+    chars = await collection.find(
+        {'anime': anime},
+        {'_id': 0}
+    ).limit(limit).to_list(limit)
+    
+    query_cache[k] = chars
+    return chars
+
 async def search_chars(q: str, lim: int = 1000) -> List[Dict]:
-    """Search characters by query"""
     k = cache_key('search', q, lim)
     if k in query_cache:
         return query_cache[k]
@@ -178,7 +290,6 @@ async def search_chars(q: str, lim: int = 1000) -> List[Dict]:
     return chars
 
 async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
-    """Filter characters by mode"""
     if mode == 'rare':
         return [c for c in chars if parse_rar(c.get('rarity', '')).value <= 12]
     elif mode == 'video':
@@ -202,7 +313,6 @@ async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
     return chars
 
 def dedupe(chars: List[Dict]) -> List[Dict]:
-    """Remove duplicate characters by ID"""
     seen, result = set(), []
     for c in chars:
         cid = c.get('id')
@@ -212,7 +322,6 @@ def dedupe(chars: List[Dict]) -> List[Dict]:
     return result
 
 def minimal_caption(ch: Dict, is_fav: bool = False, show_stats: bool = False, stats: Dict = None) -> str:
-    """Generate minimal caption for character"""
     cid = ch.get('id', '??')
     nm = ch.get('name', 'Unknown')
     an = ch.get('anime', 'Unknown')
@@ -229,7 +338,6 @@ def minimal_caption(ch: Dict, is_fav: bool = False, show_stats: bool = False, st
     return cap
 
 def owners_caption(ch: Dict, owners: List[Dict]) -> str:
-    """Generate caption showing character owners"""
     nm = ch.get('name', 'Unknown')
     total = sum(o.get('count', 0) for o in owners)
     
@@ -244,7 +352,6 @@ def owners_caption(ch: Dict, owners: List[Dict]) -> str:
     return cap
 
 def stats_caption(ch: Dict, owners: List[Dict]) -> str:
-    """Generate statistics caption for character"""
     nm = ch.get('name', 'Unknown')
     total = sum(o.get('count', 0) for o in owners)
     avg = round(total / len(owners), 1) if owners else 0
@@ -262,12 +369,96 @@ def stats_caption(ch: Dict, owners: List[Dict]) -> str:
     
     return cap
 
+def market_caption(ch: Dict, market_data: Dict, trend_data: Dict) -> str:
+    nm = ch.get('name', 'Unknown')
+    
+    value_emoji = {
+        'extreme': '💎',
+        'high': '💰',
+        'medium': '🪙',
+        'low': '🔖'
+    }
+    
+    supply_emoji = {
+        'rare': '⭐',
+        'limited': '✨',
+        'moderate': '📦',
+        'common': '📚'
+    }
+    
+    cap = f"<b>{escape(nm)}</b>\n\n"
+    cap += f"💹 <b>ᴍᴀʀᴋᴇᴛ ᴀɴᴀʟʏsɪs</b>\n\n"
+    
+    cap += f"{value_emoji.get(market_data.get('demand', 'low'), '💰')} <b>ᴅᴇᴍᴀɴᴅ:</b> <code>{market_data.get('demand', 'low').upper()}</code>\n"
+    cap += f"{supply_emoji.get(market_data.get('supply', 'common'), '📦')} <b>sᴜᴘᴘʟʏ:</b> <code>{market_data.get('supply', 'common').upper()}</code>\n"
+    cap += f"💵 <b>ᴠᴀʟᴜᴇ sᴄᴏʀᴇ:</b> <code>{market_data.get('value', 0)}/100</code>\n"
+    cap += f"{trend_data.get('emoji', '📊')} <b>ᴛʀᴇɴᴅ:</b> <code>{trend_data.get('trend', 'stable').upper()}</code>\n\n"
+    
+    cap += f"📊 <b>ᴍᴀʀᴋᴇᴛ ᴅᴀᴛᴀ</b>\n"
+    cap += f"👥 <code>{market_data.get('unique_owners', 0)}</code> ᴜɴɪǫᴜᴇ ᴏᴡɴᴇʀs\n"
+    cap += f"📦 <code>{market_data.get('total_owned', 0)}</code> ᴛᴏᴛᴀʟ ᴄᴏᴘɪᴇs\n"
+    cap += f"🔥 <code>{trend_data.get('picks', 0)}</code> ʀᴇᴄᴇɴᴛ ᴠɪᴇᴡs\n"
+    
+    return cap
+
+def comparison_caption(ch: Dict, dist_data: Dict) -> str:
+    nm = ch.get('name', 'Unknown')
+    r = parse_rar(ch.get('rarity', ''))
+    an = ch.get('anime', 'Unknown')
+    
+    cap = f"<b>{escape(nm)}</b>\n\n"
+    cap += f"🔍 <b>ᴄᴏᴍᴘᴀʀɪsᴏɴ ᴀɴᴀʟʏsɪs</b>\n\n"
+    
+    same_rarity = dist_data.get('same_rarity', 0)
+    same_anime = dist_data.get('same_anime', 0)
+    total = dist_data.get('total', 1)
+    
+    rarity_percent = round((same_rarity / total) * 100, 1) if total > 0 else 0
+    anime_percent = round((same_anime / total) * 100, 1) if total > 0 else 0
+    
+    cap += f"{r.emoji} <b>ʀᴀʀɪᴛʏ ᴄʟᴀss:</b> <code>{r.name}</code>\n"
+    cap += f"📊 <code>{same_rarity}</code> ᴄʜᴀʀs (<code>{rarity_percent}%</code>)\n\n"
+    
+    cap += f"📺 <b>ᴀɴɪᴍᴇ:</b> <code>{trunc(an, 25)}</code>\n"
+    cap += f"📊 <code>{same_anime}</code> ᴄʜᴀʀs (<code>{anime_percent}%</code>)\n\n"
+    
+    if rarity_percent < 5:
+        cap += "⭐ <i>ᴇxᴛʀᴇᴍᴇʟʏ ʀᴀʀᴇ ᴄʟᴀss!</i>\n"
+    elif rarity_percent < 15:
+        cap += "✨ <i>ʀᴀʀᴇ ᴄʟᴀss!</i>\n"
+    
+    cap += f"\n🌐 <b>ᴛᴏᴛᴀʟ ᴅᴀᴛᴀʙᴀsᴇ:</b> <code>{total}</code> ᴄʜᴀʀs"
+    
+    return cap
+
+def anime_list_caption(anime: str, chars: List[Dict]) -> str:
+    cap = f"<b>📺 {escape(trunc(anime, 35))}</b>\n\n"
+    cap += f"🎭 <b>{len(chars)}</b> ᴄʜᴀʀᴀᴄᴛᴇʀs ᴀᴠᴀɪʟᴀʙʟᴇ\n\n"
+    
+    rarity_counts = {}
+    for c in chars:
+        r = parse_rar(c.get('rarity', ''))
+        rarity_counts[r.name] = rarity_counts.get(r.name, 0) + 1
+    
+    sorted_rarities = sorted(rarity_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    for rarity, count in sorted_rarities[:5]:
+        r_obj = parse_rar(rarity)
+        cap += f"{r_obj.emoji} <code>{count}×</code> {rarity}\n"
+    
+    return cap
+
 def create_inline_keyboard(cid: str, show_share_options: bool = True) -> InlineKeyboardMarkup:
-    """Create inline keyboard for character card"""
-    buttons = [[
-        InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}"),
-        InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}")
-    ]]
+    buttons = [
+        [
+            InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}"),
+            InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}")
+        ],
+        [
+            InlineKeyboardButton("💹 ᴍᴀʀᴋᴇᴛ", callback_data=f"m.{cid}"),
+            InlineKeyboardButton("🔍 ᴄᴏᴍᴘᴀʀᴇ", callback_data=f"c.{cid}")
+        ]
+    ]
     
     if show_share_options:
         buttons.append([
@@ -281,14 +472,10 @@ def create_inline_keyboard(cid: str, show_share_options: bool = True) -> InlineK
                 )
             )
         ])
-        buttons.append([
-            InlineKeyboardButton("🔍 sᴇᴀʀᴄʜ sɪᴍɪʟᴀʀ", switch_inline_query_current_chat=f"{cid} ")
-        ])
     
     return InlineKeyboardMarkup(buttons)
 
 async def inlinequery(update: Update, context) -> None:
-    """Handle inline queries"""
     q = update.inline_query.query
     off = int(update.inline_query.offset) if update.inline_query.offset else 0
     uid = update.inline_query.from_user.id
@@ -468,31 +655,25 @@ async def inlinequery(update: Update, context) -> None:
         await update.inline_query.answer([], cache_time=5)
 
 async def chosen_inline_result(update: Update, context) -> None:
-    """Track chosen inline results for trending"""
     result = update.chosen_inline_result
     cid = result.result_id
     
-    # Extract clean character ID
     cid_parts = cid.split('][')
     if cid_parts:
         cid_clean = cid_parts[0][:20]
     else:
         cid_clean = cid[:20]
     
-    # Filter to alphanumeric
     cid_clean = ''.join(filter(str.isalnum, cid_clean))
     
-    # Track in feedback cache
     feedback_key = f'pick_{cid_clean}'
     current_count = feedback_cache.get(feedback_key, 0)
     feedback_cache[feedback_key] = current_count + 1
     
-    # Store user query
     query_key = f'query_{result.from_user.id}'
     feedback_cache[query_key] = result.query
 
 async def show_owners(update: Update, context) -> None:
-    """Show owners of a character"""
     q = update.callback_query
     await q.answer()
     
@@ -517,6 +698,10 @@ async def show_owners(update: Update, context) -> None:
                 InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}")
             ],
             [
+                InlineKeyboardButton("💹 ᴍᴀʀᴋᴇᴛ", callback_data=f"m.{cid}"),
+                InlineKeyboardButton("🔍 ᴄᴏᴍᴘᴀʀᴇ", callback_data=f"c.{cid}")
+            ],
+            [
                 InlineKeyboardButton(
                     "📤 sʜᴀʀᴇ",
                     switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
@@ -537,7 +722,6 @@ async def show_owners(update: Update, context) -> None:
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
 async def back_card(update: Update, context) -> None:
-    """Go back to character card view"""
     q = update.callback_query
     await q.answer()
     
@@ -560,7 +744,6 @@ async def back_card(update: Update, context) -> None:
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
 async def show_stats(update: Update, context) -> None:
-    """Show character statistics"""
     q = update.callback_query
     await q.answer()
     
@@ -579,6 +762,10 @@ async def show_stats(update: Update, context) -> None:
             [
                 InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"b.{cid}"),
                 InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}")
+            ],
+            [
+                InlineKeyboardButton("💹 ᴍᴀʀᴋᴇᴛ", callback_data=f"m.{cid}"),
+                InlineKeyboardButton("🔍 ᴄᴏᴍᴘᴀʀᴇ", callback_data=f"c.{cid}")
             ],
             [
                 InlineKeyboardButton(
@@ -600,9 +787,162 @@ async def show_stats(update: Update, context) -> None:
         traceback.print_exc()
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
-#muthiii on topppp
+async def show_market(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer("📊 ᴀɴᴀʟʏᴢɪɴɢ ᴍᴀʀᴋᴇᴛ...")
+    
+    try:
+        cid = q.data.split('.', 1)[1]
+        ch = await collection.find_one({'id': cid}, {'_id': 0})
+        
+        if not ch:
+            await q.answer("❌ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+            return
+        
+        market_data = await get_market_value(cid)
+        trend_data = await get_character_trends(cid)
+        
+        cap = market_caption(ch, market_data, trend_data)
+        
+        kbd = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"b.{cid}"),
+                InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}")
+            ],
+            [
+                InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}"),
+                InlineKeyboardButton("🔍 ᴄᴏᴍᴘᴀʀᴇ", callback_data=f"c.{cid}")
+            ],
+            [
+                InlineKeyboardButton(
+                    "📤 sʜᴀʀᴇ",
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                        query=cid,
+                        allow_user_chats=True,
+                        allow_group_chats=True,
+                        allow_channel_chats=False
+                    )
+                )
+            ]
+        ])
+        
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
+
+async def show_comparison(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer("🔍 ᴄᴏᴍᴘᴀʀɪɴɢ ᴅᴀᴛᴀ...")
+    
+    try:
+        cid = q.data.split('.', 1)[1]
+        ch = await collection.find_one({'id': cid}, {'_id': 0})
+        
+        if not ch:
+            await q.answer("❌ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+            return
+        
+        dist_data = await get_rarity_distribution(cid)
+        cap = comparison_caption(ch, dist_data)
+        
+        anime = ch.get('anime', '')
+        anime_kbd = []
+        if anime:
+            anime_kbd = [
+                InlineKeyboardButton(
+                    f"📺 ᴠɪᴇᴡ {trunc(anime, 15)}",
+                    callback_data=f"a.{cid}"
+                )
+            ]
+        
+        buttons = [
+            [
+                InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"b.{cid}"),
+                InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}")
+            ],
+            [
+                InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}"),
+                InlineKeyboardButton("💹 ᴍᴀʀᴋᴇᴛ", callback_data=f"m.{cid}")
+            ]
+        ]
+        
+        if anime_kbd:
+            buttons.append(anime_kbd)
+        
+        buttons.append([
+            InlineKeyboardButton(
+                "📤 sʜᴀʀᴇ",
+                switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                    query=cid,
+                    allow_user_chats=True,
+                    allow_group_chats=True,
+                    allow_channel_chats=False
+                )
+            )
+        ])
+        
+        kbd = InlineKeyboardMarkup(buttons)
+        
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
+
+async def show_anime_chars(update: Update, context) -> None:
+    q = update.callback_query
+    await q.answer("🎭 ʟᴏᴀᴅɪɴɢ ᴀɴɪᴍᴇ...")
+    
+    try:
+        cid = q.data.split('.', 1)[1]
+        ch = await collection.find_one({'id': cid}, {'_id': 0})
+        
+        if not ch:
+            await q.answer("❌ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+            return
+        
+        anime = ch.get('anime', '')
+        if not anime:
+            await q.answer("❌ ɴᴏ ᴀɴɪᴍᴇ ᴅᴀᴛᴀ", show_alert=True)
+            return
+        
+        anime_chars = await get_anime_characters(anime, 20)
+        cap = anime_list_caption(anime, anime_chars)
+        
+        kbd = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("⬅️ ʙᴀᴄᴋ", callback_data=f"c.{cid}"),
+                InlineKeyboardButton("🔍 ʙʀᴏᴡsᴇ", switch_inline_query_current_chat=anime)
+            ],
+            [
+                InlineKeyboardButton(
+                    "📤 sʜᴀʀᴇ",
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                        query=anime,
+                        allow_user_chats=True,
+                        allow_group_chats=True,
+                        allow_channel_chats=False
+                    )
+                )
+            ]
+        ])
+        
+        await q.edit_message_caption(caption=cap, parse_mode=ParseMode.HTML, reply_markup=kbd)
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
+
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
 application.add_handler(ChosenInlineResultHandler(chosen_inline_result, block=False))
 application.add_handler(CallbackQueryHandler(show_owners, pattern=r'^o\.', block=False))
 application.add_handler(CallbackQueryHandler(back_card, pattern=r'^b\.', block=False))
 application.add_handler(CallbackQueryHandler(show_stats, pattern=r'^s\.', block=False))
+application.add_handler(CallbackQueryHandler(show_market, pattern=r'^m\.', block=False))
+application.add_handler(CallbackQueryHandler(show_comparison, pattern=r'^c\.', block=False))
+application.add_handler(CallbackQueryHandler(show_anime_chars, pattern=r'^a\.', block=False))
