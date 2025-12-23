@@ -52,8 +52,8 @@ try:
     collection.create_index([('name', TEXT), ('anime', TEXT)], background=True)
     user_collection.create_index([('id', ASCENDING)], unique=True, background=True)
     user_collection.create_index([('characters.id', ASCENDING)], background=True, sparse=True)
-except:
-    pass
+except Exception as e:
+    print(f"Index creation warning: {e}")
 
 char_cache = TTLCache(maxsize=80000, ttl=2400)
 user_cache = TTLCache(maxsize=50000, ttl=1200)
@@ -68,10 +68,12 @@ CAPS = str.maketrans(
 
 @lru_cache(maxsize=65536)
 def sc(t: str) -> str:
+    """Small caps text transformation"""
     return t.translate(CAPS)
 
 @lru_cache(maxsize=32768)
 def parse_rar(r: str) -> Rarity:
+    """Parse rarity string into Rarity object"""
     if not r or not isinstance(r, str):
         return Rarity("🟢", "Common", 20)
     
@@ -85,12 +87,15 @@ def parse_rar(r: str) -> Rarity:
     return Rarity(parts[0] if parts else "🟢", parts[1] if len(parts) > 1 else "Common", 20)
 
 def trunc(t: str, l: int = 22) -> str:
+    """Truncate text to length l"""
     return t[:l-2] + '..' if len(t) > l else t
 
 def cache_key(*args) -> str:
+    """Generate cache key from arguments"""
     return hashlib.md5(str(args).encode()).hexdigest()
 
 async def get_user(uid: int) -> Optional[Dict]:
+    """Get user from cache or database"""
     k = f"u{uid}"
     if k in user_cache:
         return user_cache[k]
@@ -100,6 +105,7 @@ async def get_user(uid: int) -> Optional[Dict]:
     return u
 
 async def bulk_count(ids: List[str]) -> Dict[str, int]:
+    """Get ownership counts for multiple character IDs"""
     if not ids:
         return {}
     k = cache_key('bulk', tuple(sorted(ids[:150])))
@@ -120,6 +126,7 @@ async def bulk_count(ids: List[str]) -> Dict[str, int]:
     return counts
 
 async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
+    """Get top owners of a character"""
     k = f"o{cid}{lim}"
     if k in count_cache:
         return count_cache[k]
@@ -147,6 +154,7 @@ async def get_owners(cid: str, lim: int = 100) -> List[Dict]:
     return owners
 
 async def search_chars(q: str, lim: int = 1000) -> List[Dict]:
+    """Search characters by query"""
     k = cache_key('search', q, lim)
     if k in query_cache:
         return query_cache[k]
@@ -170,6 +178,7 @@ async def search_chars(q: str, lim: int = 1000) -> List[Dict]:
     return chars
 
 async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
+    """Filter characters by mode"""
     if mode == 'rare':
         return [c for c in chars if parse_rar(c.get('rarity', '')).value <= 12]
     elif mode == 'video':
@@ -193,6 +202,7 @@ async def filter_chars(chars: List[Dict], mode: str) -> List[Dict]:
     return chars
 
 def dedupe(chars: List[Dict]) -> List[Dict]:
+    """Remove duplicate characters by ID"""
     seen, result = set(), []
     for c in chars:
         cid = c.get('id')
@@ -202,6 +212,7 @@ def dedupe(chars: List[Dict]) -> List[Dict]:
     return result
 
 def minimal_caption(ch: Dict, is_fav: bool = False, show_stats: bool = False, stats: Dict = None) -> str:
+    """Generate minimal caption for character"""
     cid = ch.get('id', '??')
     nm = ch.get('name', 'Unknown')
     an = ch.get('anime', 'Unknown')
@@ -218,6 +229,7 @@ def minimal_caption(ch: Dict, is_fav: bool = False, show_stats: bool = False, st
     return cap
 
 def owners_caption(ch: Dict, owners: List[Dict]) -> str:
+    """Generate caption showing character owners"""
     nm = ch.get('name', 'Unknown')
     total = sum(o.get('count', 0) for o in owners)
     
@@ -232,6 +244,7 @@ def owners_caption(ch: Dict, owners: List[Dict]) -> str:
     return cap
 
 def stats_caption(ch: Dict, owners: List[Dict]) -> str:
+    """Generate statistics caption for character"""
     nm = ch.get('name', 'Unknown')
     total = sum(o.get('count', 0) for o in owners)
     avg = round(total / len(owners), 1) if owners else 0
@@ -250,6 +263,7 @@ def stats_caption(ch: Dict, owners: List[Dict]) -> str:
     return cap
 
 def create_inline_keyboard(cid: str, show_share_options: bool = True) -> InlineKeyboardMarkup:
+    """Create inline keyboard for character card"""
     buttons = [[
         InlineKeyboardButton("👥 ᴏᴡɴᴇʀs", callback_data=f"o.{cid}"),
         InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data=f"s.{cid}")
@@ -274,6 +288,7 @@ def create_inline_keyboard(cid: str, show_share_options: bool = True) -> InlineK
     return InlineKeyboardMarkup(buttons)
 
 async def inlinequery(update: Update, context) -> None:
+    """Handle inline queries"""
     q = update.inline_query.query
     off = int(update.inline_query.offset) if update.inline_query.offset else 0
     uid = update.inline_query.from_user.id
@@ -305,11 +320,6 @@ async def inlinequery(update: Update, context) -> None:
             usr = await get_user(target_uid)
             
             if not usr:
-                button_data = {
-                    "text": "🎮 sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ",
-                    "start_parameter": "start_collecting"
-                }
-                
                 await update.inline_query.answer([
                     InlineQueryResultArticle(
                         id="nouser",
@@ -321,7 +331,7 @@ async def inlinequery(update: Update, context) -> None:
                             parse_mode=ParseMode.HTML
                         )
                     )
-                ], button=button_data, cache_time=5)
+                ], cache_time=5)
                 return
             
             char_dict = {}
@@ -458,24 +468,36 @@ async def inlinequery(update: Update, context) -> None:
         await update.inline_query.answer([], cache_time=5)
 
 async def chosen_inline_result(update: Update, context) -> None:
+    """Track chosen inline results for trending"""
     result = update.chosen_inline_result
-    cid = result.result_id.split('][')[0] if '][' in result.result_id else result.result_id[:20]
+    cid = result.result_id
     
-    cid_clean = ''.join(filter(str.isalnum, cid))
+    # Extract clean character ID
+    cid_parts = cid.split('][')
+    if cid_parts:
+        cid_clean = cid_parts[0][:20]
+    else:
+        cid_clean = cid[:20]
     
+    # Filter to alphanumeric
+    cid_clean = ''.join(filter(str.isalnum, cid_clean))
+    
+    # Track in feedback cache
     feedback_key = f'pick_{cid_clean}'
     current_count = feedback_cache.get(feedback_key, 0)
     feedback_cache[feedback_key] = current_count + 1
     
+    # Store user query
     query_key = f'query_{result.from_user.id}'
     feedback_cache[query_key] = result.query
 
 async def show_owners(update: Update, context) -> None:
+    """Show owners of a character"""
     q = update.callback_query
     await q.answer()
     
     try:
-        cid = q.data.split('.')[1]
+        cid = q.data.split('.', 1)[1]
         ch = await collection.find_one({'id': cid}, {'_id': 0})
         
         if not ch:
@@ -515,11 +537,12 @@ async def show_owners(update: Update, context) -> None:
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
 async def back_card(update: Update, context) -> None:
+    """Go back to character card view"""
     q = update.callback_query
     await q.answer()
     
     try:
-        cid = q.data.split('.')[1]
+        cid = q.data.split('.', 1)[1]
         ch = await collection.find_one({'id': cid}, {'_id': 0})
         
         if not ch:
@@ -537,11 +560,12 @@ async def back_card(update: Update, context) -> None:
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
 async def show_stats(update: Update, context) -> None:
+    """Show character statistics"""
     q = update.callback_query
     await q.answer()
     
     try:
-        cid = q.data.split('.')[1]
+        cid = q.data.split('.', 1)[1]
         ch = await collection.find_one({'id': cid}, {'_id': 0})
         
         if not ch:
@@ -576,6 +600,7 @@ async def show_stats(update: Update, context) -> None:
         traceback.print_exc()
         await q.answer("❌ ᴇʀʀᴏʀ", show_alert=True)
 
+#muthiii on topppp
 application.add_handler(InlineQueryHandler(inlinequery, block=False))
 application.add_handler(ChosenInlineResultHandler(chosen_inline_result, block=False))
 application.add_handler(CallbackQueryHandler(show_owners, pattern=r'^o\.', block=False))
