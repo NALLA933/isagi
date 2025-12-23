@@ -6,6 +6,7 @@ from cachetools import TTLCache
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, TelegramError
 
 from shivu import application, collection, user_collection
 
@@ -475,20 +476,95 @@ class MediaSender:
         caption: str,
         keyboard: InlineKeyboardMarkup
     ) -> None:
-        if character.is_video:
-            await update.message.reply_video(
-                video=character.img_url,
+        """Send character media with proper error handling"""
+        try:
+            # Check if URL is valid
+            if not character.img_url or character.img_url.strip() == '':
+                raise ValueError("Empty or invalid media URL")
+            
+            if character.is_video:
+                await update.message.reply_video(
+                    video=character.img_url,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_photo(
+                    photo=character.img_url,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+        
+        except BadRequest as e:
+            # Telegram-specific errors (wrong file type, invalid URL, etc.)
+            print(f"BadRequest error sending media for {character.id}: {e}")
+            error_msg = (
+                f"<b>⚠️ ᴍᴇᴅɪᴀ ʟᴏᴀᴅ ᴇʀʀᴏʀ</b>\n\n"
+                f"{caption}\n\n"
+                f"<b>❌ ᴇʀʀᴏʀ:</b> <i>{escape(str(e))}</i>\n"
+                f"<b>🔗 ᴜʀʟ:</b> <code>{escape(character.img_url[:100])}...</code>\n\n"
+                f"<i>💡 ᴛʜᴇ ᴍᴇᴅɪᴀ ᴜʀʟ ᴍᴀʏ ʙᴇ ɪɴᴠᴀʟɪᴅ ᴏʀ ᴇxᴘɪʀᴇᴅ</i>"
+            )
+            await update.message.reply_text(
+                text=error_msg,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        
+        except TelegramError as e:
+            # Other Telegram errors
+            print(f"TelegramError sending media for {character.id}: {e}")
+            error_msg = (
+                f"<b>⚠️ ᴛᴇʟᴇɢʀᴀᴍ ᴇʀʀᴏʀ</b>\n\n"
+                f"{caption}\n\n"
+                f"<b>❌ ᴇʀʀᴏʀ:</b> <i>{escape(str(e))}</i>\n\n"
+                f"<i>💡 ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ</i>"
+            )
+            await update.message.reply_text(
+                text=error_msg,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+        
+        except Exception as e:
+            # Generic errors
+            print(f"Unexpected error sending media for {character.id}: {e}")
+            error_msg = (
+                f"<b>⚠️ ᴜɴᴇxᴘᴇᴄᴛᴇᴅ ᴇʀʀᴏʀ</b>\n\n"
+                f"{caption}\n\n"
+                f"<b>❌ ᴇʀʀᴏʀ:</b> <code>{escape(str(e))}</code>"
+            )
+            await update.message.reply_text(
+                text=error_msg,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+    
+    @staticmethod
+    async def edit(
+        query,
+        character: CharacterData,
+        caption: str,
+        keyboard: InlineKeyboardMarkup
+    ) -> None:
+        """Edit message media with proper error handling"""
+        try:
+            await query.edit_message_caption(
                 caption=caption,
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML
             )
-        else:
-            await update.message.reply_photo(
-                photo=character.img_url,
-                caption=caption,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML
-            )
+        
+        except BadRequest as e:
+            print(f"BadRequest error editing caption for {character.id}: {e}")
+            await query.answer(f"❌ ᴇʀʀᴏʀ: {str(e)[:50]}", show_alert=True)
+        
+        except Exception as e:
+            print(f"Error editing caption for {character.id}: {e}")
+            await query.answer("❌ ᴇʀʀᴏʀ ᴜᴘᴅᴀᴛɪɴɢ ᴍᴇssᴀɢᴇ", show_alert=True)
 
 
 async def check_character(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -724,11 +800,7 @@ async def handle_owners_pagination(update: Update, context: ContextTypes.DEFAULT
         caption = CardFormatter.format_owners_card(character, owners, page, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, page, total_pages, show_back=True)
 
-        await query.edit_message_caption(
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
+        await MediaSender.edit(query, character, caption, keyboard)
 
     except Exception as e:
         print(f"Error in pagination: {e}")
@@ -750,11 +822,7 @@ async def handle_back_to_card(update: Update, context: ContextTypes.DEFAULT_TYPE
         caption = CardFormatter.format_basic_card(character, global_count)
         keyboard = KeyboardBuilder.build_pagination(character_id, 0, 1)
 
-        await query.edit_message_caption(
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML
-        )
+        await MediaSender.edit(query, character, caption, keyboard)
 
     except Exception as e:
         print(f"Error going back: {e}")
