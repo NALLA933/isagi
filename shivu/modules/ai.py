@@ -1,6 +1,6 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Tuple
 import asyncio
 from functools import wraps
 import logging
@@ -20,7 +20,7 @@ SUDO_USERS = {"8297659126", "8420981179", "5147822244"}
 logger = logging.getLogger(__name__)
 IST = pytz.timezone('Asia/Kolkata')
 
-def get_ist_now():
+def get_ist_now() -> datetime:
     return datetime.now(IST)
 
 def typing_action(func):
@@ -31,6 +31,15 @@ def typing_action(func):
                 await update.message.chat.send_action(ChatAction.TYPING)
         except:
             pass
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+def sudo_required(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+        if str(update.effective_user.id) not in SUDO_USERS:
+            await update.message.reply_text("⛔️ ᴀᴜᴛʜᴏʀɪᴢᴀᴛɪᴏɴ ʀᴇǫᴜɪʀᴇᴅ")
+            return
         return await func(update, context, *args, **kwargs)
     return wrapper
 
@@ -53,7 +62,7 @@ class Character:
         )
 
     @property
-    def is_video(self):
+    def is_video(self) -> bool:
         return self.rarity == "🎥 AMV"
 
 @dataclass
@@ -69,6 +78,7 @@ class Auction:
     bid_count: int
     bid_increment: int = 100
     chat_id: Optional[int] = None
+    auto_extend: bool = True
 
     @classmethod
     def from_db(cls, data: dict):
@@ -91,26 +101,28 @@ class Auction:
             created_by=data.get('created_by', 0),
             bid_count=data.get('bid_count', 0),
             bid_increment=data.get('bid_increment', 100),
-            chat_id=data.get('chat_id')
+            chat_id=data.get('chat_id'),
+            auto_extend=data.get('auto_extend', True)
         )
 
     @property
-    def time_remaining(self):
+    def time_remaining(self) -> timedelta:
         return self.end_time - get_ist_now()
 
     @property
-    def is_active(self):
+    def is_active(self) -> bool:
         return self.status == "active" and get_ist_now() < self.end_time
 
     @property
-    def min_next_bid(self):
-        return self.current_bid + max(self.bid_increment, int(self.current_bid * 0.05))
+    def min_next_bid(self) -> int:
+        increment = max(self.bid_increment, int(self.current_bid * 0.05))
+        return self.current_bid + increment
 
     @property
-    def is_ending_soon(self):
-        return self.time_remaining.total_seconds() < 300
+    def is_ending_soon(self) -> bool:
+        return 0 < self.time_remaining.total_seconds() < 300
 
-    def format_time_left(self):
+    def format_time_left(self) -> str:
         if not self.is_active:
             return "⏰ ᴇɴᴅᴇᴅ"
         
@@ -123,13 +135,13 @@ class Auction:
         d, h, m = s // 86400, (s % 86400) // 3600, (s % 3600) // 60
         
         if d > 0:
-            return f"🕐 {d}ᴅ {h}ʜ"
+            return f"🕐 {d}ᴅ {h}ʜ {m}ᴍ"
         elif h > 0:
             return f"🕐 {h}ʜ {m}ᴍ"
-        elif m > 0:
-            return f"🕐 {m}ᴍ {s % 60}ꜱ"
+        elif m > 5:
+            return f"🕐 {m}ᴍ"
         else:
-            return f"⚡ {s}ꜱ"
+            return f"⚡ {m}ᴍ {s % 60}ꜱ"
 
 @dataclass
 class Bid:
@@ -155,38 +167,71 @@ class Bid:
 
 class AuctionUI:
     @staticmethod
-    def build_caption(character, auction, top_bidders=None):
-        status = "🔥 ᴇɴᴅɪɴɢ ꜱᴏᴏɴ!" if auction.is_ending_soon else "✅ ᴀᴄᴛɪᴠᴇ"
+    def build_caption(character: Character, auction: Auction, top_bidders: Optional[List[Bid]] = None) -> str:
+        status_emoji = "🔥" if auction.is_ending_soon else "✅"
+        status_text = "ᴇɴᴅɪɴɢ ꜱᴏᴏɴ!" if auction.is_ending_soon else "ᴀᴄᴛɪᴠᴇ"
         
         lines = [
-            "🔨 <b>ʟɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n",
-            f"<b>{status}</b>\n",
+            "━━━━━━━━━━━━━━━━",
+            f"🔨 <b>ʟɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>",
+            f"{status_emoji} <b>{status_text}</b>",
+            "━━━━━━━━━━━━━━━━\n",
             f"✨ <b>{character.name}</b>",
             f"🎭 <code>{character.anime}</code>\n",
-            f"💰 ᴄᴜʀʀᴇɴᴛ ʙɪᴅ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ",
-            f"📊 ɴᴇxᴛ ᴍɪɴ: <code>{auction.min_next_bid:,}</code> ɢᴏʟᴅ",
+            f"💰 ᴄᴜʀʀᴇɴᴛ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ",
+            f"📊 ᴍɪɴɪᴍᴜᴍ: <code>{auction.min_next_bid:,}</code>",
             f"🔨 ᴛᴏᴛᴀʟ ʙɪᴅꜱ: <code>{auction.bid_count}</code>",
             f"\n{auction.format_time_left()}\n"
         ]
         
         if auction.highest_bidder:
-            lines.append(f"👑 ʟᴇᴀᴅᴇʀ: <code>ᴜꜱᴇʀ {auction.highest_bidder}</code>\n")
+            lines.append(f"👑 ʟᴇᴀᴅᴇʀ: <code>{auction.highest_bidder}</code>\n")
         else:
-            lines.append("👑 ɴᴏ ʙɪᴅꜱ ʏᴇᴛ!\n")
+            lines.append("👑 ɴᴏ ʙɪᴅꜱ ʏᴇᴛ\n")
         
-        if top_bidders and len(top_bidders) > 1:
-            lines.append("<b>🏆 ᴛᴏᴘ ʙɪᴅᴅᴇʀꜱ:</b>")
+        if top_bidders and len(top_bidders) > 0:
+            lines.append("━━━━━━━━━━━━━━━━")
+            lines.append("<b>🏆 ᴛᴏᴘ ʙɪᴅᴅᴇʀꜱ</b>")
             for i, bid in enumerate(top_bidders[:3], 1):
                 medal = ["🥇", "🥈", "🥉"][i-1]
                 lines.append(f"{medal} {bid.amount:,} ɢᴏʟᴅ")
-            lines.append("")
+            lines.append("━━━━━━━━━━━━━━━━\n")
+        
+        quick_bids = [
+            auction.min_next_bid,
+            auction.min_next_bid + auction.bid_increment,
+            auction.min_next_bid + (auction.bid_increment * 2)
+        ]
         
         lines.extend([
-            "💬 <b>ǫᴜɪᴄᴋ ʙɪᴅ:</b>",
-            f"<code>/bid {auction.min_next_bid}</code>",
-            f"<code>/bid {auction.min_next_bid + auction.bid_increment}</code>",
-            f"<code>/bid {auction.min_next_bid + (auction.bid_increment * 2)}</code>"
+            "💬 <b>ǫᴜɪᴄᴋ ʙɪᴅ</b>",
+            " • ".join([f"<code>/bid {b}</code>" for b in quick_bids])
         ])
+        
+        return "\n".join(lines)
+
+    @staticmethod
+    def build_stats_message(auction: Auction, character: Character, top_bidders: List[Bid]) -> str:
+        lines = [
+            "━━━━━━━━━━━━━━━━",
+            "📊 <b>ᴀᴜᴄᴛɪᴏɴ ꜱᴛᴀᴛɪꜱᴛɪᴄꜱ</b>",
+            "━━━━━━━━━━━━━━━━\n",
+            f"✨ <b>{character.name}</b>",
+            f"🎭 {character.anime}\n",
+            f"💰 ᴄᴜʀʀᴇɴᴛ: <b>{auction.current_bid:,}</b>",
+            f"📈 ɴᴇxᴛ ᴍɪɴ: <code>{auction.min_next_bid:,}</code>",
+            f"🔨 ᴛᴏᴛᴀʟ ʙɪᴅꜱ: <code>{auction.bid_count}</code>",
+            f"⏱ {auction.format_time_left()}\n"
+        ]
+        
+        if top_bidders:
+            lines.append("━━━━━━━━━━━━━━━━")
+            lines.append("<b>🏆 ᴛᴏᴘ ʙɪᴅᴅᴇʀꜱ</b>\n")
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+            for i, bid in enumerate(top_bidders[:5], 1):
+                medal = medals[i-1] if i <= 5 else "•"
+                lines.append(f"{medal} <b>{bid.amount:,}</b> • {bid.user_name}")
+            lines.append("━━━━━━━━━━━━━━━━")
         
         return "\n".join(lines)
 
@@ -194,16 +239,21 @@ class AuctionManager:
     _lock = asyncio.Lock()
 
     @staticmethod
-    async def is_sudo(user_id: int):
-        return str(user_id) in SUDO_USERS
+    async def get_active_auction() -> Optional[dict]:
+        return await auction_collection.find_one({
+            "status": "active",
+            "end_time": {"$gt": get_ist_now()}
+        })
 
     @staticmethod
-    async def get_active_auction():
-        return await auction_collection.find_one({"status": "active", "end_time": {"$gt": get_ist_now()}})
-
-    @staticmethod
-    async def create_auction(char_id: str, starting_bid: int, duration_hours: int, 
-                           created_by: int, chat_id: int, bid_increment: int = 100):
+    async def create_auction(
+        char_id: str,
+        starting_bid: int,
+        duration_hours: int,
+        created_by: int,
+        chat_id: int,
+        bid_increment: int = 100
+    ) -> Tuple[bool, str]:
         try:
             character = await collection.find_one({"id": char_id})
             if not character:
@@ -212,6 +262,12 @@ class AuctionManager:
             active = await AuctionManager.get_active_auction()
             if active:
                 return False, "⚠️ ᴀɴᴏᴛʜᴇʀ ᴀᴜᴄᴛɪᴏɴ ɪꜱ ᴀᴄᴛɪᴠᴇ"
+
+            if starting_bid < 100:
+                return False, "⚠️ ᴍɪɴɪᴍᴜᴍ ꜱᴛᴀʀᴛɪɴɢ ʙɪᴅ: 100"
+
+            if duration_hours < 1 or duration_hours > 168:
+                return False, "⚠️ ᴅᴜʀᴀᴛɪᴏɴ ᴍᴜꜱᴛ ʙᴇ 1-168 ʜᴏᴜʀꜱ"
 
             start_time = get_ist_now()
             auction_data = {
@@ -226,17 +282,18 @@ class AuctionManager:
                 "created_by": created_by,
                 "chat_id": chat_id,
                 "bid_count": 0,
-                "bid_increment": bid_increment
+                "bid_increment": bid_increment,
+                "auto_extend": True
             }
 
             await auction_collection.insert_one(auction_data)
-            return True, f"✅ ᴀᴜᴄᴛɪᴏɴ ꜱᴛᴀʀᴛᴇᴅ ꜰᴏʀ {character['name']}"
+            return True, f"✅ ᴀᴜᴄᴛɪᴏɴ ꜱᴛᴀʀᴛᴇᴅ ꜰᴏʀ <b>{character['name']}</b>"
         except Exception as e:
-            logger.error(f"Error creating auction: {e}")
-            return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}"
+            logger.error(f"Create auction error: {e}")
+            return False, "⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ᴄʀᴇᴀᴛᴇ ᴀᴜᴄᴛɪᴏɴ"
 
     @staticmethod
-    async def place_bid(user_id: int, amount: int, user_name: str = "Anonymous"):
+    async def place_bid(user_id: int, amount: int, user_name: str = "Anonymous") -> Tuple[bool, str, Optional[int]]:
         async with AuctionManager._lock:
             try:
                 auction_data = await AuctionManager.get_active_auction()
@@ -249,14 +306,14 @@ class AuctionManager:
                     return False, "⏰ ᴀᴜᴄᴛɪᴏɴ ʜᴀꜱ ᴇɴᴅᴇᴅ", None
 
                 if user_id == auction.highest_bidder:
-                    return False, "👑 ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ʜɪɢʜᴇꜱᴛ ʙɪᴅᴅᴇʀ!", None
+                    return False, "👑 ʏᴏᴜ'ʀᴇ ᴀʟʀᴇᴀᴅʏ ᴡɪɴɴɪɴɢ", None
 
                 if amount < auction.min_next_bid:
-                    return False, f"⚠️ ᴍɪɴɪᴍᴜᴍ ʙɪᴅ: <b>{auction.min_next_bid:,}</b> ɢᴏʟᴅ", None
+                    return False, f"⚠️ ᴍɪɴɪᴍᴜᴍ: <b>{auction.min_next_bid:,}</b> ɢᴏʟᴅ", None
 
                 user_data = await user_collection.find_one({"id": user_id})
                 if not user_data:
-                    return False, "⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ", None
+                    return False, "⚠️ ᴜꜱᴇʀ ɴᴏᴛ ʀᴇɢɪꜱᴛᴇʀᴇᴅ", None
 
                 balance = user_data.get("balance", 0)
                 reserved = user_data.get("auction_reserved", 0)
@@ -284,22 +341,21 @@ class AuctionManager:
                     {"$inc": {"auction_reserved": amount}}
                 )
 
-                if auction.is_ending_soon:
-                    new_end = get_ist_now() + timedelta(minutes=5)
-                    if new_end > auction.end_time:
-                        await auction_collection.update_one(
-                            {"_id": auction_data["_id"]},
-                            {"$set": {"end_time": new_end}}
-                        )
+                update_data = {
+                    "current_bid": amount,
+                    "highest_bidder": user_id,
+                    "previous_bidder": previous_bidder
+                }
+
+                if auction.auto_extend and auction.is_ending_soon:
+                    extension_time = get_ist_now() + timedelta(minutes=5)
+                    if extension_time > auction.end_time:
+                        update_data["end_time"] = extension_time
 
                 await auction_collection.update_one(
                     {"_id": auction_data["_id"]},
                     {
-                        "$set": {
-                            "current_bid": amount,
-                            "highest_bidder": user_id,
-                            "previous_bidder": previous_bidder
-                        },
+                        "$set": update_data,
                         "$inc": {"bid_count": 1}
                     }
                 )
@@ -312,14 +368,13 @@ class AuctionManager:
                     "timestamp": get_ist_now()
                 })
 
-                msg = f"✅ <b>ʙɪᴅ ᴘʟᴀᴄᴇᴅ!</b>\n\n💰 ʏᴏᴜʀ ʙɪᴅ: <b>{amount:,}</b> ɢᴏʟᴅ\n👑 ʏᴏᴜ'ʀᴇ ɴᴏᴡ ʟᴇᴀᴅɪɴɢ!"
-                return True, msg, previous_bidder
+                return True, f"✅ <b>ʙɪᴅ ᴘʟᴀᴄᴇᴅ</b>\n\n💰 <b>{amount:,}</b> ɢᴏʟᴅ\n👑 ʏᴏᴜ'ʀᴇ ʟᴇᴀᴅɪɴɢ!", previous_bidder
             except Exception as e:
-                logger.error(f"Error placing bid: {e}")
-                return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}", None
+                logger.error(f"Bid error: {e}")
+                return False, "⚠️ ʙɪᴅ ꜰᴀɪʟᴇᴅ", None
 
     @staticmethod
-    async def end_auction():
+    async def end_auction() -> Tuple[bool, str, Optional[int], Optional[int]]:
         try:
             auction_data = await auction_collection.find_one({"status": "active"})
             if not auction_data:
@@ -349,30 +404,36 @@ class AuctionManager:
                 )
 
                 message = (
-                    "🎊 <b>ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ!</b>\n\n"
+                    "━━━━━━━━━━━━━━━━\n"
+                    "🎊 <b>ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ</b>\n"
+                    "━━━━━━━━━━━━━━━━\n\n"
                     f"✨ <b>{character['name']}</b>\n"
-                    f"👑 ᴡɪɴɴᴇʀ: <a href='tg://user?id={winner_id}'>ᴜꜱᴇʀ {winner_id}</a>\n"
-                    f"💰 ꜰɪɴᴀʟ: <b>{auction.current_bid:,}</b> ɢᴏʟᴅ\n"
-                    f"🔨 ʙɪᴅꜱ: <code>{auction.bid_count}</code>"
+                    f"🎭 {character['anime']}\n\n"
+                    f"👑 <b>ᴡɪɴɴᴇʀ:</b> <a href='tg://user?id={winner_id}'>{winner_id}</a>\n"
+                    f"💰 <b>ꜰɪɴᴀʟ ʙɪᴅ:</b> {auction.current_bid:,} ɢᴏʟᴅ\n"
+                    f"🔨 <b>ᴛᴏᴛᴀʟ ʙɪᴅꜱ:</b> {auction.bid_count}\n"
+                    "━━━━━━━━━━━━━━━━"
                 )
                 return True, message, winner_id, chat_id
             else:
                 await auction_collection.update_one(
                     {"_id": auction_data["_id"]},
-                    {"$set": {"status": "ended"}}
+                    {"$set": {"status": "ended", "end_time": get_ist_now()}}
                 )
-                return True, "⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ ᴡɪᴛʜ ɴᴏ ʙɪᴅꜱ", None, chat_id
+                return True, "⚠️ ᴀᴜᴄᴛɪᴏɴ ᴇɴᴅᴇᴅ • ɴᴏ ʙɪᴅꜱ", None, chat_id
         except Exception as e:
-            logger.error(f"Error ending auction: {e}")
-            return False, f"⚠️ ᴇʀʀᴏʀ: {str(e)}", None, None
+            logger.error(f"End auction error: {e}")
+            return False, "⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ᴇɴᴅ ᴀᴜᴄᴛɪᴏɴ", None, None
 
     @staticmethod
-    async def get_top_bidders(auction_id):
+    async def get_top_bidders(auction_id: str, limit: int = 5) -> List[Bid]:
         try:
-            bids = await bid_collection.find({"auction_id": str(auction_id)}).sort("amount", -1).limit(5).to_list(length=5)
+            bids = await bid_collection.find(
+                {"auction_id": str(auction_id)}
+            ).sort("amount", -1).limit(limit).to_list(length=limit)
             return [Bid.from_db(bid) for bid in bids]
         except Exception as e:
-            logger.error(f"Error getting top bidders: {e}")
+            logger.error(f"Get top bidders error: {e}")
             return []
 
 async def check_expired_auctions():
@@ -386,64 +447,84 @@ async def check_expired_auctions():
             })
             
             if auction_data:
-                logger.info("Ending expired auction...")
+                logger.info("Auto-ending expired auction")
                 success, message, winner_id, chat_id = await AuctionManager.end_auction()
                 
                 if success and chat_id:
                     try:
-                        await application.bot.send_message(chat_id=chat_id, text=message, parse_mode=ParseMode.HTML)
+                        await application.bot.send_message(
+                            chat_id=chat_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML
+                        )
                     except Exception as e:
-                        logger.error(f"Failed to notify: {e}")
+                        logger.error(f"Notification failed: {e}")
         except Exception as e:
-            logger.error(f"Error in auto-end: {e}")
+            logger.error(f"Auto-end check error: {e}")
         
         await asyncio.sleep(60)
 
-async def render_auction(message, context, auction_data, user_id, edit=False):
+async def send_auction_media(message, character: Character, caption: str):
     try:
+        if character.is_video:
+            await message.reply_video(
+                video=character.img_url,
+                caption=caption,
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await message.reply_photo(
+                photo=character.img_url,
+                caption=caption,
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"Media send error: {e}")
+        await message.reply_text(caption, parse_mode=ParseMode.HTML)
+
+@typing_action
+async def auction_command(update: Update, context: CallbackContext):
+    try:
+        auction_data = await AuctionManager.get_active_auction()
+        if not auction_data:
+            await update.message.reply_text(
+                "━━━━━━━━━━━━━━━━\n"
+                "🔨 <b>ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ</b>\n"
+                "━━━━━━━━━━━━━━━━",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
         auction = Auction.from_db(auction_data)
         character_data = await collection.find_one({"id": auction.character_id})
-
+        
         if not character_data:
-            await message.reply_text("⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
+            await update.message.reply_text("⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
             return
 
         character = Character.from_db(character_data)
         top_bidders = await AuctionManager.get_top_bidders(auction_data["_id"])
         caption = AuctionUI.build_caption(character, auction, top_bidders)
-
-        if edit:
-            await message.edit_caption(caption=caption, parse_mode=ParseMode.HTML)
-        else:
-            if character.is_video:
-                await message.reply_video(video=character.img_url, caption=caption, parse_mode=ParseMode.HTML)
-            else:
-                await message.reply_photo(photo=character.img_url, caption=caption, parse_mode=ParseMode.HTML)
+        
+        await send_auction_media(update.message, character, caption)
     except Exception as e:
-        logger.error(f"Error rendering: {e}")
+        logger.error(f"Auction view error: {e}")
+        await update.message.reply_text("⚠️ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ᴀᴜᴄᴛɪᴏɴ")
 
 @typing_action
-async def auction_view_command(update: Update, context: CallbackContext):
+@sudo_required
+async def start_auction_command(update: Update, context: CallbackContext):
     try:
-        auction_data = await AuctionManager.get_active_auction()
-        if not auction_data:
-            await update.message.reply_text("🔨 <b>ɴᴏ ᴀᴜᴄᴛɪᴏɴ</b>\n\nɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ", parse_mode=ParseMode.HTML)
-            return
-        await render_auction(update.message, context, auction_data, update.effective_user.id)
-    except Exception as e:
-        logger.error(f"Error: {e}")
-
-@typing_action
-async def auction_start_command(update: Update, context: CallbackContext):
-    try:
-        user_id = update.effective_user.id
-        if not await AuctionManager.is_sudo(user_id):
-            await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
-            return
-
         if len(context.args) < 3:
             await update.message.reply_text(
-                "⚠️ <b>ᴜꜱᴀɢᴇ:</b>\n<code>/astart &lt;id&gt; &lt;bid&gt; &lt;hours&gt;</code>",
+                "━━━━━━━━━━━━━━━━\n"
+                "📋 <b>ᴜꜱᴀɢᴇ</b>\n"
+                "━━━━━━━━━━━━━━━━\n\n"
+                "<code>/astart &lt;id&gt; &lt;starting_bid&gt; &lt;hours&gt; [increment]</code>\n\n"
+                "• <b>id:</b> character ID\n"
+                "• <b>starting_bid:</b> minimum 100\n"
+                "• <b>hours:</b> 1-168\n"
+                "• <b>increment:</b> optional (default: 100)",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -454,36 +535,50 @@ async def auction_start_command(update: Update, context: CallbackContext):
         bid_increment = int(context.args[3]) if len(context.args) >= 4 else 100
 
         success, message = await AuctionManager.create_auction(
-            char_id, starting_bid, duration, user_id, update.effective_chat.id, bid_increment
+            char_id, starting_bid, duration,
+            update.effective_user.id,
+            update.effective_chat.id,
+            bid_increment
         )
+        
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         if success:
+            await asyncio.sleep(0.5)
             auction_data = await AuctionManager.get_active_auction()
             if auction_data:
-                await render_auction(update.message, context, auction_data, user_id)
+                auction = Auction.from_db(auction_data)
+                character_data = await collection.find_one({"id": auction.character_id})
+                if character_data:
+                    character = Character.from_db(character_data)
+                    caption = AuctionUI.build_caption(character, auction)
+                    await send_auction_media(update.message, character, caption)
     except ValueError:
-        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀꜱ")
+        await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ ꜰᴏʀᴍᴀᴛ")
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Start auction error: {e}")
+        await update.message.reply_text("⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ꜱᴛᴀʀᴛ ᴀᴜᴄᴛɪᴏɴ")
 
 @typing_action
-async def auction_end_command(update: Update, context: CallbackContext):
+@sudo_required
+async def end_auction_command(update: Update, context: CallbackContext):
     try:
-        if not await AuctionManager.is_sudo(update.effective_user.id):
-            await update.message.reply_text("⛔️ ɴᴏ ᴘᴇʀᴍɪꜱꜱɪᴏɴ")
-            return
         success, message, winner_id, chat_id = await AuctionManager.end_auction()
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"End auction command error: {e}")
+        await update.message.reply_text("⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ᴇɴᴅ ᴀᴜᴄᴛɪᴏɴ")
 
 @typing_action
 async def bid_command(update: Update, context: CallbackContext):
     try:
         if not context.args:
             await update.message.reply_text(
-                "⚠️ <b>ᴜꜱᴀɢᴇ:</b>\n<code>/bid &lt;amount&gt;</code>",
+                "━━━━━━━━━━━━━━━━\n"
+                "💰 <b>ᴘʟᴀᴄᴇ ʏᴏᴜʀ ʙɪᴅ</b>\n"
+                "━━━━━━━━━━━━━━━━\n\n"
+                "<code>/bid &lt;amount&gt;</code>\n\n"
+                "ᴇxᴀᴍᴘʟᴇ: <code>/bid 5000</code>",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -492,7 +587,7 @@ async def bid_command(update: Update, context: CallbackContext):
         user_name = update.effective_user.first_name or "Anonymous"
         amount = int(context.args[0])
 
-        if amount < 0:
+        if amount <= 0:
             await update.message.reply_text("⚠️ ʙɪᴅ ᴍᴜꜱᴛ ʙᴇ ᴘᴏꜱɪᴛɪᴠᴇ")
             return
 
@@ -503,21 +598,16 @@ async def bid_command(update: Update, context: CallbackContext):
             try:
                 await context.bot.send_message(
                     chat_id=previous_bidder,
-                    text=f"⚠️ <b>ᴏᴜᴛʙɪᴅ!</b>\n\n💰 ɴᴇᴡ: <b>{amount:,}</b> ɢᴏʟᴅ",
+                    text=f"⚠️ <b>ᴏᴜᴛʙɪᴅ</b>\n\n💰 ɴᴇᴡ ʙɪᴅ: <b>{amount:,}</b> ɢᴏʟᴅ\n\n🔨 ʀᴇᴛᴜʀɴ ᴛᴏ ᴀᴜᴄᴛɪᴏɴ ᴛᴏ ʙɪᴅ ᴀɢᴀɪɴ!",
                     parse_mode=ParseMode.HTML
                 )
             except Exception as e:
-                logger.error(f"Failed to notify: {e}")
-
-        if success:
-            await asyncio.sleep(1)
-            auction_data = await AuctionManager.get_active_auction()
-            if auction_data:
-                await render_auction(update.message, context, auction_data, user_id)
+                logger.error(f"Outbid notification error: {e}")
     except ValueError:
         await update.message.reply_text("⚠️ ɪɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ")
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Bid command error: {e}")
+        await update.message.reply_text("⚠️ ʙɪᴅ ꜰᴀɪʟᴇᴅ")
 
 @typing_action
 async def auction_stats_command(update: Update, context: CallbackContext):
@@ -528,19 +618,20 @@ async def auction_stats_command(update: Update, context: CallbackContext):
             return
 
         auction = Auction.from_db(auction_data)
-        top_bidders = await AuctionManager.get_top_bidders(auction_data["_id"])
+        character_data = await collection.find_one({"id": auction.character_id})
+        
+        if not character_data:
+            await update.message.reply_text("⚠️ ᴄʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
+            return
 
-        msg = f"📊 <b>ᴀᴜᴄᴛɪᴏɴ ꜱᴛᴀᴛꜱ</b>\n\n💰 {auction.current_bid:,} ɢᴏʟᴅ\n📊 ᴍɪɴ: {auction.min_next_bid:,}\n🔨 ʙɪᴅꜱ: {auction.bid_count}\n{auction.format_time_left()}\n\n"
-
-        if top_bidders:
-            msg += "<b>🏆 ᴛᴏᴘ 5:</b>\n"
-            for i, bid in enumerate(top_bidders, 1):
-                medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
-                msg += f"{medal} {bid.amount:,} - {bid.user_name}\n"
-
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        character = Character.from_db(character_data)
+        top_bidders = await AuctionManager.get_top_bidders(auction_data["_id"], 5)
+        message = AuctionUI.build_stats_message(auction, character, top_bidders)
+        
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Stats error: {e}")
+        await update.message.reply_text("⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ʟᴏᴀᴅ ꜱᴛᴀᴛꜱ")
 
 @typing_action
 async def my_bids_command(update: Update, context: CallbackContext):
@@ -549,39 +640,58 @@ async def my_bids_command(update: Update, context: CallbackContext):
         user_data = await user_collection.find_one({"id": user_id})
         
         if not user_data:
-            await update.message.reply_text("⚠️ ᴜꜱᴇʀ ɴᴏᴛ ꜰᴏᴜɴᴅ")
+            await update.message.reply_text("⚠️ ᴜꜱᴇʀ ɴᴏᴛ ʀᴇɢɪꜱᴛᴇʀᴇᴅ")
             return
 
         balance = user_data.get("balance", 0)
         reserved = user_data.get("auction_reserved", 0)
         available = balance - reserved
 
-        msg = f"💼 <b>ʏᴏᴜʀ ꜱᴛᴀᴛᴜꜱ</b>\n\n💰 ʙᴀʟᴀɴᴄᴇ: <b>{balance:,}</b>\n🔒 ʀᴇꜱᴇʀᴠᴇᴅ: {reserved:,}\n✅ ᴀᴠᴀɪʟᴀʙʟᴇ: <b>{available:,}</b>\n\n"
+        lines = [
+            "━━━━━━━━━━━━━━━━",
+            "💼 <b>ʏᴏᴜʀ ꜱᴛᴀᴛᴜꜱ</b>",
+            "━━━━━━━━━━━━━━━━\n",
+            f"💰 ʙᴀʟᴀɴᴄᴇ: <b>{balance:,}</b> ɢᴏʟᴅ",
+            f"🔒 ʀᴇꜱᴇʀᴠᴇᴅ: <code>{reserved:,}</code>",
+            f"✅ ᴀᴠᴀɪʟᴀʙʟᴇ: <b>{available:,}</b>\n",
+            "━━━━━━━━━━━━━━━━\n"
+        ]
 
         auction_data = await AuctionManager.get_active_auction()
         if auction_data:
             auction = Auction.from_db(auction_data)
             if auction.highest_bidder == user_id:
-                msg += f"👑 <b>ʏᴏᴜ'ʀᴇ ʟᴇᴀᴅɪɴɢ!</b>\n💎 {auction.current_bid:,} ɢᴏʟᴅ\n{auction.format_time_left()}"
+                lines.extend([
+                    "👑 <b>ʏᴏᴜ'ʀᴇ ᴡɪɴɴɪɴɢ</b>\n",
+                    f"💎 ʏᴏᴜʀ ʙɪᴅ: <b>{auction.current_bid:,}</b>",
+                    f"⏱ {auction.format_time_left()}"
+                ])
             else:
                 user_bid = await bid_collection.find_one({
                     "auction_id": str(auction_data["_id"]),
                     "user_id": user_id
                 })
                 if user_bid:
-                    msg += f"📊 <b>ʏᴏᴜ ʜᴀᴠᴇ ʙɪᴅ</b>\n💰 ᴄᴜʀʀᴇɴᴛ: {auction.current_bid:,}\n📈 ɴᴇxᴛ: {auction.min_next_bid:,}"
+                    lines.extend([
+                        "📊 <b>ʏᴏᴜʀ ʙɪᴅ ꜱᴛᴀᴛᴜꜱ</b>\n",
+                        f"💰 ᴄᴜʀʀᴇɴᴛ ʜɪɢʜ: <b>{auction.current_bid:,}</b>",
+                        f"📈 ɴᴇxᴛ ᴍɪɴ: <code>{auction.min_next_bid:,}</code>",
+                        f"🔨 ʏᴏᴜʀ ʟᴀꜱᴛ: <code>{user_bid['amount']:,}</code>"
+                    ])
                 else:
-                    msg += "ℹ️ ʏᴏᴜ ʜᴀᴠᴇɴ'ᴛ ʙɪᴅ ʏᴇᴛ"
+                    lines.append("ℹ️ ɴᴏ ʙɪᴅꜱ ʏᴇᴛ • ᴜꜱᴇ /auction")
         else:
-            msg += "ℹ️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ"
+            lines.append("ℹ️ ɴᴏ ᴀᴄᴛɪᴠᴇ ᴀᴜᴄᴛɪᴏɴ")
 
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        lines.append("━━━━━━━━━━━━━━━━")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"My bids error: {e}")
+        await update.message.reply_text("⚠️ ꜰᴀɪʟᴇᴅ ᴛᴏ ʟᴏᴀᴅ ꜱᴛᴀᴛᴜꜱ")
 
-application.add_handler(CommandHandler("auction", auction_view_command, block=False))
-application.add_handler(CommandHandler("astart", auction_start_command, block=False))
-application.add_handler(CommandHandler("aend", auction_end_command, block=False))
+application.add_handler(CommandHandler("auction", auction_command, block=False))
+application.add_handler(CommandHandler("astart", start_auction_command, block=False))
+application.add_handler(CommandHandler("aend", end_auction_command, block=False))
 application.add_handler(CommandHandler("bid", bid_command, block=False))
 application.add_handler(CommandHandler("astats", auction_stats_command, block=False))
 application.add_handler(CommandHandler("mybids", my_bids_command, block=False))
