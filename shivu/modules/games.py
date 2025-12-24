@@ -451,24 +451,44 @@ async def riddle(update: Update, context: CallbackContext):
 
 
 async def riddle_answer(update: Update, context: CallbackContext):
+    # Check if effective_user exists
+    if not update.effective_user:
+        return  # Silently return if no user data
+    
     user_id = update.effective_user.id
+    
+    # Also check if there's a pending riddle for this user
     if not (pending := game_state.riddles.get(user_id)):
         return
-    if update.effective_chat.id != pending.chat_id:
+    
+    # Check if chat exists and matches
+    if not update.effective_chat or update.effective_chat.id != pending.chat_id:
         return
-    if not (text := (update.message.text or "").strip()):
+    
+    # Check if there's message text
+    if not update.message or not (text := (update.message.text or "").strip()):
         return
+    
+    # Check if riddle is expired
     if time.time() > pending.expires_at:
         game_state.riddles.pop(user_id, None)
         return
     
+    # Process answer
     if text == pending.answer:
         await UserDB.change_tokens(user_id, pending.reward)
         user = await UserDB.get(user_id)
-        await update.message.reply_text(f"<b>✅ Correct</b>\n<blockquote>Earned <b>{pending.reward}</b> token(s)\nTotal: <code>{user.get('tokens', 0)}</code></blockquote>", parse_mode="HTML")
+        await update.message.reply_text(
+            f"<b>✅ Correct</b>\n<blockquote>Earned <b>{pending.reward}</b> token(s)\nTotal: <code>{user.get('tokens', 0)}</code></blockquote>",
+            parse_mode="HTML"
+        )
     else:
-        await update.message.reply_text(f"<b>❌ Wrong</b>\n<blockquote>Answer was <b>{pending.answer}</b></blockquote>", parse_mode="HTML")
+        await update.message.reply_text(
+            f"<b>❌ Wrong</b>\n<blockquote>Answer was <b>{pending.answer}</b></blockquote>",
+            parse_mode="HTML"
+        )
     
+    # Remove riddle from pending
     game_state.riddles.pop(user_id, None)
 
 
