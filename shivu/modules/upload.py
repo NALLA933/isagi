@@ -114,6 +114,15 @@ class MediaFile:
     hash: str = field(default="")
 
     def __post_init__(self):
+        # ================== FIX ADDED HERE ==================
+        # Validate file_bytes if provided
+        if self.file_bytes is not None:
+            if len(self.file_bytes) == 0:
+                raise ValueError("file_bytes cannot be empty")
+            if len(self.file_bytes) < 100:
+                print(f"Warning: Very small file detected ({len(self.file_bytes)} bytes)")
+        # ================== END FIX ==================
+        
         if not self.filename:
             object.__setattr__(self, 'filename', self._generate_filename())
         
@@ -362,6 +371,7 @@ class FileDownloader:
                 max_redirects=10
             ) as response:
                 if response.status != 200:
+                    print(f"Download failed: HTTP {response.status} for {url}")
                     return None
                 
                 total_size = int(response.headers.get('content-length', 0))
@@ -381,7 +391,21 @@ class FileDownloader:
                     if callback:
                         await callback(downloaded, total_size)
                 
-                return b"".join(chunks) if chunks else None
+                file_bytes = b"".join(chunks) if chunks else None
+                
+                # ================== FIX ADDED HERE ==================
+                # VALIDATION: Check if file is empty
+                if not file_bytes or len(file_bytes) == 0:
+                    print(f"Downloaded empty file from {url}")
+                    return None
+                
+                # VALIDATION: Check minimum size
+                if len(file_bytes) < 100:
+                    print(f"Very small file from {url}: {len(file_bytes)} bytes")
+                    # Still return it, but log warning
+                # ================== END FIX ==================
+                
+                return file_bytes
 
 
 class CatboxUploader:
@@ -428,12 +452,48 @@ class TelegramUploader:
     ) -> UploadResult:
         caption = character.get_caption(is_update)
         
+        # ================== FIX ADDED HERE ==================
+        # FIRST: Validate file bytes before attempting upload
+        if character.media_file.file_bytes:
+            # Validate file is not empty
+            if len(character.media_file.file_bytes) == 0:
+                return UploadResult(
+                    success=False,
+                    message="❌ File is empty! Please check your source file.",
+                    character_id=character.character_id,
+                    retry_count=0
+                )
+            
+            # Validate minimum file size (at least 100 bytes)
+            if len(character.media_file.file_bytes) < 100:
+                return UploadResult(
+                    success=False,
+                    message=f"❌ File too small ({len(character.media_file.file_bytes)} bytes). Minimum 100 bytes required.",
+                    character_id=character.character_id,
+                    retry_count=0
+                )
+        # ================== END FIX ==================
+        
         for attempt in range(Config.MAX_RETRIES):
             try:
                 if character.media_file.file_bytes:
-                    result = await TelegramUploader._upload_with_bytes(
-                        character, caption, context
-                    )
+                    # ================== FIX ADDED HERE ==================
+                    # Double-check before actual upload
+                    if not character.media_file.file_bytes or len(character.media_file.file_bytes) == 0:
+                        # Try to get file from URL if bytes are empty
+                        await context.bot.send_message(
+                            chat_id=SUPPORT_CHAT,
+                            text=f"⚠️ Empty bytes detected for {character.character_id}. Attempting URL upload..."
+                        )
+                        # Switch to URL-based upload
+                        result = await TelegramUploader._upload_with_url(
+                            character, caption, context
+                        )
+                    else:
+                        result = await TelegramUploader._upload_with_bytes(
+                            character, caption, context
+                        )
+                    # ================== END FIX ==================
                 else:
                     result = await TelegramUploader._upload_with_url(
                         character, caption, context
@@ -445,6 +505,9 @@ class TelegramUploader:
             except (NetworkError, TimedOut) as e:
                 if attempt < Config.MAX_RETRIES - 1:
                     await asyncio.sleep(Config.RETRY_DELAY * (attempt + 1))
+                    
+                    # Log retry attempt
+                    print(f"Retry attempt {attempt + 1} for {character.character_id}")
                     continue
                 return UploadResult(
                     success=False,
@@ -460,7 +523,8 @@ class TelegramUploader:
                         message=(
                             f"⚠️ Character saved to database but channel upload failed.\n\n"
                             f"🆔 ID: {character.character_id}\n"
-                            f"❌ Error: {type(e).__name__}\n\n"
+                            f"❌ Error: {type(e).__name__}\n"
+                            f"📏 File size: {len(character.media_file.file_bytes) if character.media_file.file_bytes else 0} bytes\n\n"
                             f"💡 Try: `/update {character.character_id} img_url <new_url>`"
                         ),
                         character_id=character.character_id,
@@ -485,8 +549,27 @@ class TelegramUploader:
         caption: str,
         context: ContextTypes.DEFAULT_TYPE
     ) -> UploadResult:
-        fp = io.BytesIO(character.media_file.file_bytes)
-        fp.name = character.media_file.filename
+        # ================== FIX ADDED HERE ==================
+        # FINAL SAFETY CHECK before creating BytesIO
+        if not character.media_file.file_bytes or len(character.media_file.file_bytes) == 0:
+            raise ValueError(f"Empty file bytes for {character.character_id}")
+        
+        # Validate file size one more time
+        if character.media_file.size <= 0:
+            raise ValueError(f"Invalid file size: {character.media_file.size} bytes")
+        
+        # Create BytesIO with proper error handling
+        try:
+            fp = io.BytesIO(character.media_file.file_bytes)
+            fp.name = character.media_file.filename
+            
+            # Verify the BytesIO object is valid
+            if fp.getbuffer().nbytes == 0:
+                raise ValueError("Created empty BytesIO buffer")
+                
+        except Exception as e:
+            raise ValueError(f"Failed to create file buffer: {str(e)}")
+        # ================== END FIX ==================
         
         message = await TelegramUploader._send_media_bytes(
             fp, character.media_file.media_type, caption, context
@@ -501,7 +584,8 @@ class TelegramUploader:
                 f'✅ Character added successfully!\n'
                 f'🆔 ID: {character.character_id}\n'
                 f'📁 Type: {character.media_file.media_type.value.title()}\n'
-                f'💾 Size: {character.media_file.size / 1024:.2f} KB'
+                f'💾 Size: {character.media_file.size / 1024:.2f} KB\n'
+                f'📊 Hash: {character.media_file.hash[:8]}...'
             ),
             character_id=character.character_id,
             character=character
@@ -807,6 +891,16 @@ class CharacterUploadHandler:
             
             file_bytes = bytes(await file.download_as_bytearray())
             
+            # ================== FIX ADDED HERE ==================
+            # VALIDATION
+            if not file_bytes or len(file_bytes) == 0:
+                print(f"Empty file extracted from message {reply_msg.message_id}")
+                return None
+            
+            if len(file_bytes) < 100:
+                print(f"Very small file from message: {len(file_bytes)} bytes")
+            # ================== END FIX ==================
+            
             return MediaFile(
                 url="",
                 file_bytes=file_bytes,
@@ -854,9 +948,16 @@ class CharacterUploadHandler:
             )
             return
         
+        # ================== FIX ADDED HERE ==================
         if not file_bytes:
             await processing_msg.edit_text('❌ Failed to download. Check URL validity.')
             return
+        
+        # Also check minimum size
+        if len(file_bytes) < 100:  # Example: reject files under 100 bytes
+            await processing_msg.edit_text('❌ Downloaded file is too small or invalid.')
+            return
+        # ================== END FIX ==================
         
         media_file = MediaFile(url=media_url, file_bytes=file_bytes)
         
@@ -1246,6 +1347,50 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 
+# ================== DEBUG COMMAND ADDED HERE ==================
+@require_sudo
+async def debug_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug command to check file status"""
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Reply to a media message to debug it")
+        return
+    
+    reply_msg = update.message.reply_to_message
+    try:
+        if reply_msg.photo:
+            file = await reply_msg.photo[-1].get_file()
+            size = reply_msg.photo[-1].file_size
+        elif reply_msg.video:
+            file = await reply_msg.video.get_file()
+            size = reply_msg.video.file_size
+        elif reply_msg.animation:
+            file = await reply_msg.animation.get_file()
+            size = reply_msg.animation.file_size
+        elif reply_msg.document:
+            file = await reply_msg.document.get_file()
+            size = reply_msg.document.file_size
+        else:
+            await update.message.reply_text("No media found in reply")
+            return
+        
+        # Download a small sample
+        sample_bytes = await file.download_as_bytearray()
+        
+        await update.message.reply_text(
+            f"📊 File Debug Info:\n"
+            f"• File ID: {file.file_id}\n"
+            f"• File size: {size} bytes\n"
+            f"• Downloaded: {len(sample_bytes)} bytes\n"
+            f"• Is empty: {len(sample_bytes) == 0}\n"
+            f"• Sample hash: {hashlib.md5(sample_bytes).hexdigest()[:8]}"
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"Debug error: {type(e).__name__}: {str(e)}")
+# ================== END DEBUG COMMAND ==================
+
+
 application.add_handler(CommandHandler('upload', upload_command, block=False))
 application.add_handler(CommandHandler('delete', delete_command, block=False))
 application.add_handler(CommandHandler('update', update_command, block=False))
+application.add_handler(CommandHandler('debugfile', debug_file, block=False))
