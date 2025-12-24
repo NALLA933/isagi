@@ -17,206 +17,202 @@ from shivu import (
 
 LOGGER = logging.getLogger(__name__)
 
-async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check database connectivity and collections - Debug command"""
     user_id = update.effective_user.id
     
-    # Access control
-    if user_id not in sudo_users and user_id != OWNER_ID and user_id != 8420981179:
-        await update.message.reply_text("⚠️ You are not authorized to use this command.")
+    # Debug: Log who is trying to access
+    LOGGER.info(f"User {user_id} trying to access checkdb command")
+    LOGGER.info(f"sudo_users: {sudo_users}")
+    LOGGER.info(f"OWNER_ID: {OWNER_ID}")
+    
+    # First check authorization - with less restrictive check for debugging
+    if user_id != OWNER_ID and user_id != 8420981179:
+        # Check if user is in sudo_users list
+        if hasattr(sudo_users, '__contains__'):
+            if user_id not in sudo_users:
+                await update.message.reply_text("❌ You are not authorized to use this command.")
+                return
+        else:
+            await update.message.reply_text("❌ sudo_users variable issue. Contact owner.")
+            return
+    
+    try:
+        message_parts = []
+        message_parts.append("🔍 <b>DATABASE DIAGNOSTICS</b>")
+        message_parts.append("════════════════════════════")
+        message_parts.append("")
+        
+        # Test 1: Check each collection one by one
+        collections_to_check = [
+            ("Users Collection", user_collection),
+            ("Groups Collection", top_global_groups_collection),
+            ("Banned Users", BANNED_USERS),
+            ("Banned Groups", banned_groups_collection),
+            ("PM Users", pm_users)
+        ]
+        
+        for collection_name, collection in collections_to_check:
+            try:
+                # Try to get collection info
+                count = await collection.count_documents({})
+                
+                # Try to get one sample document to check structure
+                sample = await collection.find_one({})
+                
+                if sample:
+                    sample_info = f" - Sample ID: {str(sample.get('_id', 'N/A'))[:20]}..."
+                else:
+                    sample_info = " - Empty collection"
+                    
+                message_parts.append(f"✅ <b>{collection_name}:</b>")
+                message_parts.append(f"   📊 Documents: {count}")
+                message_parts.append(f"   {sample_info}")
+                
+            except Exception as e:
+                message_parts.append(f"❌ <b>{collection_name}:</b>")
+                message_parts.append(f"   Error: {str(e)[:100]}")
+            
+            message_parts.append("")
+        
+        # Test 2: Check specific fields in user collection
+        message_parts.append("<b>USER COLLECTION FIELDS CHECK:</b>")
+        try:
+            user_sample = await user_collection.find_one({})
+            if user_sample:
+                available_fields = list(user_sample.keys())
+                message_parts.append(f"   Available fields: {', '.join(available_fields[:10])}")
+                if len(available_fields) > 10:
+                    message_parts.append(f"   ... and {len(available_fields) - 10} more")
+            else:
+                message_parts.append("   No users found in collection")
+        except Exception as e:
+            message_parts.append(f"   Error checking fields: {str(e)[:100]}")
+        
+        message_parts.append("")
+        
+        # Test 3: Check application info
+        message_parts.append("<b>BOT INFORMATION:</b>")
+        message_parts.append(f"   Bot Username: @{context.bot.username}" if context.bot.username else "   Bot username not available")
+        message_parts.append(f"   Your User ID: {user_id}")
+        message_parts.append(f"   Owner ID: {OWNER_ID}")
+        message_parts.append(f"   Sudo Users Count: {len(sudo_users) if hasattr(sudo_users, '__len__') else 'N/A'}")
+        message_parts.append(f"   Command Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Send the diagnostic message
+        full_message = "\n".join(message_parts)
+        
+        # Split message if too long (Telegram has 4096 character limit)
+        if len(full_message) > 4000:
+            part1 = full_message[:2000]
+            part2 = full_message[2000:4000]
+            await update.message.reply_text(part1, parse_mode=ParseMode.HTML)
+            await update.message.reply_text(part2, parse_mode=ParseMode.HTML)
+            if len(full_message) > 4000:
+                part3 = full_message[4000:]
+                await update.message.reply_text(part3, parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(full_message, parse_mode=ParseMode.HTML)
+            
+    except Exception as e:
+        LOGGER.error(f"Error in check_db: {str(e)}", exc_info=True)
+        error_msg = (
+            f"❌ <b>Critical Error in check_db:</b>\n"
+            f"Error: {str(e)[:200]}\n\n"
+            f"Please check logs for details."
+        )
+        await update.message.reply_text(error_msg, parse_mode=ParseMode.HTML)
+
+# Simple test command without any restrictions
+async def test_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test command for everyone - no restrictions"""
+    try:
+        # Just try to count users
+        count = await user_collection.count_documents({})
+        
+        response = (
+            f"✅ <b>Database Test Successful!</b>\n\n"
+            f"📊 Total Users: {count}\n"
+            f"🕒 Time: {datetime.now().strftime('%H:%M:%S')}\n"
+            f"👤 Your ID: {update.effective_user.id}"
+        )
+        
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+        
+    except Exception as e:
+        error_msg = (
+            f"❌ <b>Database Test Failed!</b>\n\n"
+            f"Error: {str(e)[:200]}\n"
+            f"This means the database connection is not working."
+        )
+        await update.message.reply_text(error_msg, parse_mode=ParseMode.HTML)
+
+# Fix the original gstats command with better debugging
+async def gstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Global statistics command"""
+    user_id = update.effective_user.id
+    
+    # Debug authorization
+    LOGGER.info(f"gstats accessed by user {user_id}")
+    
+    # Check authorization - same logic as before
+    authorized = False
+    if user_id == OWNER_ID or user_id == 8420981179:
+        authorized = True
+    elif hasattr(sudo_users, '__contains__') and user_id in sudo_users:
+        authorized = True
+    
+    if not authorized:
+        await update.message.reply_text("❌ You are not authorized to use this command.")
         return
     
-    processing_msg = None
     try:
-        # Show processing message
-        processing_msg = await update.message.reply_text("📊 Fetching statistics...")
-        start_time = time.time()
-        
-        # Basic counts - original logic
+        # Try to get basic stats
         total_users = await user_collection.count_documents({})
         total_chats = await top_global_groups_collection.count_documents({})
         banned_users_count = await BANNED_USERS.count_documents({})
         banned_groups_count = await banned_groups_collection.count_documents({})
         pm_users_count = await pm_users.count_documents({})
         
-        # Try to get additional stats with fallbacks
-        try:
-            # Try to get active users (last 7 days)
-            week_ago_timestamp = time.time() - (7 * 24 * 60 * 60)
-            active_users_cursor = user_collection.find({
-                "last_active": {"$exists": True, "$gte": week_ago_timestamp}
-            })
-            active_users = len(await active_users_cursor.to_list(length=None))
-        except:
-            active_users = "N/A"
-        
-        try:
-            # Try to get new users in last 30 days
-            month_ago_timestamp = time.time() - (30 * 24 * 60 * 60)
-            new_users_cursor = user_collection.find({
-                "joined_date": {"$exists": True, "$gte": month_ago_timestamp}
-            })
-            new_users_month = len(await new_users_cursor.to_list(length=None))
-        except:
-            new_users_month = "N/A"
-        
-        # Calculate percentages with safe division
-        active_percentage = "N/A"
-        if isinstance(active_users, int) and total_users > 0:
-            active_percentage = f"{(active_users/total_users*100):.1f}%"
-        
-        banned_percentage = "0%"
-        if total_users > 0:
-            banned_percentage = f"{(banned_users_count/total_users*100):.1f}%"
-        
-        # Get top groups (safe method)
-        top_groups_text = []
-        try:
-            # First check if collection has any groups with member count
-            sample_group = await top_global_groups_collection.find_one({"members": {"$exists": True}})
-            if sample_group:
-                pipeline = [
-                    {"$match": {"members": {"$exists": True}}},
-                    {"$sort": {"members": -1}},
-                    {"$limit": 5},
-                    {"$project": {
-                        "title": {"$ifNull": ["$title", "Unnamed Group"]},
-                        "members": {"$ifNull": ["$members", 0]},
-                        "_id": 0
-                    }}
-                ]
-                top_groups = await top_global_groups_collection.aggregate(pipeline).to_list(length=5)
-                
-                for i, group in enumerate(top_groups, 1):
-                    group_name = group.get('title', 'Unnamed Group')[:30]
-                    members = group.get('members', 0)
-                    top_groups_text.append(f"  {i}. {group_name}: {members:,} members")
-            else:
-                top_groups_text = ["  No member data available"]
-        except Exception as e:
-            LOGGER.error(f"Error fetching top groups: {e}")
-            top_groups_text = ["  Error fetching group data"]
-        
-        processing_time = time.time() - start_time
-        
-        # Create formatted message with better emoji and structure
         stats_text = (
-            "✨ <b>BOT STATISTICS REPORT</b> ✨\n"
-            "╔════════════════════════════╗\n\n"
-            
-            "👤 <b>USER STATISTICS</b>\n"
-            "├ Total Users: " + f"<code>{total_users:,}</code>\n" +
-            (f"├ New Users (30d): <code>{new_users_month:,}</code>\n" if new_users_month != "N/A" else "") +
-            (f"├ Active Users (7d): <code>{active_users:,}</code> ({active_percentage})\n" if active_users != "N/A" else "") +
-            f"├ PM Users: <code>{pm_users_count:,}</code>\n"
-            f"├ Banned Users: <code>{banned_users_count:,}</code> ({banned_percentage})\n\n"
-            
-            "👥 <b>GROUP STATISTICS</b>\n"
-            f"├ Total Chats: <code>{total_chats:,}</code>\n"
-            f"├ Banned Groups: <code>{banned_groups_count:,}</code>\n\n"
-            
-            "🏆 <b>TOP GROUPS</b>\n" + "\n".join(top_groups_text) + "\n\n"
-            
-            "📊 <b>SYSTEM INFO</b>\n"
-            f"├ Query Time: <code>{processing_time:.3f}s</code>\n"
-            f"├ Generated: <code>{datetime.now().strftime('%d %b %Y, %I:%M %p')}</code>\n"
-            "╚════════════════════════════╝"
+            f"📊 <b>Global Statistics</b>\n"
+            f"════════════════════\n\n"
+            f"👥 <b>Total Users:</b> {total_users:,}\n"
+            f"👥 <b>Total Chats:</b> {total_chats:,}\n"
+            f"📩 <b>PM Users:</b> {pm_users_count:,}\n"
+            f"⛔ <b>Banned Users:</b> {banned_users_count:,}\n"
+            f"⛔ <b>Banned Groups:</b> {banned_groups_count:,}\n\n"
+            f"🕒 <i>Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</i>"
         )
         
-        if processing_msg:
-            await processing_msg.delete()
-        
-        await update.message.reply_text(
-            stats_text,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
-        )
+        await update.message.reply_text(stats_text, parse_mode=ParseMode.HTML)
         
     except Exception as e:
-        LOGGER.error(f"Error in gstats: {str(e)}", exc_info=True)
-        
-        # Try to delete processing message
-        if processing_msg:
-            try:
-                await processing_msg.delete()
-            except:
-                pass
-        
-        # Fallback to basic stats if detailed stats fail
-        try:
-            basic_stats = (
-                "📊 <b>Basic Statistics</b>\n"
-                "════════════════════\n"
-                f"👥 Total Users: {await user_collection.count_documents({})}\n"
-                f"👥 Total Chats: {await top_global_groups_collection.count_documents({})}\n"
-                f"⚠️ Banned Users: {await BANNED_USERS.count_documents({})}\n"
-                f"⚠️ Banned Groups: {await banned_groups_collection.count_documents({})}"
-            )
-            await update.message.reply_text(basic_stats, parse_mode=ParseMode.HTML)
-        except:
-            await update.message.reply_text(
-                "❌ Could not fetch statistics. Please check if database is connected.",
-                parse_mode=ParseMode.HTML
-            )
-
-# Simple public stats command
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Public stats command for all users"""
-    try:
-        total_users = await user_collection.count_documents({})
-        total_chats = await top_global_groups_collection.count_documents({})
-        
-        stats_text = (
-            "📊 <b>Bot Statistics</b>\n"
-            "════════════════════\n\n"
-            f"👥 Total Users: <b>{total_users:,}</b>\n"
-            f"👥 Total Groups: <b>{total_chats:,}</b>\n\n"
-            f"⏰ Last Updated: {datetime.now().strftime('%d %b %Y')}"
-        )
-        
+        LOGGER.error(f"Error in gstats: {e}")
         await update.message.reply_text(
-            stats_text,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
+            f"❌ Error fetching statistics.\nError: {str(e)[:100]}",
+            parse_mode=ParseMode.HTML
         )
-        
-    except Exception as e:
-        LOGGER.error(f"Error in public stats: {e}")
-        await update.message.reply_text("⚠️ Could not fetch statistics at the moment.")
 
-# Register handlers
+# Add all handlers
 application.add_handler(CommandHandler("gstats", gstats, filters=filters.ALL))
-application.add_handler(CommandHandler("stats", stats, filters=filters.ALL))
-
-# Optional: Add debug command to check collections
-async def check_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Check database connectivity and collections"""
-    user_id = update.effective_user.id
-    if user_id not in sudo_users and user_id != OWNER_ID:
-        return
-    
-    try:
-        collections_info = []
-        
-        # Check each collection
-        collections = [
-            ("Users", user_collection),
-            ("Groups", top_global_groups_collection),
-            ("Banned Users", BANNED_USERS),
-            ("Banned Groups", banned_groups_collection),
-            ("PM Users", pm_users)
-        ]
-        
-        for name, collection in collections:
-            try:
-                count = await collection.count_documents({})
-                collections_info.append(f"✅ {name}: {count} documents")
-            except Exception as e:
-                collections_info.append(f"❌ {name}: Error - {str(e)[:50]}")
-        
-        response = "🔍 <b>Database Check</b>\n════════════════════\n\n" + "\n".join(collections_info)
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Database check failed: {str(e)}")
-
 application.add_handler(CommandHandler("checkdb", check_db, filters=filters.ALL))
+application.add_handler(CommandHandler("testdb", test_db, filters=filters.ALL))
+application.add_handler(CommandHandler("dbinfo", check_db, filters=filters.ALL))  # Alias
+
+# Also add a simple ping command to check if bot is alive
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check if bot is responsive"""
+    start_time = time.time()
+    message = await update.message.reply_text("🏓 Pong!")
+    end_time = time.time()
+    latency = (end_time - start_time) * 1000  # Convert to milliseconds
+    
+    await message.edit_text(
+        f"🏓 <b>Pong!</b>\n"
+        f"📶 Latency: {latency:.0f} ms\n"
+        f"🕒 Time: {datetime.now().strftime('%H:%M:%S')}",
+        parse_mode=ParseMode.HTML
+    )
+
+application.add_handler(CommandHandler("ping", ping, filters=filters.ALL))
