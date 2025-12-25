@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
-from shivu.modules.ai import monitor_auctions
+# from shivu.modules.ai import monitor_auctions
 
 
 collection = db['anime_characters_lol']
