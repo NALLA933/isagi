@@ -626,14 +626,21 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
+async def post_init(app):
+    """Start background tasks after bot initialization"""
+    asyncio.create_task(monitor_auctions())
+    LOGGER.info("✅ Auction monitor started")
+
+
 def main() -> None:
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
+    
+    # Register the post_init callback
+    application.post_init = post_init
 
 
 if __name__ == "__main__":
     shivuu.start()
-    asyncio.create_task(monitor_auctions())
-    
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
     main()
