@@ -632,7 +632,10 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
 
-    LOGGER.info("Bot starting...")
+LOGGER.info("Bot starting...")
+
+
+
 
 if __name__ == "__main__":
     shivuu.start()
