@@ -10,6 +10,7 @@ from time import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters
 from telegram.error import BadRequest
+from pyrogram import idle  # ← YEH ADD KARO
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
@@ -647,29 +648,37 @@ async def guess(update: Update, context: CallbackContext) -> None:
 async def fix_my_db():
     """Ye function purane galat indexes ko hata dega"""
     try:
-        # Aapke code ki collection (anime_characters_lol) use kar raha hai
         await collection.drop_index("id_1")
         await collection.drop_index("characters.id_1")
         LOGGER.info("✅ Database Cleaned: Old indexes removed successfully!")
     except Exception as e:
-        LOGGER.info(f"ℹ️ Index clean-up info (Shayad pehle se hat chuka hai): {e}")
+        LOGGER.info(f"ℹ️ Index clean-up info: {e}")
 
 
-def main() -> None:
-    """Setup handlers and start the bot"""
-    # Database fix ko background mein chalane ke liye
+async def start_bot():
+    """Proper async startup with idle"""
     try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(fix_my_db())
-    except Exception:
-        pass
-
+        # Database cleanup
+        await fix_my_db()
+    except Exception as e:
+        LOGGER.error(f"Database cleanup error: {e}")
+    
+    # Start Pyrogram client
+    await shivuu.start()
+    LOGGER.info("✅ Pyrogram client started")
+    
+    # Setup handlers
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
     
+    # Start PTB application
+    await application.initialize()
+    await application.start()
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+    
+    # Keep bot running
+    await idle()
 
 
 if __name__ == "__main__":
-    shivuu.start()
-    main()
+    asyncio.run(start_bot())
