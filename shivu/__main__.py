@@ -14,7 +14,6 @@ from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 
 
-
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 user_totals_collection = db['user_totals_lmaoooo']
@@ -627,9 +626,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
 
 def main() -> None:
+    """Setup handlers and start the bot"""
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
-
     
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
 
