@@ -8,7 +8,7 @@ from html import escape
 from collections import deque
 from time import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters
+from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters, Application
 from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
@@ -57,32 +57,13 @@ group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
+# Import all modules
 for module_name in ALL_MODULES:
     try:
         importlib.import_module("shivu.modules." + module_name)
         LOGGER.info(f"✅ Module loaded: {module_name}")
     except Exception as e:
         LOGGER.error(f"❌ Module failed: {module_name} - {e}")
-
-try:
-    from shivu.modules.rarity import (
-        spawn_settings_collection as ssc,
-        group_rarity_collection as grc,
-        get_spawn_settings,
-        get_group_exclusive
-    )
-    spawn_settings_collection = ssc
-    group_rarity_collection = grc
-    LOGGER.info("✅ Rarity system loaded")
-except Exception as e:
-    LOGGER.warning(f"⚠️ Rarity system not available: {e}")
-
-try:
-    from shivu.modules.backup import setup_backup_handlers
-    setup_backup_handlers(application)
-    LOGGER.info("✅ Backup system initialized")
-except Exception as e:
-    LOGGER.warning(f"⚠️ Backup system not available: {e}")
 
 
 async def is_character_allowed(character, chat_id=None):
@@ -644,14 +625,88 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-def main() -> None:
-    """Setup handlers and start the bot"""
-    application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
-    application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
-    
-    LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+async def fix_my_db():
+    """Database indexes cleanup"""
+    try:
+        await collection.drop_index("id_1")
+        await collection.drop_index("characters.id_1")
+        LOGGER.info("✅ Database indexes cleaned up!")
+    except Exception as e:
+        LOGGER.info(f"ℹ️ Index clean-up not required or failed: {e}")
 
+
+async def main():
+    """Main async entry point - single event loop for everything"""
+    try:
+        # 1. Database cleanup
+        await fix_my_db()
+        
+        # 2. Load rarity system
+        try:
+            from shivu.modules.rarity import (
+                spawn_settings_collection as ssc,
+                group_rarity_collection as grc,
+                get_spawn_settings,
+                get_group_exclusive
+            )
+            global spawn_settings_collection, group_rarity_collection, get_spawn_settings, get_group_exclusive
+            spawn_settings_collection = ssc
+            group_rarity_collection = grc
+            LOGGER.info("✅ Rarity system loaded")
+        except Exception as e:
+            LOGGER.warning(f"⚠️ Rarity system not available: {e}")
+
+        # 3. Setup backup system
+        try:
+            from shivu.modules.backup import setup_backup_handlers
+            setup_backup_handlers(application)
+            LOGGER.info("✅ Backup system initialized")
+        except Exception as e:
+            LOGGER.warning(f"⚠️ Backup system not available: {e}")
+
+        # 4. Start Pyrogram client
+        await shivuu.start()
+        LOGGER.info("✅ Pyrogram client started")
+
+        # 5. Setup PTB handlers
+        application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
+        application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
+
+        # 6. Initialize and start PTB application
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+        
+        LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+
+        # 7. Keep bot running
+        # Loop ko chalta rakhne ke liye
+        while True:
+            await asyncio.sleep(3600)
+
+    except Exception as e:
+        LOGGER.error(f"❌ Fatal Error: {e}")
+        traceback.print_exc()
+    finally:
+        # Cleanup on exit
+        LOGGER.info("Cleaning up...")
+        try:
+            await application.stop()
+            await application.shutdown()
+            await shivuu.stop()
+        except Exception as e:
+            LOGGER.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
-    shivuu.start()
-    main()
+    # YE SABSE IMPORTANT FIX HAI:
+    # Purane kisi bhi loop ko khatam karke ek fresh singleton loop banana
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        LOGGER.info("Bot stopped.")
