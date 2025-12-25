@@ -606,3 +606,6 @@ application.add_handler(CommandHandler("bid", bid_cmd, block=False))
 application.add_handler(CommandHandler("status", status_cmd, block=False))
 
 asyncio.create_task(monitor_auctions())
+async def monitor_auctions():
+    # Ye function abhi khali hai taaki error na aaye
+    pass
