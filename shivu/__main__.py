@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
-from shivu.modules.ai import monitor_auctions
+
 
 
 collection = db['anime_characters_lol']
@@ -627,21 +627,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
 
 def main() -> None:
-    """Setup handlers and start the bot"""
     application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
-    
-    # Setup post_init to start auction monitor
-    async def post_init(app):
-        """Start background tasks after bot initialization"""
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(monitor_auctions())
-            LOGGER.info("✅ Auction monitor started")
-        except Exception as e:
-            LOGGER.error(f"❌ Failed to start auction monitor: {e}")
-    
-    application.post_init = post_init
+
     
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
 
