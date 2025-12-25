@@ -67,77 +67,151 @@ except Exception as e:
 
 
 async def is_character_allowed(character, chat_id=None):
-    # ... (keep all your existing functions exactly as they are)
-    # Your existing is_character_allowed function
-    pass
+    try:
+        if character.get('removed', False):
+            LOGGER.debug(f"Character {character.get('name')} is removed")
+            return False
+
+        char_rarity = character.get('rarity', '🟢 Common')
+        rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
+        
+        is_video = character.get('is_video', False)
+        
+        if is_video and rarity_emoji == '🎥':
+            if chat_id == AMV_ALLOWED_GROUP_ID:
+                LOGGER.info(f"✅ AMV {character.get('name')} allowed in main group")
+                return True
+            else:
+                LOGGER.debug(f"❌ AMV {character.get('name')} blocked in group {chat_id}")
+                return False
+
+        if group_rarity_collection is not None and chat_id:
+            try:
+                current_group_exclusive = await group_rarity_collection.find_one({
+                    'chat_id': chat_id,
+                    'rarity_emoji': rarity_emoji
+                })
+                if current_group_exclusive:
+                    return True
+
+                other_group_exclusive = await group_rarity_collection.find_one({
+                    'rarity_emoji': rarity_emoji,
+                    'chat_id': {'$ne': chat_id}
+                })
+                if other_group_exclusive:
+                    return False
+            except Exception as e:
+                LOGGER.error(f"Error checking group exclusivity: {e}")
+
+        if spawn_settings_collection is not None and get_spawn_settings is not None:
+            try:
+                settings = await get_spawn_settings()
+                if settings and settings.get('rarities'):
+                    rarities = settings['rarities']
+                    if rarity_emoji in rarities:
+                        is_enabled = rarities[rarity_emoji].get('enabled', True)
+                        if not is_enabled:
+                            return False
+            except Exception as e:
+                LOGGER.error(f"Error checking global rarity: {e}")
+
+        return True
+
+    except Exception as e:
+        LOGGER.error(f"Error in is_character_allowed: {e}\n{traceback.format_exc()}")
+        return True
 
 
 async def get_chat_message_frequency(chat_id):
-    # ... (keep all your existing functions exactly as they are)
-    pass
+    try:
+        chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
+        if chat_frequency:
+            return chat_frequency.get('message_frequency', MESSAGE_FREQUENCY)
+        else:
+            await user_totals_collection.insert_one({
+                'chat_id': str(chat_id),
+                'message_frequency': MESSAGE_FREQUENCY
+            })
+            return MESSAGE_FREQUENCY
+    except Exception as e:
+        LOGGER.error(f"Error in get_chat_message_frequency: {e}")
+        return MESSAGE_FREQUENCY
 
 
 async def update_grab_task(user_id: int):
-    # ... (keep all your existing functions exactly as they are)
-    pass
+    try:
+        user = await user_collection.find_one({'id': user_id})
+        if user and 'pass_data' in user:
+            await user_collection.update_one(
+                {'id': user_id},
+                {'$inc': {'pass_data.tasks.grabs': 1}}
+            )
+    except Exception as e:
+        LOGGER.error(f"Error in update_grab_task: {e}")
 
 
 async def despawn_character(chat_id, message_id, character, context):
-    # ... (keep all your existing functions exactly as they are)
-    pass
+    try:
+        await asyncio.sleep(DESPAWN_TIME)
+
+        if chat_id in first_correct_guesses:
+            last_characters.pop(chat_id, None)
+            spawn_messages.pop(chat_id, None)
+            spawn_message_links.pop(chat_id, None)
+            currently_spawning.pop(chat_id, None)
+            return
+
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete spawn message: {e}")
+
+        rarity = character.get('rarity', '🟢 Common')
+        rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else '🟢'
+
+        is_video = character.get('is_video', False)
+        media_url = character.get('img_url')
+
+        missed_caption = f"""⏰ ᴛɪᴍᴇ's ᴜᴘ! ʏᴏᴜ ᴀʟʟ ᴍɪssᴇᴅ ᴛʜɪs ᴡᴀɪғᴜ!
+
+{rarity_emoji} ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
+⚡ ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
+🎯 ʀᴀʀɪᴛʏ: <b>{rarity}</b>
+
+💔 ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"""
+
+        if is_video:
+            missed_msg = await context.bot.send_video(
+                chat_id=chat_id,
+                video=media_url,
+                caption=missed_caption,
+                parse_mode='HTML',
+                supports_streaming=True
+            )
+        else:
+            missed_msg = await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=media_url,
+                caption=missed_caption,
+                parse_mode='HTML'
+            )
+
+        await asyncio.sleep(10)
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=missed_msg.message_id)
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete missed message: {e}")
+
+        last_characters.pop(chat_id, None)
+        spawn_messages.pop(chat_id, None)
+        spawn_message_links.pop(chat_id, None)
+        currently_spawning.pop(chat_id, None)
+
+    except Exception as e:
+        LOGGER.error(f"Error in despawn_character: {e}")
+        LOGGER.error(traceback.format_exc())
 
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
-    # ... (keep all your existing functions exactly as they are)
-    pass
-
-
-async def send_image(update: Update, context: CallbackContext) -> None:
-    # ... (keep all your existing functions exactly as they are)
-    pass
-
-
-async def guess(update: Update, context: CallbackContext) -> None:
-    # ... (keep all your existing functions exactly as they are)
-    pass
-
-
-def setup_handlers() -> None:
-    """Setup all command handlers"""
-    application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
-    application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
-
-
-async def main() -> None:
-    """Main async entry point"""
-    LOGGER.info("Bot starting...")
-    
-    # Setup handlers
-    setup_handlers()
-    
-    # Start the bot
-    await shivuu.initialize()
-    await shivuu.start()
-    
-    # Start the auction monitor task
-    monitor_task = asyncio.create_task(monitor_auctions())
-    
-    LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
-    
     try:
-        # Keep the bot running
-        await application.start()
-        await shivuu.idle()
-    finally:
-        # Cleanup
-        await shivuu.stop()
-        monitor_task.cancel()
-        try:
-            await monitor_task
-        except asyncio.CancelledError:
-            pass
-
-
-if __name__ == "__main__":
-    # Start the bot with proper async handling
-    asyncio.run(main())
+        if update.effective_chat.type not in ['group', '
