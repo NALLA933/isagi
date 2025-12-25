@@ -599,10 +599,12 @@ async def status_cmd(update: Update, context: CallbackContext):
         logger.error(f"Status error: {e}")
         await update.message.reply_text("⚠️ ꜰᴀɪʟᴇᴅ")
 
+# Add handlers
 application.add_handler(CommandHandler("auction", auction_cmd, block=False))
 application.add_handler(CommandHandler("astart", start_cmd, block=False))
 application.add_handler(CommandHandler("aend", end_cmd, block=False))
 application.add_handler(CommandHandler("bid", bid_cmd, block=False))
 application.add_handler(CommandHandler("status", status_cmd, block=False))
 
-asyncio.create_task(monitor_auctions())
+# REMOVED THE PROBLEMATIC LINE:
+# asyncio.create_task(monitor_auctions())
