@@ -13,6 +13,24 @@ from telegram.error import BadRequest
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 
+# MongoDB index conflict fix - prevents crashes from duplicate index creation
+from pymongo import collection as pymongo_collection
+from pymongo.errors import OperationFailure
+
+# Monkey-patch to prevent index conflicts from crashing the bot
+_orig_create_index = pymongo_collection.Collection.create_index
+
+def _safe_create_index(self, keys, **kwargs):
+    try:
+        return _orig_create_index(self, keys, **kwargs)
+    except OperationFailure as e:
+        if e.code == 86:  # IndexKeySpecsConflict
+            LOGGER.debug(f"Index already exists on {self.name}, skipping")
+            return None
+        raise
+
+pymongo_collection.Collection.create_index = _safe_create_index
+
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
