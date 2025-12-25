@@ -644,7 +644,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
 
 
-def main() -> async def fix_my_db():
+async def fix_my_db():
     """Ye function purane galat indexes ko hata dega"""
     try:
         # Aapke code ki collection (anime_characters_lol) use kar raha hai
@@ -653,6 +653,7 @@ def main() -> async def fix_my_db():
         LOGGER.info("✅ Database Cleaned: Old indexes removed successfully!")
     except Exception as e:
         LOGGER.info(f"ℹ️ Index clean-up info (Shayad pehle se hat chuka hai): {e}")
+
 
 def main() -> None:
     """Setup handlers and start the bot"""
@@ -667,6 +668,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
     
     LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+
 
 if __name__ == "__main__":
     shivuu.start()
