@@ -5,6 +5,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple, Any
+import random
 
 
 class TextFormatter:
@@ -19,7 +20,9 @@ class TextFormatter:
     
     @staticmethod
     def format_number(num: int) -> str:
-        if num >= 1000000:
+        if num >= 1000000000:
+            return f"{num/1000000000:.1f}ʙ"
+        elif num >= 1000000:
             return f"{num/1000000:.1f}ᴍ"
         elif num >= 1000:
             return f"{num/1000:.1f}ᴋ"
@@ -31,67 +34,85 @@ PROFILE_TITLES = {
         "name": "✦ ʀᴏᴏᴋɪᴇ ʜᴜɴᴛᴇʀ",
         "price": 0,
         "requirement": {"type": "grabs", "value": 0},
-        "symbol": "◆"
+        "symbol": "◆",
+        "color": "🟢"
     },
     "explorer": {
         "name": "⟡ ᴇxᴘʟᴏʀᴇʀ",
         "price": 0,
         "requirement": {"type": "grabs", "value": 50},
-        "symbol": "◇"
+        "symbol": "◇",
+        "color": "🔵"
     },
     "collector": {
         "name": "◈ ᴄᴏʟʟᴇᴄᴛᴏʀ",
         "price": 0,
         "requirement": {"type": "grabs", "value": 100},
-        "symbol": "◊"
+        "symbol": "◊",
+        "color": "🟡"
     },
     "master": {
         "name": "★ ᴍᴀsᴛᴇʀ ʜᴜɴᴛᴇʀ",
         "price": 0,
         "requirement": {"type": "grabs", "value": 250},
-        "symbol": "☆"
+        "symbol": "☆",
+        "color": "🟠"
     },
     "elite": {
         "name": "◆ ᴇʟɪᴛᴇ ʜᴜɴᴛᴇʀ",
         "price": 50000,
         "requirement": None,
-        "symbol": "◈"
+        "symbol": "◈",
+        "color": "🟣"
     },
     "legend": {
         "name": "⚔ ʟᴇɢᴇɴᴅᴀʀʏ",
         "price": 100000,
         "requirement": None,
-        "symbol": "⚜"
+        "symbol": "⚜",
+        "color": "🔴"
     },
     "mythic": {
         "name": "✧ ᴍʏᴛʜɪᴄ ʟᴏʀᴅ",
         "price": 250000,
         "requirement": None,
-        "symbol": "✦"
+        "symbol": "✦",
+        "color": "🟪"
     },
     "shadow": {
         "name": "☾ sʜᴀᴅᴏᴡ ᴋɪɴɢ",
         "price": 500000,
         "requirement": None,
-        "symbol": "☽"
+        "symbol": "☽",
+        "color": "⚫"
     },
     "divine": {
         "name": "✶ ᴅɪᴠɪɴᴇ ᴇᴍᴘᴇʀᴏʀ",
         "price": 1000000,
         "requirement": None,
-        "symbol": "✷"
+        "symbol": "✷",
+        "color": "⚪"
     },
     "supreme": {
         "name": "⧫ sᴜᴘʀᴇᴍᴇ ᴏᴠᴇʀʟᴏʀᴅ",
         "price": 2500000,
         "requirement": None,
-        "symbol": "⧈"
+        "symbol": "⧈",
+        "color": "🌟"
     },
     "cosmic": {
         "name": "✨ ᴄᴏsᴍɪᴄ ᴇɴᴛɪᴛʏ",
         "price": 5000000,
         "requirement": None,
-        "symbol": "✧"
+        "symbol": "✧",
+        "color": "💫"
+    },
+    "omega": {
+        "name": "Ω ᴏᴍᴇɢᴀ ɢᴏᴅ",
+        "price": 10000000,
+        "requirement": None,
+        "symbol": "Ω",
+        "color": "🌌"
     }
 }
 
@@ -104,7 +125,8 @@ PROFILE_THEMES = {
         "corner_tl": "╭",
         "corner_tr": "╮",
         "corner_bl": "╰",
-        "corner_br": "╯"
+        "corner_br": "╯",
+        "vip": False
     },
     "neon": {
         "name": "ɴᴇᴏɴ ɢʟᴏᴡ",
@@ -114,7 +136,8 @@ PROFILE_THEMES = {
         "corner_tl": "┏",
         "corner_tr": "┓",
         "corner_bl": "┗",
-        "corner_br": "┛"
+        "corner_br": "┛",
+        "vip": False
     },
     "luxury": {
         "name": "ʟᴜxᴜʀʏ ɢᴏʟᴅ",
@@ -124,7 +147,8 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝"
+        "corner_br": "╝",
+        "vip": False
     },
     "cyber": {
         "name": "ᴄʏʙᴇʀ ᴛᴇᴄʜ",
@@ -134,7 +158,8 @@ PROFILE_THEMES = {
         "corner_tl": "┌",
         "corner_tr": "┐",
         "corner_bl": "└",
-        "corner_br": "┘"
+        "corner_br": "┘",
+        "vip": False
     },
     "royal": {
         "name": "ʀᴏʏᴀʟ ᴇʟᴇɢᴀɴᴄᴇ",
@@ -144,7 +169,8 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝"
+        "corner_br": "╝",
+        "vip": True
     },
     "cosmic": {
         "name": "ᴄᴏsᴍɪᴄ ᴠᴏɪᴅ",
@@ -154,7 +180,8 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝"
+        "corner_br": "╝",
+        "vip": True
     },
     "minimal": {
         "name": "ᴍɪɴɪᴍᴀʟ ᴄʟᴇᴀɴ",
@@ -164,104 +191,69 @@ PROFILE_THEMES = {
         "corner_tl": " ",
         "corner_tr": " ",
         "corner_bl": " ",
-        "corner_br": " "
+        "corner_br": " ",
+        "vip": True
+    },
+    "matrix": {
+        "name": "ᴍᴀᴛʀɪx ᴄᴏᴅᴇ",
+        "price": 200000,
+        "divider": "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓",
+        "bullet": "▪",
+        "corner_tl": "▓",
+        "corner_tr": "▓",
+        "corner_bl": "▓",
+        "corner_br": "▓",
+        "vip": True
     }
 }
 
 AVATAR_FRAMES = {
-    "none": {
-        "name": "ɴᴏ ғʀᴀᴍᴇ",
-        "price": 0,
-        "left": "",
-        "right": ""
-    },
-    "diamond": {
-        "name": "ᴅɪᴀᴍᴏɴᴅ",
-        "price": 20000,
-        "left": "◆ ",
-        "right": " ◆"
-    },
-    "star": {
-        "name": "sᴛᴀʀ",
-        "price": 30000,
-        "left": "★ ",
-        "right": " ★"
-    },
-    "moon": {
-        "name": "ᴍᴏᴏɴ",
-        "price": 40000,
-        "left": "☾ ",
-        "right": " ☽"
-    },
-    "crown": {
-        "name": "ᴄʀᴏᴡɴ",
-        "price": 50000,
-        "left": "♔ ",
-        "right": " ♕"
-    },
-    "wings": {
-        "name": "ᴡɪɴɢs",
-        "price": 75000,
-        "left": "◄ ",
-        "right": " ►"
-    },
-    "flame": {
-        "name": "ғʟᴀᴍᴇ",
-        "price": 100000,
-        "left": "◈ ",
-        "right": " ◈"
-    },
-    "cosmic": {
-        "name": "ᴄᴏsᴍɪᴄ",
-        "price": 150000,
-        "left": "✦ ",
-        "right": " ✦"
-    },
-    "ultimate": {
-        "name": "ᴜʟᴛɪᴍᴀᴛᴇ",
-        "price": 250000,
-        "left": "⧫ ",
-        "right": " ⧫"
-    }
+    "none": {"name": "ɴᴏ ғʀᴀᴍᴇ", "price": 0, "left": "", "right": "", "vip": False},
+    "diamond": {"name": "ᴅɪᴀᴍᴏɴᴅ", "price": 20000, "left": "◆ ", "right": " ◆", "vip": False},
+    "star": {"name": "sᴛᴀʀ", "price": 30000, "left": "★ ", "right": " ★", "vip": False},
+    "moon": {"name": "ᴍᴏᴏɴ", "price": 40000, "left": "☾ ", "right": " ☽", "vip": False},
+    "crown": {"name": "ᴄʀᴏᴡɴ", "price": 50000, "left": "♔ ", "right": " ♕", "vip": False},
+    "wings": {"name": "ᴡɪɴɢs", "price": 75000, "left": "◄ ", "right": " ►", "vip": True},
+    "flame": {"name": "ғʟᴀᴍᴇ", "price": 100000, "left": "◈ ", "right": " ◈", "vip": True},
+    "cosmic": {"name": "ᴄᴏsᴍɪᴄ", "price": 150000, "left": "✦ ", "right": " ✦", "vip": True},
+    "ultimate": {"name": "ᴜʟᴛɪᴍᴀᴛᴇ", "price": 250000, "left": "⧫ ", "right": " ⧫", "vip": True},
+    "omega": {"name": "ᴏᴍᴇɢᴀ", "price": 500000, "left": "Ω ", "right": " Ω", "vip": True}
 }
 
 EMOJI_PACKS = {
-    "basic": {
-        "name": "ʙᴀsɪᴄ",
-        "price": 0,
-        "emojis": ["◦", "◇", "◆"]
-    },
-    "geometric": {
-        "name": "ɢᴇᴏᴍᴇᴛʀɪᴄ",
-        "price": 15000,
-        "emojis": ["◆", "◇", "◈", "◊", "○", "●", "◐", "◑"]
-    },
-    "stars": {
-        "name": "sᴛᴀʀs",
-        "price": 25000,
-        "emojis": ["★", "☆", "✦", "✧", "✶", "✷", "✸", "✹"]
-    },
-    "arrows": {
-        "name": "ᴀʀʀᴏᴡs",
-        "price": 35000,
-        "emojis": ["►", "▸", "▹", "▻", "◄", "◂", "◃", "◅"]
-    },
-    "celestial": {
-        "name": "ᴄᴇʟᴇsᴛɪᴀʟ",
-        "price": 50000,
-        "emojis": ["☾", "☽", "☼", "☀", "☁", "☂", "☃", "☄"]
-    },
-    "mystical": {
-        "name": "ᴍʏsᴛɪᴄᴀʟ",
-        "price": 75000,
-        "emojis": ["⚜", "⚝", "⚞", "⚟", "⚠", "⚡", "⚢", "⚣"]
-    },
-    "royal": {
-        "name": "ʀᴏʏᴀʟ",
-        "price": 100000,
-        "emojis": ["♔", "♕", "♖", "♗", "♘", "♙", "♚", "♛"]
-    }
+    "basic": {"name": "ʙᴀsɪᴄ", "price": 0, "emojis": ["◦", "◇", "◆"]},
+    "geometric": {"name": "ɢᴇᴏᴍᴇᴛʀɪᴄ", "price": 15000, "emojis": ["◆", "◇", "◈", "◊", "○", "●", "◐", "◑"]},
+    "stars": {"name": "sᴛᴀʀs", "price": 25000, "emojis": ["★", "☆", "✦", "✧", "✶", "✷", "✸", "✹"]},
+    "arrows": {"name": "ᴀʀʀᴏᴡs", "price": 35000, "emojis": ["►", "▸", "▹", "▻", "◄", "◂", "◃", "◅"]},
+    "celestial": {"name": "ᴄᴇʟᴇsᴛɪᴀʟ", "price": 50000, "emojis": ["☾", "☽", "☼", "☀", "☁", "☂", "☃", "☄"]},
+    "mystical": {"name": "ᴍʏsᴛɪᴄᴀʟ", "price": 75000, "emojis": ["⚜", "⚝", "⚞", "⚟", "⚠", "⚡", "⚢", "⚣"]},
+    "royal": {"name": "ʀᴏʏᴀʟ", "price": 100000, "emojis": ["♔", "♕", "♖", "♗", "♘", "♙", "♚", "♛"]},
+    "ultimate": {"name": "ᴜʟᴛɪᴍᴀᴛᴇ", "price": 250000, "emojis": ["Ω", "Ψ", "Φ", "Σ", "Δ", "Θ", "Λ", "Π"]}
 }
+
+BADGES = {
+    "first_grab": {"name": "🌟 ғɪʀsᴛ ɢʀᴀʙ", "requirement": {"type": "grabs", "value": 1}},
+    "collector_50": {"name": "📦 ᴄᴏʟʟᴇᴄᴛᴏʀ", "requirement": {"type": "grabs", "value": 50}},
+    "hunter_100": {"name": "🎯 ʜᴜɴᴛᴇʀ", "requirement": {"type": "grabs", "value": 100}},
+    "master_250": {"name": "⭐ ᴍᴀsᴛᴇʀ", "requirement": {"type": "grabs", "value": 250}},
+    "legend_500": {"name": "🏆 ʟᴇɢᴇɴᴅ", "requirement": {"type": "grabs", "value": 500}},
+    "whale": {"name": "💎 ᴡʜᴀʟᴇ", "requirement": {"type": "wealth", "value": 1000000}},
+    "streak_7": {"name": "🔥 sᴛʀᴇᴀᴋ ᴡᴀʀʀɪᴏʀ", "requirement": {"type": "streak", "value": 7}},
+    "streak_30": {"name": "⚡ sᴛʀᴇᴀᴋ ᴍᴀsᴛᴇʀ", "requirement": {"type": "streak", "value": 30}},
+    "early_adopter": {"name": "🌸 ᴇᴀʀʟʏ ᴀᴅᴏᴘᴛᴇʀ", "requirement": {"type": "manual", "value": 0}},
+    "vip": {"name": "👑 ᴠɪᴘ ᴍᴇᴍʙᴇʀ", "requirement": {"type": "manual", "value": 0}},
+    "supporter": {"name": "💝 sᴜᴘᴘᴏʀᴛᴇʀ", "requirement": {"type": "manual", "value": 0}}
+}
+
+DAILY_REWARDS = [
+    {"day": 1, "coins": 1000, "bonus": ""},
+    {"day": 2, "coins": 1500, "bonus": ""},
+    {"day": 3, "coins": 2000, "bonus": "🎁 +500 ʙᴏɴᴜs"},
+    {"day": 4, "coins": 2500, "bonus": ""},
+    {"day": 5, "coins": 3000, "bonus": ""},
+    {"day": 6, "coins": 4000, "bonus": ""},
+    {"day": 7, "coins": 10000, "bonus": "🎉 ᴡᴇᴇᴋʟʏ ʙᴏɴᴜs"},
+]
 
 BAD_WORDS = [
     "fuck", "shit", "ass", "bitch", "damn", "hell",
@@ -270,8 +262,8 @@ BAD_WORDS = [
 ]
 
 BIO_COOLDOWN_MINUTES = 60
-BIO_MAX_LENGTH = 80
-BIO_EMOJI_LIMIT = 8
+BIO_MAX_LENGTH = 100
+BIO_EMOJI_LIMIT = 10
 
 
 async def get_user_collection() -> List[Dict[str, Any]]:
@@ -334,6 +326,65 @@ async def get_grab_stats(user_id: int) -> Dict[str, int]:
     }
 
 
+async def get_streak(user_id: int) -> Dict[str, Any]:
+    user = await user_collection.find_one({'id': user_id})
+    if not user:
+        return {'current': 0, 'longest': 0, 'last_claim': None}
+    
+    streak_data = user.get('streak_data', {})
+    last_claim = streak_data.get('last_claim')
+    current_streak = streak_data.get('current', 0)
+    longest_streak = streak_data.get('longest', 0)
+    
+    if last_claim:
+        last_claim_date = datetime.fromisoformat(last_claim).date()
+        today = datetime.now().date()
+        days_diff = (today - last_claim_date).days
+        
+        if days_diff > 1:
+            current_streak = 0
+    
+    return {
+        'current': current_streak,
+        'longest': longest_streak,
+        'last_claim': last_claim
+    }
+
+
+async def check_badges(user_id: int) -> List[str]:
+    user = await user_collection.find_one({'id': user_id})
+    if not user:
+        return []
+    
+    earned_badges = user.get('badges', [])
+    total_grabs = len(user.get('characters', []))
+    balance = user.get('balance', 0)
+    streak_data = await get_streak(user_id)
+    
+    new_badges = []
+    
+    for badge_id, badge_data in BADGES.items():
+        if badge_id in earned_badges:
+            continue
+        
+        req = badge_data['requirement']
+        if req['type'] == 'grabs' and total_grabs >= req['value']:
+            new_badges.append(badge_id)
+        elif req['type'] == 'wealth' and balance >= req['value']:
+            new_badges.append(badge_id)
+        elif req['type'] == 'streak' and streak_data['current'] >= req['value']:
+            new_badges.append(badge_id)
+    
+    if new_badges:
+        earned_badges.extend(new_badges)
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {'badges': earned_badges}}
+        )
+    
+    return earned_badges
+
+
 async def initialize_profile_data(user_id: int) -> None:
     existing = await user_collection.find_one({'id': user_id})
     if existing and 'profile_data' not in existing:
@@ -369,6 +420,26 @@ async def initialize_profile_data(user_id: int) -> None:
                     }
                 }
             }
+        )
+    
+    if existing and 'streak_data' not in existing:
+        await user_collection.update_one(
+            {'id': user_id},
+            {
+                '$set': {
+                    'streak_data': {
+                        'current': 0,
+                        'longest': 0,
+                        'last_claim': None
+                    }
+                }
+            }
+        )
+    
+    if existing and 'badges' not in existing:
+        await user_collection.update_one(
+            {'id': user_id},
+            {'$set': {'badges': []}}
         )
 
 
@@ -419,6 +490,8 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
     balance = await get_user_balance(user_id)
     global_coin_rank = await user_collection.count_documents({'balance': {'$gt': balance}}) + 1
     grab_stats = await get_grab_stats(user_id)
+    streak_data = await get_streak(user_id)
+    badges = await check_badges(user_id)
 
     await initialize_profile_data(user_id)
     await check_auto_unlocks(user_id, total_count)
@@ -441,7 +514,7 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
         AVATAR_FRAMES['none']
     )
 
-    has_pass = "◆" if existing_user.get('pass') else "◇"
+    has_pass = "✦" if existing_user.get('pass') else "◇"
     tokens = existing_user.get('tokens', 0)
     
     framed_name = f"{active_frame['left']}{first_name}{active_frame['right']}"
@@ -451,10 +524,17 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
     corner_tr = active_theme['corner_tr']
     corner_bl = active_theme['corner_bl']
     corner_br = active_theme['corner_br']
-
+    
+    badge_display = ""
+    if badges:
+        badge_list = [BADGES[b]['name'] for b in badges[:5]]
+        badge_display = f"\n{'  '.join(badge_list)}"
+    
+    streak_emoji = "🔥" if streak_data['current'] > 0 else "◇"
+    
     info_text = f"""{corner_tl}{divider}{corner_tr}
 {framed_name}
-{active_title}
+{active_title}{badge_display}
 {divider}
 ᴜsᴇʀ ɪᴅ ◆ `{user_id}`
 ᴜsᴇʀɴᴀᴍᴇ ◆ @{username}
@@ -465,17 +545,18 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
 ᴡᴇᴀʟᴛʜ ◆ ₩ `{balance:,}`
 ᴡᴇᴀʟᴛʜ ʀᴀɴᴋ ◆ `#{global_coin_rank}`
 {divider}
-ɢʀᴀʙ sᴛᴀᴛs ◆
-◦ ᴛᴏᴛᴀʟ ◆ `{grab_stats['total_grabs']}`
-◦ ᴛᴏᴅᴀʏ ◆ `{grab_stats['today_grabs']}`
-◦ ᴡᴇᴇᴋʟʏ ◆ `{grab_stats['weekly_grabs']}`
-◦ ᴍᴏɴᴛʜʟʏ ◆ `{grab_stats['monthly_grabs']}`
+{streak_emoji} sᴛʀᴇᴀᴋ ◆ `{streak_data['current']}` ᴅᴀʏs
+ʙᴇsᴛ sᴛʀᴇᴀᴋ ◆ `{streak_data['longest']}` ᴅᴀʏs
 {divider}
-ᴘᴀss ◆ {has_pass}  ◆  ᴛᴏᴋᴇɴs ◆ `{tokens:,}`
+ɢʀᴀʙs ᴛᴏᴅᴀʏ ◆ `{grab_stats['today_grabs']}`
+ᴛʜɪs ᴡᴇᴇᴋ ◆ `{grab_stats['weekly_grabs']}`
+ᴛʜɪs ᴍᴏɴᴛʜ ◆ `{grab_stats['monthly_grabs']}`
+{divider}
+ᴘᴀss {has_pass}  ◆  ᴛᴏᴋᴇɴs `{tokens:,}`
 {divider}"""
 
     if bio:
-        info_text += f"\n{bio}\n"
+        info_text += f"\n💭 {bio}\n"
 
     info_text += f"{corner_bl}{divider}{corner_br}"
 
@@ -502,7 +583,7 @@ def count_emojis(text: str) -> int:
     return len(emoji_pattern.findall(text))
 
 
-@shivuu.on_message(filters.command("sinfo"))
+@shivuu.on_message(filters.command(["sinfo", "profile", "me"]))
 async def profile(client: Client, message: Message) -> None:
     if message.reply_to_message:
         user = message.reply_to_message.from_user.id
@@ -517,12 +598,16 @@ async def profile(client: Client, message: Message) -> None:
         info_text, photo_id = await get_user_info(user)
     except Exception as e:
         print(f"Error in profile command: {e}")
-        return await m.edit(f"◇ sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ ◇\nʀᴇᴘᴏʀᴛ ᴀᴛ @{SUPPORT_CHAT}")
+        return await m.edit(f"◇ sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ\nʀᴇᴘᴏʀᴛ ᴀᴛ @{SUPPORT_CHAT}")
 
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✦ sʜᴏᴘ", callback_data="profile_shop"),
-            InlineKeyboardButton("◆ sᴛᴀᴛs", callback_data="view_stats")
+            InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data="view_stats")
+        ],
+        [
+            InlineKeyboardButton("🎁 ʀᴇᴡᴀʀᴅs", callback_data="daily_rewards"),
+            InlineKeyboardButton("🏆 ʙᴀᴅɢᴇs", callback_data="view_badges")
         ],
         [InlineKeyboardButton("◇ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
@@ -548,6 +633,151 @@ async def profile(client: Client, message: Message) -> None:
             os.remove(photo)
 
 
+@shivuu.on_callback_query(filters.regex("^daily_rewards$"))
+async def daily_rewards_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    await initialize_profile_data(user_id)
+    
+    streak_data = await get_streak(user_id)
+    last_claim = streak_data['last_claim']
+    current_streak = streak_data['current']
+    
+    can_claim = True
+    if last_claim:
+        last_claim_date = datetime.fromisoformat(last_claim).date()
+        today = datetime.now().date()
+        if last_claim_date == today:
+            can_claim = False
+    
+    day_index = current_streak % 7
+    next_reward = DAILY_REWARDS[day_index]
+    
+    rewards_text = f"""╔═══════════════════╗
+    🎁 ᴅᴀɪʟʏ ʀᴇᴡᴀʀᴅs 🎁
+╚═══════════════════╝
+
+🔥 ᴄᴜʀʀᴇɴᴛ sᴛʀᴇᴀᴋ ◆ {current_streak} ᴅᴀʏs
+⭐ ʙᴇsᴛ sᴛʀᴇᴀᴋ ◆ {streak_data['longest']} ᴅᴀʏs
+
+ɴᴇxᴛ ʀᴇᴡᴀʀᴅ ◆
+💰 {next_reward['coins']:,} ᴄᴏɪɴs
+{next_reward['bonus']}
+
+━━━━━━━━━━━━━━━━━
+ᴡᴇᴇᴋʟʏ ʀᴇᴡᴀʀᴅs ◆
+"""
+    
+    for day_data in DAILY_REWARDS:
+        day_num = day_data['day']
+        coins = day_data['coins']
+        status = "✅" if day_num <= (current_streak % 7 or 7) else "◇"
+        rewards_text += f"\n{status} ᴅᴀʏ {day_num} ◆ ₩ {coins:,}"
+    
+    keyboard = []
+    if can_claim:
+        keyboard.append([InlineKeyboardButton("🎁 ᴄʟᴀɪᴍ ʀᴇᴡᴀʀᴅ", callback_data="claim_reward")])
+    else:
+        next_claim_time = datetime.combine(datetime.now().date() + timedelta(days=1), datetime.min.time())
+        hours_left = int((next_claim_time - datetime.now()).total_seconds() / 3600)
+        rewards_text += f"\n\n⏰ ɴᴇxᴛ ᴄʟᴀɪᴍ ɪɴ ◆ {hours_left}ʜ"
+    
+    keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")])
+    
+    await callback_query.message.edit_text(rewards_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+@shivuu.on_callback_query(filters.regex("^claim_reward$"))
+async def claim_reward_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    
+    streak_data = await get_streak(user_id)
+    last_claim = streak_data['last_claim']
+    
+    can_claim = True
+    if last_claim:
+        last_claim_date = datetime.fromisoformat(last_claim).date()
+        today = datetime.now().date()
+        if last_claim_date == today:
+            can_claim = False
+            await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴄʟᴀɪᴍᴇᴅ ᴛᴏᴅᴀʏ", show_alert=True)
+            return
+        
+        days_diff = (today - last_claim_date).days
+        if days_diff == 1:
+            new_streak = streak_data['current'] + 1
+        else:
+            new_streak = 1
+    else:
+        new_streak = 1
+    
+    day_index = (new_streak - 1) % 7
+    reward = DAILY_REWARDS[day_index]
+    
+    user = await user_collection.find_one({'id': user_id})
+    current_balance = user.get('balance', 0)
+    new_balance = current_balance + reward['coins']
+    
+    longest_streak = max(new_streak, streak_data['longest'])
+    
+    await user_collection.update_one(
+        {'id': user_id},
+        {
+            '$set': {
+                'balance': new_balance,
+                'streak_data.current': new_streak,
+                'streak_data.longest': longest_streak,
+                'streak_data.last_claim': datetime.now().isoformat()
+            }
+        }
+    )
+    
+    bonus_text = f"\n{reward['bonus']}" if reward['bonus'] else ""
+    
+    await callback_query.answer(
+        f"✅ ᴄʟᴀɪᴍᴇᴅ\n💰 +{reward['coins']:,} ᴄᴏɪɴs\n🔥 {new_streak} ᴅᴀʏ sᴛʀᴇᴀᴋ{bonus_text}",
+        show_alert=True
+    )
+    
+    await daily_rewards_callback(client, callback_query)
+
+
+@shivuu.on_callback_query(filters.regex("^view_badges$"))
+async def view_badges_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    badges = await check_badges(user_id)
+    
+    badges_text = f"""╔═══════════════════╗
+    🏆 ʙᴀᴅɢᴇs 🏆
+╚═══════════════════╝
+
+ᴇᴀʀɴᴇᴅ ◆ {len(badges)} / {len(BADGES)}
+
+━━━━━━━━━━━━━━━━━
+"""
+    
+    for badge_id, badge_data in BADGES.items():
+        status = "✅" if badge_id in badges else "◇"
+        badge_name = badge_data['name']
+        req = badge_data['requirement']
+        
+        if req['type'] == 'grabs':
+            requirement = f"{req['value']} ɢʀᴀʙs"
+        elif req['type'] == 'wealth':
+            requirement = f"₩ {req['value']:,}"
+        elif req['type'] == 'streak':
+            requirement = f"{req['value']} ᴅᴀʏs"
+        else:
+            requirement = "sᴘᴇᴄɪᴀʟ"
+        
+        badges_text += f"\n{status} {badge_name}\n   ◦ {requirement}\n"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
+    ])
+    
+    await callback_query.message.edit_text(badges_text, reply_markup=keyboard)
+
+
 @shivuu.on_callback_query(filters.regex("^view_stats$"))
 async def view_stats_callback(client: Client, callback_query: CallbackQuery) -> None:
     user_id = callback_query.from_user.id
@@ -559,6 +789,7 @@ async def view_stats_callback(client: Client, callback_query: CallbackQuery) -> 
 
     grab_stats = await get_grab_stats(user_id)
     total_count = len(user.get('characters', []))
+    balance = user.get('balance', 0)
     
     rarity_counts = {}
     for char in user.get('characters', []):
@@ -569,7 +800,7 @@ async def view_stats_callback(client: Client, callback_query: CallbackQuery) -> 
     sorted_rarities = sorted(rarity_counts.items(), key=lambda x: x[1], reverse=True)
     
     stats_text = f"""╔═══════════════════╗
-    ✦ ᴅᴇᴛᴀɪʟᴇᴅ sᴛᴀᴛs ✦
+    📊 ᴅᴇᴛᴀɪʟᴇᴅ sᴛᴀᴛs 📊
 ╚═══════════════════╝
 
 ◆ ɢʀᴀʙ sᴛᴀᴛɪsᴛɪᴄs
@@ -585,17 +816,89 @@ async def view_stats_callback(client: Client, callback_query: CallbackQuery) -> 
     
     for rarity_emoji, count in sorted_rarities[:10]:
         percentage = (count / total_count * 100) if total_count > 0 else 0
-        stats_text += f"{rarity_emoji} ◆ {count} ({percentage:.1f}%)\n"
+        bar_length = int(percentage / 10)
+        bar = "█" * bar_length + "░" * (10 - bar_length)
+        stats_text += f"{rarity_emoji} {bar} {count} ({percentage:.1f}%)\n"
+    
+    stats_text += f"\n◆ ᴡᴇᴀʟᴛʜ sᴛᴀᴛs\n━━━━━━━━━━━━━━━━━\n"
+    stats_text += f"◦ ᴛᴏᴛᴀʟ ◆ ₩ {balance:,}\n"
+    
+    profile_data = user.get('profile_data', {})
+    owned_items = len(profile_data.get('owned_titles', [])) + len(profile_data.get('owned_themes', [])) + len(profile_data.get('owned_frames', []))
+    stats_text += f"◦ ɪᴛᴇᴍs ᴏᴡɴᴇᴅ ◆ {owned_items}\n"
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
+        [
+            InlineKeyboardButton("🏆 ᴛᴏᴘ", callback_data="leaderboard"),
+            InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")
+        ]
     ])
     
     await callback_query.message.edit_text(stats_text, reply_markup=keyboard)
 
 
+@shivuu.on_callback_query(filters.regex("^leaderboard$"))
+async def leaderboard_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    
+    pipeline = [
+        {
+            "$project": {
+                "id": 1,
+                "first_name": 1,
+                "characters_count": {
+                    "$cond": {
+                        "if": {"$isArray": "$characters"},
+                        "then": {"$size": "$characters"},
+                        "else": 0
+                    }
+                }
+            }
+        },
+        {"$sort": {"characters_count": -1}},
+        {"$limit": 10}
+    ]
+    
+    cursor = user_collection.aggregate(pipeline)
+    leaderboard = await cursor.to_list(length=None)
+    
+    leaderboard_text = f"""╔═══════════════════╗
+    🏆 ᴛᴏᴘ ɢʀᴀʙʙᴇʀs 🏆
+╚═══════════════════╝
+
+"""
+    
+    medals = ["🥇", "🥈", "🥉"]
+    user_rank = None
+    
+    for i, user_data in enumerate(leaderboard, start=1):
+        medal = medals[i-1] if i <= 3 else f"#{i}"
+        name = user_data.get('first_name', 'Unknown')[:15]
+        count = user_data.get('characters_count', 0)
+        
+        if user_data.get('id') == user_id:
+            user_rank = i
+            leaderboard_text += f"➤ {medal} {name} ◆ {count}\n"
+        else:
+            leaderboard_text += f"{medal} {name} ◆ {count}\n"
+    
+    if user_rank is None:
+        user_rank = await get_global_rank(user_id)
+        if user_rank > 10:
+            leaderboard_text += f"\n━━━━━━━━━━━━━━━━━\nʏᴏᴜʀ ʀᴀɴᴋ ◆ #{user_rank}"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="view_stats")]
+    ])
+    
+    await callback_query.message.edit_text(leaderboard_text, reply_markup=keyboard)
+
+
 @shivuu.on_callback_query(filters.regex("^profile_shop$"))
 async def profile_shop_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    balance = await get_user_balance(user_id)
+    
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("◆ ᴛɪᴛʟᴇs", callback_data="shop_titles"),
@@ -609,13 +912,15 @@ async def profile_shop_callback(client: Client, callback_query: CallbackQuery) -
         [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
     ])
 
-    shop_text = """╔═══════════════════╗
+    shop_text = f"""╔═══════════════════╗
     ✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ ✦
 ╚═══════════════════╝
 
 ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ sʜᴏᴘ
-ᴘᴇʀsᴏɴᴀʟɪᴢᴇ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ ᴡɪᴛʜ
-ᴇxᴄʟᴜsɪᴠᴇ ᴘʀᴇᴍɪᴜᴍ ɪᴛᴇᴍs
+ᴜɴʟᴏᴄᴋ ᴘʀᴇᴍɪᴜᴍ ɪᴛᴇᴍs ᴀɴᴅ
+sᴛᴀɴᴅ ᴏᴜᴛ ғʀᴏᴍ ᴛʜᴇ ᴄʀᴏᴡᴅ
+
+💰 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}
 
 sᴇʟᴇᴄᴛ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ◆
 """
@@ -632,56 +937,103 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
     profile_data = user.get('profile_data', {})
     owned_titles = profile_data.get('owned_titles', ['rookie'])
     balance = await get_user_balance(user_id)
+    total_grabs = len(user.get('characters', []))
 
     titles_text = "╔═══════════════════╗\n    ✦ ᴛɪᴛʟᴇ sʜᴏᴘ ✦\n╚═══════════════════╝\n\n"
 
+    free_titles = []
+    buyable_titles = []
+    
     for title_id, title_data in PROFILE_TITLES.items():
         title_name = title_data['name']
         price = title_data['price']
         requirement = title_data['requirement']
+        color = title_data.get('color', '◇')
 
         if title_id in owned_titles:
-            status = "◆ ᴏᴡɴᴇᴅ"
+            status = f"{color} ᴏᴡɴᴇᴅ"
         elif requirement:
             req_value = requirement['value']
-            status = f"◇ ᴜɴʟᴏᴄᴋ ᴀᴛ {req_value} ɢʀᴀʙs"
+            if total_grabs >= req_value:
+                status = f"✅ ʀᴇᴀᴅʏ ᴛᴏ ᴜɴʟᴏᴄᴋ"
+                free_titles.append(title_id)
+            else:
+                status = f"◇ {req_value - total_grabs} ᴍᴏʀᴇ ɢʀᴀʙs"
         elif balance >= price:
-            status = f"◈ ₩ {price:,}"
+            status = f"💰 ₩ {price:,}"
+            buyable_titles.append(title_id)
         else:
-            status = f"◊ ₩ {price:,}"
+            status = f"🔒 ₩ {price:,}"
 
         titles_text += f"{title_name}\n{status}\n\n"
 
-    titles_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    titles_text += f"💰 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
-    row = []
-    for title_id, title_data in PROFILE_TITLES.items():
-        if title_id not in owned_titles and title_data['requirement'] is None:
-            if balance >= title_data['price']:
-                btn_text = f"◈ {title_data['name'].split()[1][:8]}"
-                row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_title_{title_id}"))
-                if len(row) == 2:
-                    keyboard.append(row)
-                    row = []
     
+    if free_titles:
+        row = []
+        for title_id in free_titles:
+            btn_text = f"✅ {PROFILE_TITLES[title_id]['name'].split()[1][:7]}"
+            row.append(InlineKeyboardButton(btn_text, callback_data=f"unlock_title_{title_id}"))
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+    
+    row = []
+    for title_id in buyable_titles[:4]:
+        btn_text = f"💰 {PROFILE_TITLES[title_id]['name'].split()[1][:7]}"
+        row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_title_{title_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
     if row:
         keyboard.append(row)
 
     row = []
-    for title_id in owned_titles:
-        btn_text = f"✦ {PROFILE_TITLES[title_id]['name'].split()[1][:8]}"
+    for title_id in owned_titles[:6]:
+        btn_text = f"✦ {PROFILE_TITLES[title_id]['name'].split()[1][:7]}"
         row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_title_{title_id}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
-    
     if row:
         keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
     await callback_query.message.edit_text(titles_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+@shivuu.on_callback_query(filters.regex("^unlock_title_(.+)$"))
+async def unlock_title_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    title_id = callback_query.data.split("_", 2)[2]
+
+    if title_id not in PROFILE_TITLES:
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴛɪᴛʟᴇ", show_alert=True)
+        return
+
+    title_data = PROFILE_TITLES[title_id]
+    user = await user_collection.find_one({'id': user_id})
+    profile_data = user.get('profile_data', {})
+    owned_titles = profile_data.get('owned_titles', [])
+
+    if title_id in owned_titles:
+        await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴜɴʟᴏᴄᴋᴇᴅ", show_alert=True)
+        return
+
+    owned_titles.append(title_id)
+
+    await user_collection.update_one(
+        {'id': user_id},
+        {'$set': {'profile_data.owned_titles': owned_titles}}
+    )
+
+    await callback_query.answer(f"✅ ᴜɴʟᴏᴄᴋᴇᴅ {title_data['name']}", show_alert=True)
+    await shop_titles_callback(client, callback_query)
 
 
 @shivuu.on_callback_query(filters.regex("^buy_title_(.+)$"))
@@ -702,11 +1054,12 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_titles = profile_data.get('owned_titles', [])
 
     if title_id in owned_titles:
-        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     if balance < price:
-        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
+        needed = price - balance
+        await callback_query.answer(f"◇ ɴᴇᴇᴅ ₩ {needed:,} ᴍᴏʀᴇ", show_alert=True)
         return
 
     new_balance = balance - price
@@ -722,7 +1075,7 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
+    await callback_query.answer(f"✅ ᴘᴜʀᴄʜᴀsᴇᴅ\n-₩ {price:,}", show_alert=True)
     await shop_titles_callback(client, callback_query)
 
 
@@ -740,7 +1093,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
     owned_titles = profile_data.get('owned_titles', [])
 
     if title_id not in owned_titles:
-        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ɴᴏᴛ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -748,7 +1101,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.title': title_id}}
     )
 
-    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
+    await callback_query.answer(f"✦ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_titles_callback(client, callback_query)
 
 
@@ -767,24 +1120,25 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
     for theme_id, theme_data in PROFILE_THEMES.items():
         theme_name = theme_data['name']
         price = theme_data['price']
+        vip_badge = " 👑" if theme_data.get('vip', False) else ""
 
         if theme_id in owned_themes:
-            status = "◆ ᴏᴡɴᴇᴅ"
+            status = "✦ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"◈ ₩ {price:,}"
+            status = f"💰 ₩ {price:,}"
         else:
-            status = f"◊ ₩ {price:,}"
+            status = f"🔒 ₩ {price:,}"
 
-        themes_text += f"{theme_name}\n{theme_data['divider'][:17]}...\n{status}\n\n"
+        themes_text += f"{theme_name}{vip_badge}\n{theme_data['divider'][:17]}...\n{status}\n\n"
 
-    themes_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    themes_text += f"💰 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     row = []
     for theme_id, theme_data in PROFILE_THEMES.items():
         if theme_id not in owned_themes and theme_data['price'] > 0:
             if balance >= theme_data['price']:
-                btn_text = f"◈ {theme_data['name'].split()[0][:8]}"
+                btn_text = f"💰 {theme_data['name'].split()[0][:7]}"
                 row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_theme_{theme_id}"))
                 if len(row) == 2:
                     keyboard.append(row)
@@ -795,7 +1149,7 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
 
     row = []
     for theme_id in owned_themes:
-        btn_text = f"✦ {PROFILE_THEMES[theme_id]['name'].split()[0][:8]}"
+        btn_text = f"✦ {PROFILE_THEMES[theme_id]['name'].split()[0][:7]}"
         row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_theme_{theme_id}"))
         if len(row) == 2:
             keyboard.append(row)
@@ -827,11 +1181,12 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_themes = profile_data.get('owned_themes', [])
 
     if theme_id in owned_themes:
-        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     if balance < price:
-        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
+        needed = price - balance
+        await callback_query.answer(f"◇ ɴᴇᴇᴅ ₩ {needed:,} ᴍᴏʀᴇ", show_alert=True)
         return
 
     new_balance = balance - price
@@ -847,7 +1202,7 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
+    await callback_query.answer(f"✅ ᴘᴜʀᴄʜᴀsᴇᴅ\n-₩ {price:,}", show_alert=True)
     await shop_themes_callback(client, callback_query)
 
 
@@ -865,7 +1220,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
     owned_themes = profile_data.get('owned_themes', [])
 
     if theme_id not in owned_themes:
-        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ɴᴏᴛ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -873,7 +1228,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.theme': theme_id}}
     )
 
-    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
+    await callback_query.answer(f"✦ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_themes_callback(client, callback_query)
 
 
@@ -892,25 +1247,26 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
     for frame_id, frame_data in AVATAR_FRAMES.items():
         frame_name = frame_data['name']
         price = frame_data['price']
+        vip_badge = " 👑" if frame_data.get('vip', False) else ""
 
         if frame_id in owned_frames:
-            status = "◆ ᴏᴡɴᴇᴅ"
+            status = "✦ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"◈ ₩ {price:,}"
+            status = f"💰 ₩ {price:,}"
         else:
-            status = f"◊ ₩ {price:,}"
+            status = f"🔒 ₩ {price:,}"
 
         preview = f"{frame_data['left']}ɴᴀᴍᴇ{frame_data['right']}" if frame_id != "none" else "ɴᴀᴍᴇ"
-        frames_text += f"{frame_name}\n{preview}\n{status}\n\n"
+        frames_text += f"{frame_name}{vip_badge}\n{preview}\n{status}\n\n"
 
-    frames_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    frames_text += f"💰 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     row = []
     for frame_id, frame_data in AVATAR_FRAMES.items():
         if frame_id not in owned_frames and frame_data['price'] > 0:
             if balance >= frame_data['price']:
-                btn_text = f"◈ {frame_data['name'].split()[0][:8]}"
+                btn_text = f"💰 {frame_data['name'].split()[0][:7]}"
                 row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_frame_{frame_id}"))
                 if len(row) == 2:
                     keyboard.append(row)
@@ -921,7 +1277,7 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
 
     row = []
     for frame_id in owned_frames:
-        btn_text = f"✦ {AVATAR_FRAMES[frame_id]['name'].split()[0][:8]}"
+        btn_text = f"✦ {AVATAR_FRAMES[frame_id]['name'].split()[0][:7]}"
         row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_frame_{frame_id}"))
         if len(row) == 2:
             keyboard.append(row)
@@ -953,11 +1309,12 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_frames = profile_data.get('owned_frames', [])
 
     if frame_id in owned_frames:
-        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     if balance < price:
-        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
+        needed = price - balance
+        await callback_query.answer(f"◇ ɴᴇᴇᴅ ₩ {needed:,} ᴍᴏʀᴇ", show_alert=True)
         return
 
     new_balance = balance - price
@@ -973,7 +1330,7 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
+    await callback_query.answer(f"✅ ᴘᴜʀᴄʜᴀsᴇᴅ\n-₩ {price:,}", show_alert=True)
     await shop_frames_callback(client, callback_query)
 
 
@@ -991,7 +1348,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
     owned_frames = profile_data.get('owned_frames', [])
 
     if frame_id not in owned_frames:
-        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ɴᴏᴛ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -999,7 +1356,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.frame': frame_id}}
     )
 
-    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
+    await callback_query.answer(f"✦ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_frames_callback(client, callback_query)
 
 
@@ -1021,22 +1378,22 @@ async def shop_emojis_callback(client: Client, callback_query: CallbackQuery) ->
         emojis = ' '.join(pack_data['emojis'][:8])
 
         if pack_id in owned_packs:
-            status = "◆ ᴏᴡɴᴇᴅ"
+            status = "✦ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"◈ ₩ {price:,}"
+            status = f"💰 ₩ {price:,}"
         else:
-            status = f"◊ ₩ {price:,}"
+            status = f"🔒 ₩ {price:,}"
 
         emojis_text += f"{pack_name}\n{emojis}\n{status}\n\n"
 
-    emojis_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    emojis_text += f"💰 ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     row = []
     for pack_id, pack_data in EMOJI_PACKS.items():
         if pack_id not in owned_packs and pack_data['price'] > 0:
             if balance >= pack_data['price']:
-                btn_text = f"◈ {pack_data['name'].split()[0][:8]}"
+                btn_text = f"💰 {pack_data['name'].split()[0][:7]}"
                 row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_emoji_{pack_id}"))
                 if len(row) == 2:
                     keyboard.append(row)
@@ -1068,11 +1425,12 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_packs = profile_data.get('owned_emoji_packs', [])
 
     if pack_id in owned_packs:
-        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
+        await callback_query.answer("◇ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴᴇᴅ", show_alert=True)
         return
 
     if balance < price:
-        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
+        needed = price - balance
+        await callback_query.answer(f"◇ ɴᴇᴇᴅ ₩ {needed:,} ᴍᴏʀᴇ", show_alert=True)
         return
 
     new_balance = balance - price
@@ -1088,7 +1446,7 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
+    await callback_query.answer(f"✅ ᴘᴜʀᴄʜᴀsᴇᴅ\n-₩ {price:,}", show_alert=True)
     await shop_emojis_callback(client, callback_query)
 
 
@@ -1107,19 +1465,21 @@ async def shop_bio_callback(client: Client, callback_query: CallbackQuery) -> No
         time_diff = datetime.now() - datetime.fromisoformat(last_update)
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
-            cooldown_remaining = f"\n◆ ᴄᴏᴏʟᴅᴏᴡɴ ◆ {int(cooldown_minutes)} ᴍɪɴs"
+            cooldown_remaining = f"\n⏰ {int(cooldown_minutes)}ᴍ ʟᴇғᴛ"
 
     bio_text = f"""╔═══════════════════╗
     ✦ ʙɪᴏ ᴇᴅɪᴛᴏʀ ✦
 ╚═══════════════════╝
 
-ᴄᴜʀʀᴇɴᴛ ʙɪᴏ ◆ {current_bio}
+ᴄᴜʀʀᴇɴᴛ ʙɪᴏ ◆
+💭 {current_bio}
 
+━━━━━━━━━━━━━━━━━
 ◇ ʀᴜʟᴇs ◇
 ◦ ᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀs
 ◦ ᴍᴀx {BIO_EMOJI_LIMIT} ᴇᴍᴏᴊɪs
 ◦ ɴᴏ ʙᴀᴅ ᴡᴏʀᴅs
-◦ {BIO_COOLDOWN_MINUTES} ᴍɪɴ ᴄᴏᴏʟᴅᴏᴡɴ{cooldown_remaining}
+◦ {BIO_COOLDOWN_MINUTES}ᴍ ᴄᴏᴏʟᴅᴏᴡɴ{cooldown_remaining}
 
 ᴜsᴇ ◆ /setbio <text>
 """
@@ -1163,7 +1523,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         time_diff = datetime.now() - datetime.fromisoformat(last_update)
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
-            await message.reply_text(f"◇ ᴄᴏᴏʟᴅᴏᴡɴ\nᴡᴀɪᴛ {int(cooldown_minutes)} ᴍɪɴs")
+            await message.reply_text(f"⏰ ᴡᴀɪᴛ {int(cooldown_minutes)}ᴍ")
             return
 
     await user_collection.update_one(
@@ -1176,7 +1536,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         }
     )
 
-    await message.reply_text(f"◆ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ\n\n{bio_text}")
+    await message.reply_text(f"✅ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ\n\n💭 {bio_text}")
 
 
 @shivuu.on_callback_query(filters.regex("^back_to_profile$"))
@@ -1192,7 +1552,11 @@ async def back_to_profile_callback(client: Client, callback_query: CallbackQuery
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✦ sʜᴏᴘ", callback_data="profile_shop"),
-            InlineKeyboardButton("◆ sᴛᴀᴛs", callback_data="view_stats")
+            InlineKeyboardButton("📊 sᴛᴀᴛs", callback_data="view_stats")
+        ],
+        [
+            InlineKeyboardButton("🎁 ʀᴇᴡᴀʀᴅs", callback_data="daily_rewards"),
+            InlineKeyboardButton("🏆 ʙᴀᴅɢᴇs", callback_data="view_badges")
         ],
         [InlineKeyboardButton("◇ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
