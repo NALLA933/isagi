@@ -7,192 +7,310 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple, Any
 
 
+class TextFormatter:
+    
+    @staticmethod
+    def small_caps(text: str) -> str:
+        small_caps_map = str.maketrans(
+            'abcdefghijklmnopqrstuvwxyz',
+            'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ'
+        )
+        return text.translate(small_caps_map)
+    
+    @staticmethod
+    def bold_serif(text: str) -> str:
+        bold_map = str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+            '𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗'
+        )
+        return text.translate(bold_map)
+    
+    @staticmethod
+    def italic_serif(text: str) -> str:
+        italic_map = str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+            '𝐴𝐵𝐶𝐷𝐸𝐹𝐺𝐻𝐼𝐽𝐾𝐿𝑀𝑁𝑂𝑃𝑄𝑅𝑆𝑇𝑈𝑉𝑊𝑋𝑌𝑍𝑎𝑏𝑐𝑑𝑒𝑓𝑔ℎ𝑖𝑗𝑘𝑙𝑚𝑛𝑜𝑝𝑞𝑟𝑠𝑡𝑢𝑣𝑤𝑥𝑦𝑧'
+        )
+        return text.translate(italic_map)
+    
+    @staticmethod
+    def monospace(text: str) -> str:
+        mono_map = str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+            '𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿'
+        )
+        return text.translate(mono_map)
+    
+    @staticmethod
+    def script_text(text: str) -> str:
+        script_map = str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+            '𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏'
+        )
+        return text.translate(script_map)
+    
+    @staticmethod
+    def double_struck(text: str) -> str:
+        double_map = str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+            '𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡'
+        )
+        return text.translate(double_map)
+
+
 PROFILE_TITLES = {
     "rookie": {
-        "name": "🌱 Rookie Grabber",
+        "name": "✦ ʀᴏᴏᴋɪᴇ ʜᴜɴᴛᴇʀ",
         "price": 0,
-        "requirement": {"type": "grabs", "value": 0}
+        "requirement": {"type": "grabs", "value": 0},
+        "symbol": "◆"
     },
-    "hunter": {
-        "name": "🎯 Hunter",
+    "explorer": {
+        "name": "⟡ ᴇxᴘʟᴏʀᴇʀ",
         "price": 0,
-        "requirement": {"type": "grabs", "value": 50}
+        "requirement": {"type": "grabs", "value": 50},
+        "symbol": "◇"
     },
     "collector": {
-        "name": "📦 Collector",
+        "name": "◈ ᴄᴏʟʟᴇᴄᴛᴏʀ",
         "price": 0,
-        "requirement": {"type": "grabs", "value": 100}
+        "requirement": {"type": "grabs", "value": 100},
+        "symbol": "◊"
     },
     "master": {
-        "name": "⭐ Master Hunter",
+        "name": "★ ᴍᴀsᴛᴇʀ ʜᴜɴᴛᴇʀ",
         "price": 0,
-        "requirement": {"type": "grabs", "value": 250}
+        "requirement": {"type": "grabs", "value": 250},
+        "symbol": "☆"
     },
     "elite": {
-        "name": "💎 Elite Hunter",
+        "name": "◆ ᴇʟɪᴛᴇ ʜᴜɴᴛᴇʀ",
         "price": 50000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "◈"
     },
     "legend": {
-        "name": "🏆 Legendary",
+        "name": "⚔ ʟᴇɢᴇɴᴅᴀʀʏ",
         "price": 100000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "⚜"
     },
     "mythic": {
-        "name": "🌟 Mythic Lord",
+        "name": "✧ ᴍʏᴛʜɪᴄ ʟᴏʀᴅ",
         "price": 250000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "✦"
     },
     "shadow": {
-        "name": "🌑 Shadow King",
+        "name": "☾ sʜᴀᴅᴏᴡ ᴋɪɴɢ",
         "price": 500000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "☽"
     },
     "divine": {
-        "name": "✨ Divine Emperor",
+        "name": "✶ ᴅɪᴠɪɴᴇ ᴇᴍᴘᴇʀᴏʀ",
         "price": 1000000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "✷"
     },
     "supreme": {
-        "name": "👑 Supreme Overlord",
+        "name": "⧫ sᴜᴘʀᴇᴍᴇ ᴏᴠᴇʀʟᴏʀᴅ",
         "price": 2500000,
-        "requirement": None
+        "requirement": None,
+        "symbol": "⧈"
+    },
+    "cosmic": {
+        "name": "✨ ᴄᴏsᴍɪᴄ ᴇɴᴛɪᴛʏ",
+        "price": 5000000,
+        "requirement": None,
+        "symbol": "✧"
     }
 }
 
 PROFILE_THEMES = {
     "default": {
-        "name": "Default",
+        "name": "ᴅᴇғᴀᴜʟᴛ",
         "price": 0,
-        "divider": "───────────────────",
-        "bullet": "•",
-        "style": "standard"
-    },
-    "luxury": {
-        "name": "💰 Luxury",
-        "price": 25000,
-        "divider": "═══════════════════",
-        "bullet": "◈",
-        "style": "elegant"
+        "divider": "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+        "bullet": "◦",
+        "corner_tl": "╭",
+        "corner_tr": "╮",
+        "corner_bl": "╰",
+        "corner_br": "╯",
+        "style": "clean"
     },
     "neon": {
-        "name": "⚡ Neon",
+        "name": "ɴᴇᴏɴ ɢʟᴏᴡ",
+        "price": 25000,
+        "divider": "━━━━━━━━━━━━━━━━━",
+        "bullet": "▸",
+        "corner_tl": "┏",
+        "corner_tr": "┓",
+        "corner_bl": "┗",
+        "corner_br": "┛",
+        "style": "neon"
+    },
+    "luxury": {
+        "name": "ʟᴜxᴜʀʏ ɢᴏʟᴅ",
         "price": 35000,
-        "divider": "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
+        "divider": "═══════════════════",
+        "bullet": "◈",
+        "corner_tl": "╔",
+        "corner_tr": "╗",
+        "corner_bl": "╚",
+        "corner_br": "╝",
+        "style": "luxury"
+    },
+    "cyber": {
+        "name": "ᴄʏʙᴇʀ ᴛᴇᴄʜ",
+        "price": 50000,
+        "divider": "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰",
         "bullet": "►",
-        "style": "modern"
+        "corner_tl": "┌",
+        "corner_tr": "┐",
+        "corner_bl": "└",
+        "corner_br": "┘",
+        "style": "cyber"
     },
     "royal": {
-        "name": "👑 Royal",
-        "price": 50000,
-        "divider": "━━━━━━━━━━━━━━━━━━━",
-        "bullet": "♦",
-        "style": "premium"
-    },
-    "mystical": {
-        "name": "🔮 Mystical",
+        "name": "ʀᴏʏᴀʟ ᴇʟᴇɢᴀɴᴄᴇ",
         "price": 75000,
-        "divider": "✦═════════════════✦",
-        "bullet": "✧",
-        "style": "mystical"
+        "divider": "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆",
+        "bullet": "♦",
+        "corner_tl": "╔",
+        "corner_tr": "╗",
+        "corner_bl": "╚",
+        "corner_br": "╝",
+        "style": "royal"
     },
-    "fire": {
-        "name": "🔥 Fire",
+    "cosmic": {
+        "name": "ᴄᴏsᴍɪᴄ ᴠᴏɪᴅ",
         "price": 100000,
-        "divider": "▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂",
-        "bullet": "►",
-        "style": "intense"
+        "divider": "✦━━━━━━━━━━━━━━━✦",
+        "bullet": "✧",
+        "corner_tl": "╔",
+        "corner_tr": "╗",
+        "corner_bl": "╚",
+        "corner_br": "╝",
+        "style": "cosmic"
+    },
+    "minimal": {
+        "name": "ᴍɪɴɪᴍᴀʟ ᴄʟᴇᴀɴ",
+        "price": 150000,
+        "divider": "·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·",
+        "bullet": "·",
+        "corner_tl": " ",
+        "corner_tr": " ",
+        "corner_bl": " ",
+        "corner_br": " ",
+        "style": "minimal"
     }
 }
 
 AVATAR_FRAMES = {
     "none": {
-        "name": "No Frame",
+        "name": "ɴᴏ ғʀᴀᴍᴇ",
         "price": 0,
         "left": "",
         "right": ""
     },
-    "crown": {
-        "name": "👑 Crown",
+    "diamond": {
+        "name": "ᴅɪᴀᴍᴏɴᴅ",
         "price": 20000,
-        "left": "👑 ",
-        "right": " 👑"
-    },
-    "fire": {
-        "name": "🔥 Fire",
-        "price": 30000,
-        "left": "🔥 ",
-        "right": " 🔥"
-    },
-    "lightning": {
-        "name": "⚡ Lightning",
-        "price": 40000,
-        "left": "⚡ ",
-        "right": " ⚡"
+        "left": "◆ ",
+        "right": " ◆"
     },
     "star": {
-        "name": "⭐ Star",
-        "price": 50000,
-        "left": "⭐ ",
-        "right": " ⭐"
+        "name": "sᴛᴀʀ",
+        "price": 30000,
+        "left": "★ ",
+        "right": " ★"
     },
-    "diamond": {
-        "name": "💎 Diamond",
-        "price": 75000,
-        "left": "💎 ",
-        "right": " 💎"
+    "moon": {
+        "name": "ᴍᴏᴏɴ",
+        "price": 40000,
+        "left": "☾ ",
+        "right": " ☽"
+    },
+    "crown": {
+        "name": "ᴄʀᴏᴡɴ",
+        "price": 50000,
+        "left": "♔ ",
+        "right": " ♕"
     },
     "wings": {
-        "name": "🦋 Wings",
-        "price": 100000,
-        "left": "🦋 ",
-        "right": " 🦋"
+        "name": "ᴡɪɴɢs",
+        "price": 75000,
+        "left": "◄ ",
+        "right": " ►"
     },
-    "dragon": {
-        "name": "🐉 Dragon",
+    "flame": {
+        "name": "ғʟᴀᴍᴇ",
+        "price": 100000,
+        "left": "◈ ",
+        "right": " ◈"
+    },
+    "cosmic": {
+        "name": "ᴄᴏsᴍɪᴄ",
         "price": 150000,
-        "left": "🐉 ",
-        "right": " 🐉"
+        "left": "✦ ",
+        "right": " ✦"
+    },
+    "ultimate": {
+        "name": "ᴜʟᴛɪᴍᴀᴛᴇ",
+        "price": 250000,
+        "left": "⧫ ",
+        "right": " ⧫"
     }
 }
 
 EMOJI_PACKS = {
     "basic": {
-        "name": "Basic Pack",
+        "name": "ʙᴀsɪᴄ",
         "price": 0,
-        "emojis": ["⭐", "💫", "✨"]
+        "emojis": ["◦", "◇", "◆"]
     },
-    "elements": {
-        "name": "🌊 Elements",
+    "geometric": {
+        "name": "ɢᴇᴏᴍᴇᴛʀɪᴄ",
         "price": 15000,
-        "emojis": ["🔥", "💧", "🌪️", "⚡", "🌍"]
+        "emojis": ["◆", "◇", "◈", "◊", "○", "●", "◐", "◑"]
     },
-    "cosmic": {
-        "name": "🌌 Cosmic",
+    "stars": {
+        "name": "sᴛᴀʀs",
         "price": 25000,
-        "emojis": ["🌟", "✨", "💫", "🌠", "🪐"]
+        "emojis": ["★", "☆", "✦", "✧", "✶", "✷", "✸", "✹"]
     },
-    "royal": {
-        "name": "👑 Royal",
+    "arrows": {
+        "name": "ᴀʀʀᴏᴡs",
         "price": 35000,
-        "emojis": ["👑", "💎", "🏆", "⚜️", "🔱"]
+        "emojis": ["►", "▸", "▹", "▻", "◄", "◂", "◃", "◅"]
+    },
+    "celestial": {
+        "name": "ᴄᴇʟᴇsᴛɪᴀʟ",
+        "price": 50000,
+        "emojis": ["☾", "☽", "☼", "☀", "☁", "☂", "☃", "☄"]
     },
     "mystical": {
-        "name": "🔮 Mystical",
-        "price": 50000,
-        "emojis": ["🔮", "✨", "🌙", "⭐", "🔯"]
+        "name": "ᴍʏsᴛɪᴄᴀʟ",
+        "price": 75000,
+        "emojis": ["⚜", "⚝", "⚞", "⚟", "⚠", "⚡", "⚢", "⚣"]
+    },
+    "royal": {
+        "name": "ʀᴏʏᴀʟ",
+        "price": 100000,
+        "emojis": ["♔", "♕", "♖", "♗", "♘", "♙", "♚", "♛"]
     }
 }
 
 BAD_WORDS = [
     "fuck", "shit", "ass", "bitch", "damn", "hell",
     "sex", "porn", "nude", "dick", "pussy", "nigger",
-    "fag", "retard", "cunt", "cock", "whore"
+    "fag", "retard", "cunt", "cock", "whore", "rape"
 ]
 
 BIO_COOLDOWN_MINUTES = 60
-BIO_MAX_LENGTH = 60
-BIO_EMOJI_LIMIT = 5
+BIO_MAX_LENGTH = 80
+BIO_EMOJI_LIMIT = 8
 
 
 async def get_user_collection() -> List[Dict[str, Any]]:
@@ -289,14 +407,14 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
         user = await shivuu.get_users(user)
     
     if not user.first_name:
-        return "Deleted account", None
+        return "ᴅᴇʟᴇᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛ", None
 
     user_id = user.id
-    username = user.username or "None"
+    username = user.username or "ɴᴏɴᴇ"
     existing_user = await user_collection.find_one({'id': user_id})
     
     if not existing_user:
-        return "User not found in database", None
+        return "ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ", None
 
     first_name = user.first_name
     global_rank = await get_global_rank(user_id)
@@ -327,7 +445,7 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
         AVATAR_FRAMES['none']
     )
 
-    has_pass = "✅" if existing_user.get('pass') else "❌"
+    has_pass = "◆" if existing_user.get('pass') else "◇"
     tokens = existing_user.get('tokens', 0)
     balance_formatted = f"{balance:,}"
     tokens_formatted = f"{tokens:,}"
@@ -335,28 +453,43 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
     framed_name = f"{active_frame['left']}{first_name}{active_frame['right']}"
     bio = profile_data.get('bio', '')
     divider = active_theme['divider']
+    corner_tl = active_theme['corner_tl']
+    corner_tr = active_theme['corner_tr']
+    corner_bl = active_theme['corner_bl']
+    corner_br = active_theme['corner_br']
 
     info_text = f"""
-「 ✨ 𝙃𝙐𝙉𝙏𝙀𝙍 𝙇𝙄𝘾𝙀𝙉𝙎𝙀 ✨ 」
-{divider}
+{corner_tl}{divider}{corner_tr}
+
 {framed_name}
 {active_title}
+
 {divider}
-𝙐𝙎𝙀𝙍 𝙄𝘿 : `{user_id}`
-𝙐𝙎𝙀𝙍𝙉𝘼𝙈𝙀 : @{username}
+
+ᴜsᴇʀ ɪᴅ ◆ `{user_id}`
+ᴜsᴇʀɴᴀᴍᴇ ◆ @{username}
+
 {divider}
-𝙎𝙇𝘼𝙑𝙀𝙎 𝗖𝗢𝗨𝗡𝗧 : `{total_count}` / `{global_count}`
-𝙂𝙇𝙊𝘽𝘼𝙇 𝙍𝘼𝙉𝙆 : `{global_rank}`
+
+ᴄᴏʟʟᴇᴄᴛɪᴏɴ ◆ `{total_count}` / `{global_count}`
+ɢʟᴏʙᴀʟ ʀᴀɴᴋ ◆ `{global_rank}`
+
 {divider}
-𝙒𝙀𝘼𝙇𝙏𝙃 : ₩`{balance_formatted}`
-𝙂𝙇𝙊𝘽𝘼𝙇 𝙒𝙀𝘼𝙇𝙏𝙃 𝙍𝘼𝙉𝙆 : `{global_coin_rank}`
+
+ᴡᴇᴀʟᴛʜ ◆ ₩ `{balance_formatted}`
+ᴡᴇᴀʟᴛʜ ʀᴀɴᴋ ◆ `{global_coin_rank}`
+
 {divider}
-𝙋𝙖𝙨𝙨 : {has_pass}
-𝙏𝙊𝙆𝙀𝙉𝙎 : `{tokens_formatted}`
+
+ᴘᴀss ◆ {has_pass}
+ᴛᴏᴋᴇɴs ◆ `{tokens_formatted}`
+
 {divider}"""
 
     if bio:
-        info_text += f"\n💭 {bio}\n{divider}"
+        info_text += f"\n\n{bio}\n"
+
+    info_text += f"\n{corner_bl}{divider}{corner_br}"
 
     return info_text, photo_id
 
@@ -390,22 +523,22 @@ async def profile(client: Client, message: Message) -> None:
     elif not message.reply_to_message and len(message.command) != 1:
         user = message.text.split(None, 1)[1]
     
-    m = await message.reply_text("Getting Your Hunter License...")
+    m = await message.reply_text("◆ ʟᴏᴀᴅɪɴɢ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ...")
     
     try:
         info_text, photo_id = await get_user_info(user)
     except Exception as e:
         print(f"Error in profile command: {e}")
-        return await m.edit(f"Sorry something went wrong. Report at @{SUPPORT_CHAT}")
+        return await m.edit(f"◇ sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ ◇\nʀᴇᴘᴏʀᴛ ᴀᴛ @{SUPPORT_CHAT}")
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛍️ Profile Shop", callback_data="profile_shop")],
-        [InlineKeyboardButton("Support", url=f"https://t.me/{SUPPORT_CHAT}")]
+        [InlineKeyboardButton("✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ", callback_data="profile_shop")],
+        [InlineKeyboardButton("◆ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
 
     reply_markup = InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            "Start Me in PM First",
+            "◆ sᴛᴀʀᴛ ᴍᴇ ғɪʀsᴛ",
             url=f"https://t.me/{shivuu.me.username}?start=True"
         )]
     ])
@@ -427,21 +560,23 @@ async def profile(client: Client, message: Message) -> None:
 @shivuu.on_callback_query(filters.regex("^profile_shop$"))
 async def profile_shop_callback(client: Client, callback_query: CallbackQuery) -> None:
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏷️ Titles", callback_data="shop_titles")],
-        [InlineKeyboardButton("🎨 Themes", callback_data="shop_themes")],
-        [InlineKeyboardButton("🖼️ Frames", callback_data="shop_frames")],
-        [InlineKeyboardButton("😀 Emoji Packs", callback_data="shop_emojis")],
-        [InlineKeyboardButton("📝 Edit Bio", callback_data="shop_bio")],
-        [InlineKeyboardButton("« Back", callback_data="back_to_profile")]
+        [InlineKeyboardButton("◆ ᴛɪᴛʟᴇs", callback_data="shop_titles")],
+        [InlineKeyboardButton("◇ ᴛʜᴇᴍᴇs", callback_data="shop_themes")],
+        [InlineKeyboardButton("◈ ғʀᴀᴍᴇs", callback_data="shop_frames")],
+        [InlineKeyboardButton("◊ ᴇᴍᴏᴊɪ ᴘᴀᴄᴋs", callback_data="shop_emojis")],
+        [InlineKeyboardButton("✦ ᴇᴅɪᴛ ʙɪᴏ", callback_data="shop_bio")],
+        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
     ])
 
     shop_text = """
-🛍️ **PROFILE SHOP** 🛍️
+╔═══════════════════╗
+    ✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ ✦
+╚═══════════════════╝
 
-Welcome to the Profile Customization Shop!
-Personalize your profile with exclusive items.
+ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ sʜᴏᴘ!
+ᴘᴇʀsᴏɴᴀʟɪᴢᴇ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ ᴡɪᴛʜ ᴇxᴄʟᴜsɪᴠᴇ ɪᴛᴇᴍs
 
-Select a category to browse:
+sᴇʟᴇᴄᴛ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ
 """
 
     await callback_query.message.edit_text(shop_text, reply_markup=keyboard)
@@ -457,7 +592,7 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
     owned_titles = profile_data.get('owned_titles', ['rookie'])
     balance = await get_user_balance(user_id)
 
-    titles_text = "🏷️ **TITLE SHOP** 🏷️\n\n"
+    titles_text = "╔═══════════════════╗\n    ✦ ᴛɪᴛʟᴇ sʜᴏᴘ ✦\n╚═══════════════════╝\n\n"
 
     for title_id, title_data in PROFILE_TITLES.items():
         title_name = title_data['name']
@@ -465,18 +600,18 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
         requirement = title_data['requirement']
 
         if title_id in owned_titles:
-            status = "✅ Owned"
+            status = "◆ ᴏᴡɴᴇᴅ"
         elif requirement:
             req_value = requirement['value']
-            status = f"🔒 Unlock at {req_value} grabs"
+            status = f"◇ ᴜɴʟᴏᴄᴋ ᴀᴛ {req_value} ɢʀᴀʙs"
         elif balance >= price:
-            status = f"💰 ₩{price:,}"
+            status = f"◈ ₩ {price:,}"
         else:
-            status = f"🔒 ₩{price:,}"
+            status = f"◊ ₩ {price:,}"
 
         titles_text += f"{title_name}\n{status}\n\n"
 
-    titles_text += f"\n💵 Your Balance: ₩{balance:,}"
+    titles_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     for title_id, title_data in PROFILE_TITLES.items():
@@ -484,7 +619,7 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
             if balance >= title_data['price']:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"Buy {title_data['name']}",
+                        f"◈ ʙᴜʏ {title_data['name'][:20]}",
                         callback_data=f"buy_title_{title_id}"
                     )
                 ])
@@ -492,12 +627,12 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
     for title_id in owned_titles:
         keyboard.append([
             InlineKeyboardButton(
-                f"Equip {PROFILE_TITLES[title_id]['name']}",
+                f"✦ ᴇǫᴜɪᴘ {PROFILE_TITLES[title_id]['name'][:20]}",
                 callback_data=f"equip_title_{title_id}"
             )
         ])
 
-    keyboard.append([InlineKeyboardButton("« Back", callback_data="profile_shop")])
+    keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
     await callback_query.message.edit_text(
         titles_text,
@@ -511,7 +646,7 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
     title_id = callback_query.data.split("_", 2)[2]
 
     if title_id not in PROFILE_TITLES:
-        await callback_query.answer("Invalid title!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴛɪᴛʟᴇ", show_alert=True)
         return
 
     title_data = PROFILE_TITLES[title_id]
@@ -523,12 +658,12 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_titles = profile_data.get('owned_titles', [])
 
     if title_id in owned_titles:
-        await callback_query.answer("You already own this title!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     if balance < price:
         await callback_query.answer(
-            f"Insufficient balance! Need ₩{price:,}",
+            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
             show_alert=True
         )
         return
@@ -547,7 +682,7 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
     )
 
     await callback_query.answer(
-        f"✅ Purchased {title_data['name']} for ₩{price:,}!",
+        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {title_data['name'][:30]}\nғᴏʀ ₩ {price:,}",
         show_alert=True
     )
     await shop_titles_callback(client, callback_query)
@@ -559,7 +694,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
     title_id = callback_query.data.split("_", 2)[2]
 
     if title_id not in PROFILE_TITLES:
-        await callback_query.answer("Invalid title!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴛɪᴛʟᴇ", show_alert=True)
         return
 
     user = await user_collection.find_one({'id': user_id})
@@ -567,7 +702,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
     owned_titles = profile_data.get('owned_titles', [])
 
     if title_id not in owned_titles:
-        await callback_query.answer("You don't own this title!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -576,7 +711,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
     )
 
     await callback_query.answer(
-        f"✅ Equipped {PROFILE_TITLES[title_id]['name']}!",
+        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {PROFILE_TITLES[title_id]['name'][:30]}",
         show_alert=True
     )
     await shop_titles_callback(client, callback_query)
@@ -592,22 +727,22 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
     owned_themes = profile_data.get('owned_themes', ['default'])
     balance = await get_user_balance(user_id)
 
-    themes_text = "🎨 **THEME SHOP** 🎨\n\n"
+    themes_text = "╔═══════════════════╗\n    ✦ ᴛʜᴇᴍᴇ sʜᴏᴘ ✦\n╚═══════════════════╝\n\n"
 
     for theme_id, theme_data in PROFILE_THEMES.items():
         theme_name = theme_data['name']
         price = theme_data['price']
 
         if theme_id in owned_themes:
-            status = "✅ Owned"
+            status = "◆ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"💰 ₩{price:,}"
+            status = f"◈ ₩ {price:,}"
         else:
-            status = f"🔒 ₩{price:,}"
+            status = f"◊ ₩ {price:,}"
 
-        themes_text += f"{theme_name}\n{theme_data['divider'][:15]}...\n{status}\n\n"
+        themes_text += f"{theme_name}\n{theme_data['divider'][:17]}...\n{status}\n\n"
 
-    themes_text += f"\n💵 Your Balance: ₩{balance:,}"
+    themes_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     for theme_id, theme_data in PROFILE_THEMES.items():
@@ -615,7 +750,7 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
             if balance >= theme_data['price']:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"Buy {theme_data['name']}",
+                        f"◈ ʙᴜʏ {theme_data['name']}",
                         callback_data=f"buy_theme_{theme_id}"
                     )
                 ])
@@ -623,12 +758,12 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
     for theme_id in owned_themes:
         keyboard.append([
             InlineKeyboardButton(
-                f"Equip {PROFILE_THEMES[theme_id]['name']}",
+                f"✦ ᴇǫᴜɪᴘ {PROFILE_THEMES[theme_id]['name']}",
                 callback_data=f"equip_theme_{theme_id}"
             )
         ])
 
-    keyboard.append([InlineKeyboardButton("« Back", callback_data="profile_shop")])
+    keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
     await callback_query.message.edit_text(
         themes_text,
@@ -642,7 +777,7 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
     theme_id = callback_query.data.split("_", 2)[2]
 
     if theme_id not in PROFILE_THEMES:
-        await callback_query.answer("Invalid theme!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴛʜᴇᴍᴇ", show_alert=True)
         return
 
     theme_data = PROFILE_THEMES[theme_id]
@@ -654,12 +789,12 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_themes = profile_data.get('owned_themes', [])
 
     if theme_id in owned_themes:
-        await callback_query.answer("You already own this theme!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     if balance < price:
         await callback_query.answer(
-            f"Insufficient balance! Need ₩{price:,}",
+            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
             show_alert=True
         )
         return
@@ -678,7 +813,7 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
     )
 
     await callback_query.answer(
-        f"✅ Purchased {theme_data['name']} for ₩{price:,}!",
+        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {theme_data['name']}\nғᴏʀ ₩ {price:,}",
         show_alert=True
     )
     await shop_themes_callback(client, callback_query)
@@ -690,7 +825,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
     theme_id = callback_query.data.split("_", 2)[2]
 
     if theme_id not in PROFILE_THEMES:
-        await callback_query.answer("Invalid theme!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴛʜᴇᴍᴇ", show_alert=True)
         return
 
     user = await user_collection.find_one({'id': user_id})
@@ -698,7 +833,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
     owned_themes = profile_data.get('owned_themes', [])
 
     if theme_id not in owned_themes:
-        await callback_query.answer("You don't own this theme!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -707,7 +842,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
     )
 
     await callback_query.answer(
-        f"✅ Equipped {PROFILE_THEMES[theme_id]['name']}!",
+        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {PROFILE_THEMES[theme_id]['name']}",
         show_alert=True
     )
     await shop_themes_callback(client, callback_query)
@@ -723,23 +858,23 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
     owned_frames = profile_data.get('owned_frames', ['none'])
     balance = await get_user_balance(user_id)
 
-    frames_text = "🖼️ **FRAME SHOP** 🖼️\n\n"
+    frames_text = "╔═══════════════════╗\n    ✦ ғʀᴀᴍᴇ sʜᴏᴘ ✦\n╚═══════════════════╝\n\n"
 
     for frame_id, frame_data in AVATAR_FRAMES.items():
         frame_name = frame_data['name']
         price = frame_data['price']
 
         if frame_id in owned_frames:
-            status = "✅ Owned"
+            status = "◆ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"💰 ₩{price:,}"
+            status = f"◈ ₩ {price:,}"
         else:
-            status = f"🔒 ₩{price:,}"
+            status = f"◊ ₩ {price:,}"
 
-        preview = f"{frame_data['left']}Username{frame_data['right']}" if frame_id != "none" else "Username"
+        preview = f"{frame_data['left']}ɴᴀᴍᴇ{frame_data['right']}" if frame_id != "none" else "ɴᴀᴍᴇ"
         frames_text += f"{frame_name}\n{preview}\n{status}\n\n"
 
-    frames_text += f"\n💵 Your Balance: ₩{balance:,}"
+    frames_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     for frame_id, frame_data in AVATAR_FRAMES.items():
@@ -747,7 +882,7 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
             if balance >= frame_data['price']:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"Buy {frame_data['name']}",
+                        f"◈ ʙᴜʏ {frame_data['name']}",
                         callback_data=f"buy_frame_{frame_id}"
                     )
                 ])
@@ -755,12 +890,12 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
     for frame_id in owned_frames:
         keyboard.append([
             InlineKeyboardButton(
-                f"Equip {AVATAR_FRAMES[frame_id]['name']}",
+                f"✦ ᴇǫᴜɪᴘ {AVATAR_FRAMES[frame_id]['name']}",
                 callback_data=f"equip_frame_{frame_id}"
             )
         ])
 
-    keyboard.append([InlineKeyboardButton("« Back", callback_data="profile_shop")])
+    keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
     await callback_query.message.edit_text(
         frames_text,
@@ -774,7 +909,7 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
     frame_id = callback_query.data.split("_", 2)[2]
 
     if frame_id not in AVATAR_FRAMES:
-        await callback_query.answer("Invalid frame!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ғʀᴀᴍᴇ", show_alert=True)
         return
 
     frame_data = AVATAR_FRAMES[frame_id]
@@ -786,12 +921,12 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_frames = profile_data.get('owned_frames', [])
 
     if frame_id in owned_frames:
-        await callback_query.answer("You already own this frame!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     if balance < price:
         await callback_query.answer(
-            f"Insufficient balance! Need ₩{price:,}",
+            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
             show_alert=True
         )
         return
@@ -810,7 +945,7 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
     )
 
     await callback_query.answer(
-        f"✅ Purchased {frame_data['name']} for ₩{price:,}!",
+        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {frame_data['name']}\nғᴏʀ ₩ {price:,}",
         show_alert=True
     )
     await shop_frames_callback(client, callback_query)
@@ -822,7 +957,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
     frame_id = callback_query.data.split("_", 2)[2]
 
     if frame_id not in AVATAR_FRAMES:
-        await callback_query.answer("Invalid frame!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ғʀᴀᴍᴇ", show_alert=True)
         return
 
     user = await user_collection.find_one({'id': user_id})
@@ -830,7 +965,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
     owned_frames = profile_data.get('owned_frames', [])
 
     if frame_id not in owned_frames:
-        await callback_query.answer("You don't own this frame!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     await user_collection.update_one(
@@ -839,7 +974,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
     )
 
     await callback_query.answer(
-        f"✅ Equipped {AVATAR_FRAMES[frame_id]['name']}!",
+        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {AVATAR_FRAMES[frame_id]['name']}",
         show_alert=True
     )
     await shop_frames_callback(client, callback_query)
@@ -855,23 +990,23 @@ async def shop_emojis_callback(client: Client, callback_query: CallbackQuery) ->
     owned_packs = profile_data.get('owned_emoji_packs', ['basic'])
     balance = await get_user_balance(user_id)
 
-    emojis_text = "😀 **EMOJI PACK SHOP** 😀\n\n"
+    emojis_text = "╔═══════════════════╗\n    ✦ ᴇᴍᴏᴊɪ sʜᴏᴘ ✦\n╚═══════════════════╝\n\n"
 
     for pack_id, pack_data in EMOJI_PACKS.items():
         pack_name = pack_data['name']
         price = pack_data['price']
-        emojis = ' '.join(pack_data['emojis'])
+        emojis = ' '.join(pack_data['emojis'][:8])
 
         if pack_id in owned_packs:
-            status = "✅ Owned"
+            status = "◆ ᴏᴡɴᴇᴅ"
         elif balance >= price:
-            status = f"💰 ₩{price:,}"
+            status = f"◈ ₩ {price:,}"
         else:
-            status = f"🔒 ₩{price:,}"
+            status = f"◊ ₩ {price:,}"
 
         emojis_text += f"{pack_name}\n{emojis}\n{status}\n\n"
 
-    emojis_text += f"\n💵 Your Balance: ₩{balance:,}"
+    emojis_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
     for pack_id, pack_data in EMOJI_PACKS.items():
@@ -879,12 +1014,12 @@ async def shop_emojis_callback(client: Client, callback_query: CallbackQuery) ->
             if balance >= pack_data['price']:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"Buy {pack_data['name']}",
+                        f"◈ ʙᴜʏ {pack_data['name']}",
                         callback_data=f"buy_emoji_{pack_id}"
                     )
                 ])
 
-    keyboard.append([InlineKeyboardButton("« Back", callback_data="profile_shop")])
+    keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
     await callback_query.message.edit_text(
         emojis_text,
@@ -898,7 +1033,7 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
     pack_id = callback_query.data.split("_", 2)[2]
 
     if pack_id not in EMOJI_PACKS:
-        await callback_query.answer("Invalid emoji pack!", show_alert=True)
+        await callback_query.answer("◇ ɪɴᴠᴀʟɪᴅ ᴘᴀᴄᴋ", show_alert=True)
         return
 
     pack_data = EMOJI_PACKS[pack_id]
@@ -910,12 +1045,12 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
     owned_packs = profile_data.get('owned_emoji_packs', [])
 
     if pack_id in owned_packs:
-        await callback_query.answer("You already own this pack!", show_alert=True)
+        await callback_query.answer("◇ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴏᴡɴ ᴛʜɪs", show_alert=True)
         return
 
     if balance < price:
         await callback_query.answer(
-            f"Insufficient balance! Need ₩{price:,}",
+            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
             show_alert=True
         )
         return
@@ -934,7 +1069,7 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
     )
 
     await callback_query.answer(
-        f"✅ Purchased {pack_data['name']} for ₩{price:,}!",
+        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {pack_data['name']}\nғᴏʀ ₩ {price:,}",
         show_alert=True
     )
     await shop_emojis_callback(client, callback_query)
@@ -947,7 +1082,7 @@ async def shop_bio_callback(client: Client, callback_query: CallbackQuery) -> No
     
     user = await user_collection.find_one({'id': user_id})
     profile_data = user.get('profile_data', {})
-    current_bio = profile_data.get('bio', 'Not set')
+    current_bio = profile_data.get('bio', 'ɴᴏᴛ sᴇᴛ')
     last_update = profile_data.get('bio_last_update')
 
     cooldown_remaining = ""
@@ -955,24 +1090,27 @@ async def shop_bio_callback(client: Client, callback_query: CallbackQuery) -> No
         time_diff = datetime.now() - datetime.fromisoformat(last_update)
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
-            cooldown_remaining = f"\n⏰ Cooldown: {int(cooldown_minutes)} minutes"
+            cooldown_remaining = f"\n◆ ᴄᴏᴏʟᴅᴏᴡɴ ◆ {int(cooldown_minutes)} ᴍɪɴᴜᴛᴇs"
 
     bio_text = f"""
-📝 **BIO EDITOR** 📝
+╔═══════════════════╗
+    ✦ ʙɪᴏ ᴇᴅɪᴛᴏʀ ✦
+╚═══════════════════╝
 
-Current Bio: {current_bio}
+ᴄᴜʀʀᴇɴᴛ ʙɪᴏ ◆ {current_bio}
 
-**Rules:**
-• Max {BIO_MAX_LENGTH} characters
-• Max {BIO_EMOJI_LIMIT} emojis
-• No offensive language
-• {BIO_COOLDOWN_MINUTES} minute cooldown between edits{cooldown_remaining}
+◇ ʀᴜʟᴇs ◇
 
-Use command: `/setbio <your bio text>`
+◦ ᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀᴀᴄᴛᴇʀs
+◦ ᴍᴀx {BIO_EMOJI_LIMIT} ᴇᴍᴏᴊɪs
+◦ ɴᴏ ʙᴀᴅ ʟᴀɴɢᴜᴀɢᴇ
+◦ {BIO_COOLDOWN_MINUTES} ᴍɪɴᴜᴛᴇ ᴄᴏᴏʟᴅᴏᴡɴ{cooldown_remaining}
+
+ᴜsᴇ ᴄᴏᴍᴍᴀɴᴅ ◆ /setbio <text>
 """
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("« Back", callback_data="profile_shop")]
+        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")]
     ])
 
     await callback_query.message.edit_text(bio_text, reply_markup=keyboard)
@@ -985,7 +1123,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
 
     if len(message.command) < 2:
         await message.reply_text(
-            "❌ Please provide bio text!\n\nUsage: `/setbio <your bio>`"
+            "◇ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ʙɪᴏ ᴛᴇxᴛ\n\nᴜsᴀɢᴇ ◆ /setbio <ʏᴏᴜʀ ʙɪᴏ>"
         )
         return
 
@@ -993,18 +1131,18 @@ async def set_bio_command(client: Client, message: Message) -> None:
 
     if len(bio_text) > BIO_MAX_LENGTH:
         await message.reply_text(
-            f"❌ Bio too long! Max {BIO_MAX_LENGTH} characters."
+            f"◇ ʙɪᴏ ᴛᴏᴏ ʟᴏɴɢ\nᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀᴀᴄᴛᴇʀs"
         )
         return
 
     if contains_bad_words(bio_text):
-        await message.reply_text("❌ Bio contains inappropriate language!")
+        await message.reply_text("◇ ɪɴᴀᴘᴘʀᴏᴘʀɪᴀᴛᴇ ʟᴀɴɢᴜᴀɢᴇ ᴅᴇᴛᴇᴄᴛᴇᴅ")
         return
 
     emoji_count = count_emojis(bio_text)
     if emoji_count > BIO_EMOJI_LIMIT:
         await message.reply_text(
-            f"❌ Too many emojis! Max {BIO_EMOJI_LIMIT} emojis allowed."
+            f"◇ ᴛᴏᴏ ᴍᴀɴʏ ᴇᴍᴏᴊɪs\nᴍᴀx {BIO_EMOJI_LIMIT} ᴀʟʟᴏᴡᴇᴅ"
         )
         return
 
@@ -1017,7 +1155,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
             await message.reply_text(
-                f"⏰ Bio on cooldown! Wait {int(cooldown_minutes)} more minutes."
+                f"◇ ʙɪᴏ ᴏɴ ᴄᴏᴏʟᴅᴏᴡɴ\nᴡᴀɪᴛ {int(cooldown_minutes)} ᴍᴏʀᴇ ᴍɪɴᴜᴛᴇs"
             )
             return
 
@@ -1031,7 +1169,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         }
     )
 
-    await message.reply_text(f"✅ Bio updated successfully!\n\n💭 {bio_text}")
+    await message.reply_text(f"◆ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ\n\n{bio_text}")
 
 
 @shivuu.on_callback_query(filters.regex("^back_to_profile$"))
@@ -1041,12 +1179,12 @@ async def back_to_profile_callback(client: Client, callback_query: CallbackQuery
     try:
         info_text, photo_id = await get_user_info(user_id)
     except Exception as e:
-        await callback_query.answer("Error loading profile", show_alert=True)
+        await callback_query.answer("◇ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ᴘʀᴏғɪʟᴇ", show_alert=True)
         return
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛍️ Profile Shop", callback_data="profile_shop")],
-        [InlineKeyboardButton("Support", url=f"https://t.me/{SUPPORT_CHAT}")]
+        [InlineKeyboardButton("✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ", callback_data="profile_shop")],
+        [InlineKeyboardButton("◆ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
 
     if photo_id:
