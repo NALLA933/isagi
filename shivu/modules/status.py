@@ -18,44 +18,12 @@ class TextFormatter:
         return text.translate(small_caps_map)
     
     @staticmethod
-    def bold_serif(text: str) -> str:
-        bold_map = str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
-            '𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗'
-        )
-        return text.translate(bold_map)
-    
-    @staticmethod
-    def italic_serif(text: str) -> str:
-        italic_map = str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
-            '𝐴𝐵𝐶𝐷𝐸𝐹𝐺𝐻𝐼𝐽𝐾𝐿𝑀𝑁𝑂𝑃𝑄𝑅𝑆𝑇𝑈𝑉𝑊𝑋𝑌𝑍𝑎𝑏𝑐𝑑𝑒𝑓𝑔ℎ𝑖𝑗𝑘𝑙𝑚𝑛𝑜𝑝𝑞𝑟𝑠𝑡𝑢𝑣𝑤𝑥𝑦𝑧'
-        )
-        return text.translate(italic_map)
-    
-    @staticmethod
-    def monospace(text: str) -> str:
-        mono_map = str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
-            '𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿'
-        )
-        return text.translate(mono_map)
-    
-    @staticmethod
-    def script_text(text: str) -> str:
-        script_map = str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
-            '𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏'
-        )
-        return text.translate(script_map)
-    
-    @staticmethod
-    def double_struck(text: str) -> str:
-        double_map = str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
-            '𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡'
-        )
-        return text.translate(double_map)
+    def format_number(num: int) -> str:
+        if num >= 1000000:
+            return f"{num/1000000:.1f}ᴍ"
+        elif num >= 1000:
+            return f"{num/1000:.1f}ᴋ"
+        return str(num)
 
 
 PROFILE_TITLES = {
@@ -136,8 +104,7 @@ PROFILE_THEMES = {
         "corner_tl": "╭",
         "corner_tr": "╮",
         "corner_bl": "╰",
-        "corner_br": "╯",
-        "style": "clean"
+        "corner_br": "╯"
     },
     "neon": {
         "name": "ɴᴇᴏɴ ɢʟᴏᴡ",
@@ -147,8 +114,7 @@ PROFILE_THEMES = {
         "corner_tl": "┏",
         "corner_tr": "┓",
         "corner_bl": "┗",
-        "corner_br": "┛",
-        "style": "neon"
+        "corner_br": "┛"
     },
     "luxury": {
         "name": "ʟᴜxᴜʀʏ ɢᴏʟᴅ",
@@ -158,8 +124,7 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝",
-        "style": "luxury"
+        "corner_br": "╝"
     },
     "cyber": {
         "name": "ᴄʏʙᴇʀ ᴛᴇᴄʜ",
@@ -169,8 +134,7 @@ PROFILE_THEMES = {
         "corner_tl": "┌",
         "corner_tr": "┐",
         "corner_bl": "└",
-        "corner_br": "┘",
-        "style": "cyber"
+        "corner_br": "┘"
     },
     "royal": {
         "name": "ʀᴏʏᴀʟ ᴇʟᴇɢᴀɴᴄᴇ",
@@ -180,8 +144,7 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝",
-        "style": "royal"
+        "corner_br": "╝"
     },
     "cosmic": {
         "name": "ᴄᴏsᴍɪᴄ ᴠᴏɪᴅ",
@@ -191,8 +154,7 @@ PROFILE_THEMES = {
         "corner_tl": "╔",
         "corner_tr": "╗",
         "corner_bl": "╚",
-        "corner_br": "╝",
-        "style": "cosmic"
+        "corner_br": "╝"
     },
     "minimal": {
         "name": "ᴍɪɴɪᴍᴀʟ ᴄʟᴇᴀɴ",
@@ -202,8 +164,7 @@ PROFILE_THEMES = {
         "corner_tl": " ",
         "corner_tr": " ",
         "corner_bl": " ",
-        "corner_br": " ",
-        "style": "minimal"
+        "corner_br": " "
     }
 }
 
@@ -354,6 +315,25 @@ async def get_user_balance(user_id: int) -> int:
     return 0
 
 
+async def get_grab_stats(user_id: int) -> Dict[str, int]:
+    user = await user_collection.find_one({'id': user_id})
+    if not user:
+        return {
+            'total_grabs': 0,
+            'today_grabs': 0,
+            'weekly_grabs': 0,
+            'monthly_grabs': 0
+        }
+    
+    grab_stats = user.get('grab_stats', {})
+    return {
+        'total_grabs': len(user.get('characters', [])),
+        'today_grabs': grab_stats.get('today', 0),
+        'weekly_grabs': grab_stats.get('weekly', 0),
+        'monthly_grabs': grab_stats.get('monthly', 0)
+    }
+
+
 async def initialize_profile_data(user_id: int) -> None:
     existing = await user_collection.find_one({'id': user_id})
     if existing and 'profile_data' not in existing:
@@ -371,6 +351,21 @@ async def initialize_profile_data(user_id: int) -> None:
                         'owned_themes': ['default'],
                         'owned_frames': ['none'],
                         'owned_emoji_packs': ['basic']
+                    }
+                }
+            }
+        )
+    
+    if existing and 'grab_stats' not in existing:
+        await user_collection.update_one(
+            {'id': user_id},
+            {
+                '$set': {
+                    'grab_stats': {
+                        'today': 0,
+                        'weekly': 0,
+                        'monthly': 0,
+                        'last_reset': datetime.now().isoformat()
                     }
                 }
             }
@@ -423,6 +418,7 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
     photo_id = user.photo.big_file_id if user.photo else None
     balance = await get_user_balance(user_id)
     global_coin_rank = await user_collection.count_documents({'balance': {'$gt': balance}}) + 1
+    grab_stats = await get_grab_stats(user_id)
 
     await initialize_profile_data(user_id)
     await check_auto_unlocks(user_id, total_count)
@@ -447,9 +443,7 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
 
     has_pass = "◆" if existing_user.get('pass') else "◇"
     tokens = existing_user.get('tokens', 0)
-    balance_formatted = f"{balance:,}"
-    tokens_formatted = f"{tokens:,}"
-
+    
     framed_name = f"{active_frame['left']}{first_name}{active_frame['right']}"
     bio = profile_data.get('bio', '')
     divider = active_theme['divider']
@@ -458,38 +452,32 @@ async def get_user_info(user, already: bool = False) -> Tuple[str, Optional[str]
     corner_bl = active_theme['corner_bl']
     corner_br = active_theme['corner_br']
 
-    info_text = f"""
-{corner_tl}{divider}{corner_tr}
-
+    info_text = f"""{corner_tl}{divider}{corner_tr}
 {framed_name}
 {active_title}
-
 {divider}
-
 ᴜsᴇʀ ɪᴅ ◆ `{user_id}`
 ᴜsᴇʀɴᴀᴍᴇ ◆ @{username}
-
 {divider}
-
 ᴄᴏʟʟᴇᴄᴛɪᴏɴ ◆ `{total_count}` / `{global_count}`
-ɢʟᴏʙᴀʟ ʀᴀɴᴋ ◆ `{global_rank}`
-
+ɢʟᴏʙᴀʟ ʀᴀɴᴋ ◆ `#{global_rank}`
 {divider}
-
-ᴡᴇᴀʟᴛʜ ◆ ₩ `{balance_formatted}`
-ᴡᴇᴀʟᴛʜ ʀᴀɴᴋ ◆ `{global_coin_rank}`
-
+ᴡᴇᴀʟᴛʜ ◆ ₩ `{balance:,}`
+ᴡᴇᴀʟᴛʜ ʀᴀɴᴋ ◆ `#{global_coin_rank}`
 {divider}
-
-ᴘᴀss ◆ {has_pass}
-ᴛᴏᴋᴇɴs ◆ `{tokens_formatted}`
-
+ɢʀᴀʙ sᴛᴀᴛs ◆
+◦ ᴛᴏᴛᴀʟ ◆ `{grab_stats['total_grabs']}`
+◦ ᴛᴏᴅᴀʏ ◆ `{grab_stats['today_grabs']}`
+◦ ᴡᴇᴇᴋʟʏ ◆ `{grab_stats['weekly_grabs']}`
+◦ ᴍᴏɴᴛʜʟʏ ◆ `{grab_stats['monthly_grabs']}`
+{divider}
+ᴘᴀss ◆ {has_pass}  ◆  ᴛᴏᴋᴇɴs ◆ `{tokens:,}`
 {divider}"""
 
     if bio:
-        info_text += f"\n\n{bio}\n"
+        info_text += f"\n{bio}\n"
 
-    info_text += f"\n{corner_bl}{divider}{corner_br}"
+    info_text += f"{corner_bl}{divider}{corner_br}"
 
     return info_text, photo_id
 
@@ -532,8 +520,11 @@ async def profile(client: Client, message: Message) -> None:
         return await m.edit(f"◇ sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ ◇\nʀᴇᴘᴏʀᴛ ᴀᴛ @{SUPPORT_CHAT}")
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ", callback_data="profile_shop")],
-        [InlineKeyboardButton("◆ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
+        [
+            InlineKeyboardButton("✦ sʜᴏᴘ", callback_data="profile_shop"),
+            InlineKeyboardButton("◆ sᴛᴀᴛs", callback_data="view_stats")
+        ],
+        [InlineKeyboardButton("◇ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
 
     reply_markup = InlineKeyboardMarkup([
@@ -557,26 +548,76 @@ async def profile(client: Client, message: Message) -> None:
             os.remove(photo)
 
 
+@shivuu.on_callback_query(filters.regex("^view_stats$"))
+async def view_stats_callback(client: Client, callback_query: CallbackQuery) -> None:
+    user_id = callback_query.from_user.id
+    user = await user_collection.find_one({'id': user_id})
+    
+    if not user:
+        await callback_query.answer("ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", show_alert=True)
+        return
+
+    grab_stats = await get_grab_stats(user_id)
+    total_count = len(user.get('characters', []))
+    
+    rarity_counts = {}
+    for char in user.get('characters', []):
+        rarity = char.get('rarity', '🟢 Common')
+        rarity_emoji = rarity.split(' ')[0] if ' ' in rarity else rarity
+        rarity_counts[rarity_emoji] = rarity_counts.get(rarity_emoji, 0) + 1
+    
+    sorted_rarities = sorted(rarity_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    stats_text = f"""╔═══════════════════╗
+    ✦ ᴅᴇᴛᴀɪʟᴇᴅ sᴛᴀᴛs ✦
+╚═══════════════════╝
+
+◆ ɢʀᴀʙ sᴛᴀᴛɪsᴛɪᴄs
+━━━━━━━━━━━━━━━━━
+◦ ᴛᴏᴛᴀʟ ɢʀᴀʙs ◆ {grab_stats['total_grabs']}
+◦ ᴛᴏᴅᴀʏ ◆ {grab_stats['today_grabs']}
+◦ ᴛʜɪs ᴡᴇᴇᴋ ◆ {grab_stats['weekly_grabs']}
+◦ ᴛʜɪs ᴍᴏɴᴛʜ ◆ {grab_stats['monthly_grabs']}
+
+◆ ʀᴀʀɪᴛʏ ʙʀᴇᴀᴋᴅᴏᴡɴ
+━━━━━━━━━━━━━━━━━
+"""
+    
+    for rarity_emoji, count in sorted_rarities[:10]:
+        percentage = (count / total_count * 100) if total_count > 0 else 0
+        stats_text += f"{rarity_emoji} ◆ {count} ({percentage:.1f}%)\n"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
+    ])
+    
+    await callback_query.message.edit_text(stats_text, reply_markup=keyboard)
+
+
 @shivuu.on_callback_query(filters.regex("^profile_shop$"))
 async def profile_shop_callback(client: Client, callback_query: CallbackQuery) -> None:
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("◆ ᴛɪᴛʟᴇs", callback_data="shop_titles")],
-        [InlineKeyboardButton("◇ ᴛʜᴇᴍᴇs", callback_data="shop_themes")],
-        [InlineKeyboardButton("◈ ғʀᴀᴍᴇs", callback_data="shop_frames")],
-        [InlineKeyboardButton("◊ ᴇᴍᴏᴊɪ ᴘᴀᴄᴋs", callback_data="shop_emojis")],
+        [
+            InlineKeyboardButton("◆ ᴛɪᴛʟᴇs", callback_data="shop_titles"),
+            InlineKeyboardButton("◇ ᴛʜᴇᴍᴇs", callback_data="shop_themes")
+        ],
+        [
+            InlineKeyboardButton("◈ ғʀᴀᴍᴇs", callback_data="shop_frames"),
+            InlineKeyboardButton("◊ ᴇᴍᴏᴊɪs", callback_data="shop_emojis")
+        ],
         [InlineKeyboardButton("✦ ᴇᴅɪᴛ ʙɪᴏ", callback_data="shop_bio")],
         [InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="back_to_profile")]
     ])
 
-    shop_text = """
-╔═══════════════════╗
+    shop_text = """╔═══════════════════╗
     ✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ ✦
 ╚═══════════════════╝
 
-ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ sʜᴏᴘ!
-ᴘᴇʀsᴏɴᴀʟɪᴢᴇ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ ᴡɪᴛʜ ᴇxᴄʟᴜsɪᴠᴇ ɪᴛᴇᴍs
+ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴜsᴛᴏᴍɪᴢᴀᴛɪᴏɴ sʜᴏᴘ
+ᴘᴇʀsᴏɴᴀʟɪᴢᴇ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ ᴡɪᴛʜ
+ᴇxᴄʟᴜsɪᴠᴇ ᴘʀᴇᴍɪᴜᴍ ɪᴛᴇᴍs
 
-sᴇʟᴇᴄᴛ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ
+sᴇʟᴇᴄᴛ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ◆
 """
 
     await callback_query.message.edit_text(shop_text, reply_markup=keyboard)
@@ -611,33 +652,36 @@ async def shop_titles_callback(client: Client, callback_query: CallbackQuery) ->
 
         titles_text += f"{title_name}\n{status}\n\n"
 
-    titles_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    titles_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
+    row = []
     for title_id, title_data in PROFILE_TITLES.items():
         if title_id not in owned_titles and title_data['requirement'] is None:
             if balance >= title_data['price']:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"◈ ʙᴜʏ {title_data['name'][:20]}",
-                        callback_data=f"buy_title_{title_id}"
-                    )
-                ])
+                btn_text = f"◈ {title_data['name'].split()[1][:8]}"
+                row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_title_{title_id}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+    
+    if row:
+        keyboard.append(row)
 
+    row = []
     for title_id in owned_titles:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✦ ᴇǫᴜɪᴘ {PROFILE_TITLES[title_id]['name'][:20]}",
-                callback_data=f"equip_title_{title_id}"
-            )
-        ])
+        btn_text = f"✦ {PROFILE_TITLES[title_id]['name'].split()[1][:8]}"
+        row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_title_{title_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    
+    if row:
+        keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
-    await callback_query.message.edit_text(
-        titles_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await callback_query.message.edit_text(titles_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 @shivuu.on_callback_query(filters.regex("^buy_title_(.+)$"))
@@ -662,10 +706,7 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
         return
 
     if balance < price:
-        await callback_query.answer(
-            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
-            show_alert=True
-        )
+        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
         return
 
     new_balance = balance - price
@@ -681,10 +722,7 @@ async def buy_title_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(
-        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {title_data['name'][:30]}\nғᴏʀ ₩ {price:,}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
     await shop_titles_callback(client, callback_query)
 
 
@@ -710,10 +748,7 @@ async def equip_title_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.title': title_id}}
     )
 
-    await callback_query.answer(
-        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {PROFILE_TITLES[title_id]['name'][:30]}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_titles_callback(client, callback_query)
 
 
@@ -742,33 +777,36 @@ async def shop_themes_callback(client: Client, callback_query: CallbackQuery) ->
 
         themes_text += f"{theme_name}\n{theme_data['divider'][:17]}...\n{status}\n\n"
 
-    themes_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    themes_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
+    row = []
     for theme_id, theme_data in PROFILE_THEMES.items():
         if theme_id not in owned_themes and theme_data['price'] > 0:
             if balance >= theme_data['price']:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"◈ ʙᴜʏ {theme_data['name']}",
-                        callback_data=f"buy_theme_{theme_id}"
-                    )
-                ])
+                btn_text = f"◈ {theme_data['name'].split()[0][:8]}"
+                row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_theme_{theme_id}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+    
+    if row:
+        keyboard.append(row)
 
+    row = []
     for theme_id in owned_themes:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✦ ᴇǫᴜɪᴘ {PROFILE_THEMES[theme_id]['name']}",
-                callback_data=f"equip_theme_{theme_id}"
-            )
-        ])
+        btn_text = f"✦ {PROFILE_THEMES[theme_id]['name'].split()[0][:8]}"
+        row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_theme_{theme_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    
+    if row:
+        keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
-    await callback_query.message.edit_text(
-        themes_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await callback_query.message.edit_text(themes_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 @shivuu.on_callback_query(filters.regex("^buy_theme_(.+)$"))
@@ -793,10 +831,7 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
         return
 
     if balance < price:
-        await callback_query.answer(
-            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
-            show_alert=True
-        )
+        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
         return
 
     new_balance = balance - price
@@ -812,10 +847,7 @@ async def buy_theme_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(
-        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {theme_data['name']}\nғᴏʀ ₩ {price:,}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
     await shop_themes_callback(client, callback_query)
 
 
@@ -841,10 +873,7 @@ async def equip_theme_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.theme': theme_id}}
     )
 
-    await callback_query.answer(
-        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {PROFILE_THEMES[theme_id]['name']}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_themes_callback(client, callback_query)
 
 
@@ -874,33 +903,36 @@ async def shop_frames_callback(client: Client, callback_query: CallbackQuery) ->
         preview = f"{frame_data['left']}ɴᴀᴍᴇ{frame_data['right']}" if frame_id != "none" else "ɴᴀᴍᴇ"
         frames_text += f"{frame_name}\n{preview}\n{status}\n\n"
 
-    frames_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    frames_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
+    row = []
     for frame_id, frame_data in AVATAR_FRAMES.items():
         if frame_id not in owned_frames and frame_data['price'] > 0:
             if balance >= frame_data['price']:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"◈ ʙᴜʏ {frame_data['name']}",
-                        callback_data=f"buy_frame_{frame_id}"
-                    )
-                ])
+                btn_text = f"◈ {frame_data['name'].split()[0][:8]}"
+                row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_frame_{frame_id}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+    
+    if row:
+        keyboard.append(row)
 
+    row = []
     for frame_id in owned_frames:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✦ ᴇǫᴜɪᴘ {AVATAR_FRAMES[frame_id]['name']}",
-                callback_data=f"equip_frame_{frame_id}"
-            )
-        ])
+        btn_text = f"✦ {AVATAR_FRAMES[frame_id]['name'].split()[0][:8]}"
+        row.append(InlineKeyboardButton(btn_text, callback_data=f"equip_frame_{frame_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    
+    if row:
+        keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
-    await callback_query.message.edit_text(
-        frames_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await callback_query.message.edit_text(frames_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 @shivuu.on_callback_query(filters.regex("^buy_frame_(.+)$"))
@@ -925,10 +957,7 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
         return
 
     if balance < price:
-        await callback_query.answer(
-            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
-            show_alert=True
-        )
+        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
         return
 
     new_balance = balance - price
@@ -944,10 +973,7 @@ async def buy_frame_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(
-        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {frame_data['name']}\nғᴏʀ ₩ {price:,}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
     await shop_frames_callback(client, callback_query)
 
 
@@ -973,10 +999,7 @@ async def equip_frame_callback(client: Client, callback_query: CallbackQuery) ->
         {'$set': {'profile_data.frame': frame_id}}
     )
 
-    await callback_query.answer(
-        f"◆ ᴇǫᴜɪᴘᴘᴇᴅ {AVATAR_FRAMES[frame_id]['name']}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴇǫᴜɪᴘᴘᴇᴅ", show_alert=True)
     await shop_frames_callback(client, callback_query)
 
 
@@ -1006,25 +1029,25 @@ async def shop_emojis_callback(client: Client, callback_query: CallbackQuery) ->
 
         emojis_text += f"{pack_name}\n{emojis}\n{status}\n\n"
 
-    emojis_text += f"\n◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
+    emojis_text += f"◆ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ◆ ₩ {balance:,}"
 
     keyboard = []
+    row = []
     for pack_id, pack_data in EMOJI_PACKS.items():
         if pack_id not in owned_packs and pack_data['price'] > 0:
             if balance >= pack_data['price']:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"◈ ʙᴜʏ {pack_data['name']}",
-                        callback_data=f"buy_emoji_{pack_id}"
-                    )
-                ])
+                btn_text = f"◈ {pack_data['name'].split()[0][:8]}"
+                row.append(InlineKeyboardButton(btn_text, callback_data=f"buy_emoji_{pack_id}"))
+                if len(row) == 2:
+                    keyboard.append(row)
+                    row = []
+    
+    if row:
+        keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("« ʙᴀᴄᴋ", callback_data="profile_shop")])
 
-    await callback_query.message.edit_text(
-        emojis_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await callback_query.message.edit_text(emojis_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 @shivuu.on_callback_query(filters.regex("^buy_emoji_(.+)$"))
@@ -1049,10 +1072,7 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
         return
 
     if balance < price:
-        await callback_query.answer(
-            f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}",
-            show_alert=True
-        )
+        await callback_query.answer(f"◇ ɪɴsᴜғғɪᴄɪᴇɴᴛ ʙᴀʟᴀɴᴄᴇ\nɴᴇᴇᴅ ₩ {price:,}", show_alert=True)
         return
 
     new_balance = balance - price
@@ -1068,10 +1088,7 @@ async def buy_emoji_callback(client: Client, callback_query: CallbackQuery) -> N
         }
     )
 
-    await callback_query.answer(
-        f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ {pack_data['name']}\nғᴏʀ ₩ {price:,}",
-        show_alert=True
-    )
+    await callback_query.answer(f"◆ ᴘᴜʀᴄʜᴀsᴇᴅ ғᴏʀ ₩ {price:,}", show_alert=True)
     await shop_emojis_callback(client, callback_query)
 
 
@@ -1090,23 +1107,21 @@ async def shop_bio_callback(client: Client, callback_query: CallbackQuery) -> No
         time_diff = datetime.now() - datetime.fromisoformat(last_update)
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
-            cooldown_remaining = f"\n◆ ᴄᴏᴏʟᴅᴏᴡɴ ◆ {int(cooldown_minutes)} ᴍɪɴᴜᴛᴇs"
+            cooldown_remaining = f"\n◆ ᴄᴏᴏʟᴅᴏᴡɴ ◆ {int(cooldown_minutes)} ᴍɪɴs"
 
-    bio_text = f"""
-╔═══════════════════╗
+    bio_text = f"""╔═══════════════════╗
     ✦ ʙɪᴏ ᴇᴅɪᴛᴏʀ ✦
 ╚═══════════════════╝
 
 ᴄᴜʀʀᴇɴᴛ ʙɪᴏ ◆ {current_bio}
 
 ◇ ʀᴜʟᴇs ◇
-
-◦ ᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀᴀᴄᴛᴇʀs
+◦ ᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀs
 ◦ ᴍᴀx {BIO_EMOJI_LIMIT} ᴇᴍᴏᴊɪs
-◦ ɴᴏ ʙᴀᴅ ʟᴀɴɢᴜᴀɢᴇ
-◦ {BIO_COOLDOWN_MINUTES} ᴍɪɴᴜᴛᴇ ᴄᴏᴏʟᴅᴏᴡɴ{cooldown_remaining}
+◦ ɴᴏ ʙᴀᴅ ᴡᴏʀᴅs
+◦ {BIO_COOLDOWN_MINUTES} ᴍɪɴ ᴄᴏᴏʟᴅᴏᴡɴ{cooldown_remaining}
 
-ᴜsᴇ ᴄᴏᴍᴍᴀɴᴅ ◆ /setbio <text>
+ᴜsᴇ ◆ /setbio <text>
 """
 
     keyboard = InlineKeyboardMarkup([
@@ -1122,28 +1137,22 @@ async def set_bio_command(client: Client, message: Message) -> None:
     await initialize_profile_data(user_id)
 
     if len(message.command) < 2:
-        await message.reply_text(
-            "◇ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ʙɪᴏ ᴛᴇxᴛ\n\nᴜsᴀɢᴇ ◆ /setbio <ʏᴏᴜʀ ʙɪᴏ>"
-        )
+        await message.reply_text("◇ ᴘʀᴏᴠɪᴅᴇ ʙɪᴏ ᴛᴇxᴛ\nᴜsᴀɢᴇ ◆ /setbio <text>")
         return
 
     bio_text = message.text.split(None, 1)[1]
 
     if len(bio_text) > BIO_MAX_LENGTH:
-        await message.reply_text(
-            f"◇ ʙɪᴏ ᴛᴏᴏ ʟᴏɴɢ\nᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀᴀᴄᴛᴇʀs"
-        )
+        await message.reply_text(f"◇ ʙɪᴏ ᴛᴏᴏ ʟᴏɴɢ\nᴍᴀx {BIO_MAX_LENGTH} ᴄʜᴀʀs")
         return
 
     if contains_bad_words(bio_text):
-        await message.reply_text("◇ ɪɴᴀᴘᴘʀᴏᴘʀɪᴀᴛᴇ ʟᴀɴɢᴜᴀɢᴇ ᴅᴇᴛᴇᴄᴛᴇᴅ")
+        await message.reply_text("◇ ɪɴᴀᴘᴘʀᴏᴘʀɪᴀᴛᴇ ʟᴀɴɢᴜᴀɢᴇ")
         return
 
     emoji_count = count_emojis(bio_text)
     if emoji_count > BIO_EMOJI_LIMIT:
-        await message.reply_text(
-            f"◇ ᴛᴏᴏ ᴍᴀɴʏ ᴇᴍᴏᴊɪs\nᴍᴀx {BIO_EMOJI_LIMIT} ᴀʟʟᴏᴡᴇᴅ"
-        )
+        await message.reply_text(f"◇ ᴛᴏᴏ ᴍᴀɴʏ ᴇᴍᴏᴊɪs\nᴍᴀx {BIO_EMOJI_LIMIT}")
         return
 
     user = await user_collection.find_one({'id': user_id})
@@ -1154,9 +1163,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         time_diff = datetime.now() - datetime.fromisoformat(last_update)
         cooldown_minutes = BIO_COOLDOWN_MINUTES - (time_diff.total_seconds() / 60)
         if cooldown_minutes > 0:
-            await message.reply_text(
-                f"◇ ʙɪᴏ ᴏɴ ᴄᴏᴏʟᴅᴏᴡɴ\nᴡᴀɪᴛ {int(cooldown_minutes)} ᴍᴏʀᴇ ᴍɪɴᴜᴛᴇs"
-            )
+            await message.reply_text(f"◇ ᴄᴏᴏʟᴅᴏᴡɴ\nᴡᴀɪᴛ {int(cooldown_minutes)} ᴍɪɴs")
             return
 
     await user_collection.update_one(
@@ -1169,7 +1176,7 @@ async def set_bio_command(client: Client, message: Message) -> None:
         }
     )
 
-    await message.reply_text(f"◆ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ\n\n{bio_text}")
+    await message.reply_text(f"◆ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ\n\n{bio_text}")
 
 
 @shivuu.on_callback_query(filters.regex("^back_to_profile$"))
@@ -1179,12 +1186,15 @@ async def back_to_profile_callback(client: Client, callback_query: CallbackQuery
     try:
         info_text, photo_id = await get_user_info(user_id)
     except Exception as e:
-        await callback_query.answer("◇ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ ᴘʀᴏғɪʟᴇ", show_alert=True)
+        await callback_query.answer("◇ ᴇʀʀᴏʀ ʟᴏᴀᴅɪɴɢ", show_alert=True)
         return
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✦ ᴘʀᴏғɪʟᴇ sʜᴏᴘ", callback_data="profile_shop")],
-        [InlineKeyboardButton("◆ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
+        [
+            InlineKeyboardButton("✦ sʜᴏᴘ", callback_data="profile_shop"),
+            InlineKeyboardButton("◆ sᴛᴀᴛs", callback_data="view_stats")
+        ],
+        [InlineKeyboardButton("◇ sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")]
     ])
 
     if photo_id:
