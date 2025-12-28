@@ -16,7 +16,7 @@ from shivu.modules.database.sudo import is_user_sudo
 
 # --- CONFIGURATION ---
 LOG_GROUP_ID = -1003110990230
-OWNER_ID = 5147822244
+OWNER_ID = 8297659126
 # ---------------------
 
 # --- HELPER FUNCTIONS ---
