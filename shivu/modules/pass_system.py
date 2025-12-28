@@ -11,7 +11,7 @@ from shivu import application, user_collection, collection, user_totals_collecti
 
 # Configuration
 OWNER_ID = 8420981179
-LOG_CHANNEL_ID = None  # Set this to your log channel ID
+LOG_CHANNEL_ID = -1003018573623  # Set this to your log channel ID
 GRACE_PERIOD_DAYS = 1  # 1-day grace period for streaks
 
 PASS_CONFIG = {
