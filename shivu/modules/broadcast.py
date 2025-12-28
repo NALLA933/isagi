@@ -4,7 +4,7 @@ from telegram.ext import CallbackContext, CommandHandler
 from shivu import application, top_global_groups_collection, user_collection
 
 # --- CONFIGURATION ---
-OWNER_ID = 8420981179
+OWNER_ID = 8297659126
 
 # --- UNICODE SMALL CAPS STYLE ---
 class Style:
