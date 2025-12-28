@@ -5,6 +5,8 @@ import datetime
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import CommandHandler, ContextTypes
+import aiohttp
+from telegram.error import BadRequest
 
 # Database imports
 from shivu import collection, user_collection, application
@@ -20,6 +22,23 @@ OWNER_ID = 8297659126
 # ---------------------
 
 # --- HELPER FUNCTIONS ---
+
+async def validate_image_url(url: str) -> bool:
+    """Validate if URL points to a valid image."""
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Check common image extensions
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+    if any(url.lower().endswith(ext) for ext in valid_extensions):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.head(url, timeout=5) as response:
+                    content_type = response.headers.get('Content-Type', '')
+                    return content_type.startswith('image/')
+        except:
+            return False
+    return False
 
 def generate_unique_code():
     """Generates a professional looking code like SIYA-ABCD-1234"""
@@ -122,6 +141,10 @@ async def waifu_gen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❌ Character ID not found.", parse_mode=ParseMode.HTML)
         return
 
+    # Validate image URL before creating code
+    if 'img_url' in waifu and not await validate_image_url(waifu['img_url']):
+        await msg.reply_text("⚠️ Warning: Character image URL appears to be invalid. Code will still be created but may fail to display image when redeemed.", parse_mode=ParseMode.HTML)
+
     code_str = generate_unique_code()
 
     # Save to MongoDB
@@ -202,16 +225,41 @@ async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         waifu = code_info['waifu_data']
         await user_collection.update_one({'id': user_id}, {'$push': {'characters': waifu}})
         
-        await msg.reply_photo(
-            photo=waifu['img_url'],
-            caption=(
-                f"🎉 <b>New Character Unlocked!</b>\n\n"
-                f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
-                f"🏵️ <b>Rarity:</b> {waifu['rarity']}\n"
-                f"📺 <b>Anime:</b> {html.escape(waifu['anime'])}"
-            ),
-            parse_mode=ParseMode.HTML
-        )
+        # Check if image URL exists and seems valid
+        img_url = waifu.get('img_url')
+        image_sent = False
+        
+        if img_url and await validate_image_url(img_url):
+            try:
+                # LINE 205 (modified with try-except)
+                await msg.reply_photo(
+                    photo=img_url,
+                    caption=(
+                        f"🎉 <b>New Character Unlocked!</b>\n\n"
+                        f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
+                        f"🏵️ <b>Rarity:</b> {waifu['rarity']}\n"
+                        f"📺 <b>Anime:</b> {html.escape(waifu['anime'])}"
+                    ),
+                    parse_mode=ParseMode.HTML
+                )
+                image_sent = True
+            except BadRequest as e:
+                print(f"Failed to send image for character {waifu['name']}: {e}")
+                image_sent = False
+        
+        # If image wasn't sent (either invalid URL or BadRequest exception)
+        if not image_sent:
+            await msg.reply_text(
+                text=(
+                    f"🎉 <b>New Character Unlocked!</b>\n\n"
+                    f"👤 <b>Name:</b> {html.escape(waifu['name'])}\n"
+                    f"🏵️ <b>Rarity:</b> {waifu['rarity']}\n"
+                    f"📺 <b>Anime:</b> {html.escape(waifu['anime'])}\n\n"
+                    f"⚠️ <i>Note: Character image unavailable</i>"
+                ),
+                parse_mode=ParseMode.HTML
+            )
+        
         log_detail = f"Character: {html.escape(waifu['name'])}"
 
     # Update DB: Add user to claimed list
