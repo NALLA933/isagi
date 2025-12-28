@@ -116,23 +116,45 @@ async def atomic_transfer_character(sender_id: int, receiver_id: int, character:
         
         LOGGER.info(f"Character {character['id']} successfully pulled from sender {sender_id}")
         
-        # Step 2: Push to receiver with inventory size check
+        # Step 2: Check receiver inventory and push (FIXED - No $expr in upsert)
         try:
-            # Check inventory size atomically in the update query
-            push_result = await user_collection.update_one(
-                {
-                    'id': receiver_id,
-                    '$expr': {'$lt': [{'$size': {'$ifNull': ['$characters', []]}}, MAX_INVENTORY_SIZE]}
-                },
-                {'$push': {'characters': character}},
-                upsert=True
-            )
+            # Check if receiver exists
+            receiver_data = await user_collection.find_one({'id': receiver_id})
             
-            if push_result.modified_count == 0 and push_result.upserted_id is None:
-                LOGGER.error(f"Failed to push character {character['id']} to receiver {receiver_id} - inventory full or condition failed")
-                raise Exception("Push operation failed (inventory full)")
+            if receiver_data:
+                # Receiver exists - check inventory size
+                current_inventory = receiver_data.get('characters', [])
+                if len(current_inventory) >= MAX_INVENTORY_SIZE:
+                    LOGGER.error(f"Receiver {receiver_id} inventory full ({len(current_inventory)}/{MAX_INVENTORY_SIZE})")
+                    raise Exception(f"Receiver inventory full ({len(current_inventory)}/{MAX_INVENTORY_SIZE})")
                 
-            LOGGER.info(f"Character {character['id']} successfully pushed to receiver {receiver_id}")
+                # Receiver exists and has space - push character
+                push_result = await user_collection.update_one(
+                    {'id': receiver_id},
+                    {'$push': {'characters': character}}
+                )
+                
+                if push_result.modified_count == 0:
+                    LOGGER.error(f"Failed to push character {character['id']} to existing receiver {receiver_id}")
+                    raise Exception("Push operation failed for existing receiver")
+                    
+            else:
+                # Receiver doesn't exist - create new document with character
+                # Manual upsert: create new document with the character
+                insert_result = await user_collection.insert_one({
+                    'id': receiver_id,
+                    'characters': [character],
+                    'created_at': datetime.now(timezone.utc),
+                    'last_active': datetime.now(timezone.utc)
+                })
+                
+                if not insert_result.inserted_id:
+                    LOGGER.error(f"Failed to create new document for receiver {receiver_id}")
+                    raise Exception("Failed to create new receiver document")
+                
+                LOGGER.info(f"Created new document for receiver {receiver_id} with character {character['id']}")
+            
+            LOGGER.info(f"Character {character['id']} successfully transferred to receiver {receiver_id}")
             return True
             
         except Exception as push_error:
@@ -155,7 +177,8 @@ async def atomic_transfer_character(sender_id: int, receiver_id: int, character:
                         'timestamp': datetime.now(timezone.utc),
                         'error': str(push_error),
                         'character_id': character['id'],
-                        'character_name': character.get('name', 'Unknown')
+                        'character_name': character.get('name', 'Unknown'),
+                        'recovery_status': 'pending'
                     })
                     LOGGER.info(f"Lost character {character['id']} logged to recovery collection")
                 except Exception as recovery_error:
