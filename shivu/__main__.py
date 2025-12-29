@@ -202,7 +202,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         if update.effective_chat.type not in ['group', 'supergroup']:
             return
 
-        if not update.message:
+        if not update.message and not update.edited_message:
             return
 
         chat_id = update.effective_chat.id
@@ -219,17 +219,32 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
 
             message_counts[chat_id_str] += 1
             
-            LOGGER.info(f"Chat {chat_id} Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY}")
+            msg_info = "unknown"
+            msg = update.message or update.edited_message
+            if msg:
+                if msg.text:
+                    msg_info = f"text: {msg.text[:20]}"
+                elif msg.sticker:
+                    msg_info = "sticker"
+                elif msg.photo:
+                    msg_info = "photo"
+                elif msg.video:
+                    msg_info = "video"
+            
+            LOGGER.info(f"CHAT {chat_id} | COUNT: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | TYPE: {msg_info}")
 
             if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
                 if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
-                    LOGGER.info(f"Spawning in chat {chat_id}")
+                    LOGGER.info(f"SPAWNING TRIGGERED IN CHAT {chat_id}")
                     currently_spawning[chat_id_str] = True
                     message_counts[chat_id_str] = 0
-                    await send_image(update, context)
+                    asyncio.create_task(send_image(update, context))
+                else:
+                    LOGGER.warning(f"SPAWN ALREADY IN PROGRESS FOR CHAT {chat_id}")
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
+        LOGGER.error(traceback.format_exc())
         currently_spawning[str(update.effective_chat.id)] = False
 
 async def send_image(update: Update, context: CallbackContext) -> None:
@@ -363,7 +378,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         rarity = character.get('rarity', 'Common')
         rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else rarity
 
-        LOGGER.info(f"Spawned: {character.get('name')} ({rarity_emoji})")
+        LOGGER.info(f"SPAWNED: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
@@ -475,7 +490,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
         if is_correct:
             first_correct_guesses[chat_id] = user_id
 
-            LOGGER.info(f"User {user_id} grabbed {character_name}")
+            LOGGER.info(f"USER {user_id} GRABBED {character_name}")
 
             if chat_id in spawn_messages:
                 try:
@@ -633,6 +648,7 @@ async def main():
     try:
         await fix_my_db()
         
+        LOGGER.info("Caching all characters for instant spawning...")
         await cache_characters()
         
         try:
@@ -668,7 +684,7 @@ async def main():
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        LOGGER.info("BOT STARTED")
+        LOGGER.info("BOT STARTED - SPAWNS AFTER 30 MESSAGES (TEXT/STICKERS/MEDIA)")
 
         while True:
             await asyncio.sleep(3600)
