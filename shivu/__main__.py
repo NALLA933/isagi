@@ -33,12 +33,13 @@ user_totals_collection = db['user_totals_lmaoooo']
 group_user_totals_collection = db['group_user_totalsssssss']
 top_global_groups_collection = db['top_global_groups']
 
-MESSAGE_FREQUENCY = 30
+MESSAGE_FREQUENCY = 30  # Change this to test (e.g., 5 for testing)
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
 
-locks = {}
+# Use asyncio locks for thread safety
 message_counts = {}
+spawn_locks = {}
 sent_characters = {}
 last_characters = {}
 first_correct_guesses = {}
@@ -140,7 +141,7 @@ async def despawn_character(chat_id, message_id, character, context):
             last_characters.pop(chat_id, None)
             spawn_messages.pop(chat_id, None)
             spawn_message_links.pop(chat_id, None)
-            currently_spawning.pop(chat_id, None)
+            currently_spawning.pop(str(chat_id), None)
             return
 
         try:
@@ -190,7 +191,7 @@ async def despawn_character(chat_id, message_id, character, context):
         last_characters.pop(chat_id, None)
         spawn_messages.pop(chat_id, None)
         spawn_message_links.pop(chat_id, None)
-        currently_spawning.pop(chat_id, None)
+        currently_spawning.pop(str(chat_id), None)
 
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
@@ -207,18 +208,21 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
 
         chat_id = update.effective_chat.id
         chat_id_str = str(chat_id)
-
-        if chat_id_str not in locks:
-            locks[chat_id_str] = asyncio.Lock()
         
-        lock = locks[chat_id_str]
-
-        async with lock:
-            if chat_id_str not in message_counts:
-                message_counts[chat_id_str] = 0
-
+        # Initialize lock for this chat if not exists
+        if chat_id_str not in spawn_locks:
+            spawn_locks[chat_id_str] = asyncio.Lock()
+        
+        # Initialize message counter if not exists
+        if chat_id_str not in message_counts:
+            message_counts[chat_id_str] = 0
+        
+        # Acquire lock to prevent race conditions
+        async with spawn_locks[chat_id_str]:
+            # Increment message count
             message_counts[chat_id_str] += 1
             
+            # Log message info
             msg_info = "unknown"
             msg = update.message or update.edited_message
             if msg:
@@ -230,14 +234,28 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                     msg_info = "photo"
                 elif msg.video:
                     msg_info = "video"
+                elif msg.animation:
+                    msg_info = "animation"
+                elif msg.document:
+                    msg_info = "document"
+                elif msg.audio:
+                    msg_info = "audio"
             
             LOGGER.info(f"CHAT {chat_id} | COUNT: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | TYPE: {msg_info}")
-
+            
+            # Check if we should spawn
             if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
-                if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
+                # Check if not already spawning
+                if chat_id_str not in currently_spawning or not currently_spawning.get(chat_id_str, False):
                     LOGGER.info(f"SPAWNING TRIGGERED IN CHAT {chat_id}")
-                    currently_spawning[chat_id_str] = True
+                    
+                    # Reset counter BEFORE spawning to avoid missing counts during spawn
                     message_counts[chat_id_str] = 0
+                    
+                    # Mark as spawning
+                    currently_spawning[chat_id_str] = True
+                    
+                    # Trigger spawn in background
                     asyncio.create_task(send_image(update, context))
                 else:
                     LOGGER.warning(f"SPAWN ALREADY IN PROGRESS FOR CHAT {chat_id}")
@@ -245,7 +263,9 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
         LOGGER.error(traceback.format_exc())
-        currently_spawning[str(update.effective_chat.id)] = False
+        # Ensure spawning flag is cleared on error
+        if update.effective_chat:
+            currently_spawning[str(update.effective_chat.id)] = False
 
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -436,6 +456,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         LOGGER.error(f"Error in send_image: {e}")
         LOGGER.error(traceback.format_exc())
     finally:
+        # Always clear the spawning flag
         currently_spawning[chat_id_str] = False
 
 async def guess(update: Update, context: CallbackContext) -> None:
@@ -678,13 +699,21 @@ async def main():
         LOGGER.info("Pyrogram started")
 
         application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
-        application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
+        
+        # IMPORTANT: Filter to count ALL messages including text, stickers, photos, videos, etc.
+        application.add_handler(
+            MessageHandler(
+                filters.ALL & ~filters.COMMAND,  # Count everything except commands
+                message_counter,
+                block=False
+            )
+        )
 
         await application.initialize()
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        LOGGER.info("BOT STARTED - SPAWNS AFTER 30 MESSAGES (TEXT/STICKERS/MEDIA)")
+        LOGGER.info(f"BOT STARTED - SPAWNS AFTER {MESSAGE_FREQUENCY} MESSAGES (ALL TYPES)")
 
         while True:
             await asyncio.sleep(3600)
