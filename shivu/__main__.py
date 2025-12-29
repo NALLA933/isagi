@@ -220,7 +220,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                     LOGGER.info(f"Spawning in chat {chat_id}")
                     currently_spawning[chat_id_str] = True
                     message_counts[chat_id_str] = 0
-                    asyncio.create_task(send_image(update, context))
+                    await send_image(update, context)
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
@@ -232,23 +232,21 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
     try:
         animation = random.choice(SPAWN_ANIMATIONS)
+        
         loading_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"{animation} Loading... {animation}",
+            text=f"<b>{animation} Spawning {animation}</b>",
             parse_mode='HTML'
         )
-
-        await asyncio.sleep(0.5)
-
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
-        except BadRequest:
-            pass
 
         all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
             LOGGER.warning("No characters available")
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
+            except:
+                pass
             currently_spawning[chat_id_str] = False
             return
 
@@ -271,6 +269,10 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if not allowed_characters:
             LOGGER.warning("No allowed characters")
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
+            except:
+                pass
             currently_spawning[chat_id_str] = False
             return
 
@@ -351,6 +353,11 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else rarity
 
         LOGGER.info(f"Spawned: {character.get('name')} ({rarity_emoji})")
+
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
+        except:
+            pass
 
         caption = f"""<blockquote expandable>A Wild Character Appeared
 
@@ -613,8 +620,8 @@ async def main():
         await shivuu.start()
         LOGGER.info("Pyrogram started")
 
-        application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
         application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
+        application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
         await application.initialize()
         await application.start()
