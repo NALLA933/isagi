@@ -45,19 +45,14 @@ first_correct_guesses = {}
 spawn_messages = {}
 spawn_message_links = {}
 currently_spawning = {}
+cached_characters = []
 
 spawn_settings_collection = None
 group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
-SPAWN_ANIMATIONS = [
-    "🪽🪿🪻",
-    "🪼🫎🫚",
-    "🪭🫛🪯",
-    "🐦‍⬛🫏🫷",
-    "🧋🫧🪩"
-]
+SPAWN_EMOJIS = ["🪽", "🪿", "🪻", "🪼", "🫎", "🫚", "🪭", "🫛", "🪯", "🐦‍⬛", "🫏", "🫷", "🧋", "🫧", "🪩"]
 
 for module_name in ALL_MODULES:
     try:
@@ -65,6 +60,14 @@ for module_name in ALL_MODULES:
         LOGGER.info(f"Module loaded: {module_name}")
     except Exception as e:
         LOGGER.error(f"Module failed: {module_name} - {e}")
+
+async def cache_characters():
+    global cached_characters
+    try:
+        cached_characters = list(await collection.find({}).to_list(length=None))
+        LOGGER.info(f"Cached {len(cached_characters)} characters")
+    except Exception as e:
+        LOGGER.error(f"Error caching characters: {e}")
 
 async def is_character_allowed(character, chat_id=None):
     try:
@@ -151,13 +154,16 @@ async def despawn_character(chat_id, message_id, character, context):
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
-        missed_caption = f"""<blockquote expandable>Time's Up
+        emoji1 = random.choice(SPAWN_EMOJIS)
+        emoji2 = random.choice(SPAWN_EMOJIS)
 
-{rarity_emoji} Name: {character.get('name', 'Unknown')}
-Anime: {character.get('anime', 'Unknown')}
-Rarity: {rarity}
+        missed_caption = f"""<b><u>{emoji1} Time's Up {emoji2}</u></b>
 
-This character has vanished.</blockquote>"""
+<b>{rarity_emoji} Name:</b> <code>{character.get('name', 'Unknown')}</code>
+<b>🪼 Anime:</b> <code>{character.get('anime', 'Unknown')}</code>
+<b>🪯 Rarity:</b> <code>{rarity}</code>
+
+<i>{random.choice(SPAWN_EMOJIS)} This character has vanished into the void.</i>"""
 
         if is_video:
             missed_msg = await context.bot.send_video(
@@ -231,15 +237,20 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id_str = str(chat_id)
 
     try:
-        animation = random.choice(SPAWN_ANIMATIONS)
+        emoji1 = random.choice(SPAWN_EMOJIS)
+        emoji2 = random.choice(SPAWN_EMOJIS)
+        emoji3 = random.choice(SPAWN_EMOJIS)
         
         loading_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"<b>{animation} Spawning {animation}</b>",
+            text=f"<b>{emoji1} {emoji2} {emoji3} Spawning Character {emoji3} {emoji2} {emoji1}</b>",
             parse_mode='HTML'
         )
 
-        all_characters = list(await collection.find({}).to_list(length=None))
+        if not cached_characters:
+            await cache_characters()
+
+        all_characters = cached_characters
 
         if not all_characters:
             LOGGER.warning("No characters available")
@@ -359,12 +370,18 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         except:
             pass
 
-        caption = f"""<blockquote expandable>A Wild Character Appeared
+        spawn_emoji1 = random.choice(SPAWN_EMOJIS)
+        spawn_emoji2 = random.choice(SPAWN_EMOJIS)
+        spawn_emoji3 = random.choice(SPAWN_EMOJIS)
 
-A mysterious character has spawned
+        caption = f"""<b><u>{spawn_emoji1} A Wild Character Appeared {spawn_emoji2}</u></b>
 
-Use: /grab [name] or /g [name]
-Time Limit: {DESPAWN_TIME // 60} minutes</blockquote>"""
+<b>{spawn_emoji3} A mysterious character has spawned in the chat!</b>
+
+<b>🪼 Quick! Use:</b> <code>/grab [name]</code> or <code>/g [name]</code>
+<b>🪯 Time Limit:</b> <code>{DESPAWN_TIME // 60} minutes</code>
+
+<i>🫧 Will you be fast enough to claim this character?</i>"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -412,21 +429,38 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
     try:
         if chat_id not in last_characters:
-            await update.message.reply_html('<blockquote>No character spawned yet</blockquote>')
+            emoji = random.choice(SPAWN_EMOJIS)
+            await update.message.reply_html(
+                f'<b><u>{emoji} No Active Spawn</u></b>\n\n'
+                f'<i>🪼 No character has spawned yet. Wait for one to appear!</i>'
+            )
             return
 
         if chat_id in first_correct_guesses:
-            await update.message.reply_html('<blockquote>Already claimed by someone else</blockquote>')
+            emoji = random.choice(SPAWN_EMOJIS)
+            await update.message.reply_html(
+                f'<b><u>{emoji} Already Claimed</u></b>\n\n'
+                f'<i>🫧 This character has been grabbed by someone else. Better luck next time!</i>'
+            )
             return
 
         guess_text = ' '.join(context.args).lower() if context.args else ''
 
         if not guess_text:
-            await update.message.reply_html('<blockquote>Provide a character name\n\nExample: /grab Naruto</blockquote>')
+            emoji = random.choice(SPAWN_EMOJIS)
+            await update.message.reply_html(
+                f'<b><u>{emoji} Missing Name</u></b>\n\n'
+                f'<b>🪼 Provide a character name!</b>\n\n'
+                f'<b>Example:</b> <code>/grab Naruto</code> or <code>/g Sasuke</code>'
+            )
             return
 
         if "()" in guess_text or "&" in guess_text:
-            await update.message.reply_html('<blockquote>Invalid characters detected</blockquote>')
+            emoji = random.choice(SPAWN_EMOJIS)
+            await update.message.reply_html(
+                f'<b><u>{emoji} Invalid Input</u></b>\n\n'
+                f'<i>🪯 Special characters like (), & are not allowed.</i>'
+            )
             return
 
         character_name = last_characters[chat_id].get('name', '').lower()
@@ -546,15 +580,19 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 rarity_emoji = rarity
                 rarity_text = rarity
 
-            success_message = f"""<blockquote expandable>Congratulations
+            emoji1 = random.choice(SPAWN_EMOJIS)
+            emoji2 = random.choice(SPAWN_EMOJIS)
+            emoji3 = random.choice(SPAWN_EMOJIS)
 
-<a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a> grabbed a new character
+            success_message = f"""<b><u>{emoji1} {emoji2} Congratulations {emoji2} {emoji1}</u></b>
 
-Name: {character.get('name', 'Unknown')}
-{rarity_emoji} Rarity: {rarity_text}
-Anime: {character.get('anime', 'Unknown')}
+<b><a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a></b> <i>successfully grabbed a new character!</i>
 
-Character added to collection</blockquote>"""
+<b>🪼 Name:</b> <code>{character.get('name', 'Unknown')}</code>
+<b>{rarity_emoji} Rarity:</b> <code>{rarity_text}</code>
+<b>🪯 Anime:</b> <code>{character.get('anime', 'Unknown')}</code>
+
+<i>{emoji3} Character added to your collection!</i>"""
 
             await update.message.reply_text(
                 success_message,
@@ -568,13 +606,14 @@ Character added to collection</blockquote>"""
             keyboard = []
             if chat_id in spawn_message_links:
                 keyboard.append([
-                    InlineKeyboardButton("View Spawn", url=spawn_message_links[chat_id])
+                    InlineKeyboardButton("🪭 View Spawn", url=spawn_message_links[chat_id])
                 ])
 
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
             
+            emoji = random.choice(SPAWN_EMOJIS)
             await update.message.reply_html(
-                '<blockquote>Wrong name</blockquote>',
+                f'<b><u>{emoji} Wrong Name</u></b>\n\n<i>🫧 That\'s not correct. Try again!</i>',
                 reply_markup=reply_markup
             )
 
@@ -593,6 +632,8 @@ async def fix_my_db():
 async def main():
     try:
         await fix_my_db()
+        
+        await cache_characters()
         
         try:
             from shivu.modules.rarity import (
