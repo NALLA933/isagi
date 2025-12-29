@@ -2,8 +2,11 @@ import shivu.mongodb_patch
 import importlib
 import asyncio
 import random
+import re
 import traceback
 from html import escape
+from collections import deque
+from time import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters, Application
 from telegram.error import BadRequest
@@ -11,21 +14,24 @@ from telegram.error import BadRequest
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 
+# MongoDB index conflict fix - prevents crashes from duplicate index creation
 from pymongo import collection as pymongo_collection
 from pymongo.errors import OperationFailure
 
+# Monkey-patch to prevent index conflicts from crashing the bot
 _orig_create_index = pymongo_collection.Collection.create_index
 
 def _safe_create_index(self, keys, **kwargs):
     try:
         return _orig_create_index(self, keys, **kwargs)
     except OperationFailure as e:
-        if e.code == 86:
+        if e.code == 86:  # IndexKeySpecsConflict
             LOGGER.debug(f"Index already exists on {self.name}, skipping")
             return None
         raise
 
 pymongo_collection.Collection.create_index = _safe_create_index
+
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -33,57 +39,50 @@ user_totals_collection = db['user_totals_lmaoooo']
 group_user_totals_collection = db['group_user_totalsssssss']
 top_global_groups_collection = db['top_global_groups']
 
-MESSAGE_FREQUENCY = 30  # Change this to test (e.g., 5 for testing)
+MESSAGE_FREQUENCY = 40
 DESPAWN_TIME = 180
 AMV_ALLOWED_GROUP_ID = -1003100468240
 
-# Use asyncio locks for thread safety
+locks = {}
 message_counts = {}
-spawn_locks = {}
 sent_characters = {}
 last_characters = {}
 first_correct_guesses = {}
 spawn_messages = {}
 spawn_message_links = {}
 currently_spawning = {}
-cached_characters = []
 
 spawn_settings_collection = None
 group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
-SPAWN_EMOJIS = ["🪽", "🪿", "🪻", "🪼", "🫎", "🫚", "🪭", "🫛", "🪯", "🐦‍⬛", "🫏", "🫷", "🧋", "🫧", "🪩"]
-
+# Import all modules
 for module_name in ALL_MODULES:
     try:
         importlib.import_module("shivu.modules." + module_name)
-        LOGGER.info(f"Module loaded: {module_name}")
+        LOGGER.info(f"✅ Module loaded: {module_name}")
     except Exception as e:
-        LOGGER.error(f"Module failed: {module_name} - {e}")
+        LOGGER.error(f"❌ Module failed: {module_name} - {e}")
 
-async def cache_characters():
-    global cached_characters
-    try:
-        cached_characters = list(await collection.find({}).to_list(length=None))
-        LOGGER.info(f"Cached {len(cached_characters)} characters")
-    except Exception as e:
-        LOGGER.error(f"Error caching characters: {e}")
 
 async def is_character_allowed(character, chat_id=None):
     try:
         if character.get('removed', False):
+            LOGGER.debug(f"Character {character.get('name')} is removed")
             return False
 
-        char_rarity = character.get('rarity', 'Common')
+        char_rarity = character.get('rarity', '🟢 Common')
         rarity_emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
         
         is_video = character.get('is_video', False)
         
         if is_video and rarity_emoji == '🎥':
             if chat_id == AMV_ALLOWED_GROUP_ID:
+                LOGGER.info(f"✅ AMV {character.get('name')} allowed in main group")
                 return True
             else:
+                LOGGER.debug(f"❌ AMV {character.get('name')} blocked in group {chat_id}")
                 return False
 
         if group_rarity_collection is not None and chat_id:
@@ -119,8 +118,25 @@ async def is_character_allowed(character, chat_id=None):
         return True
 
     except Exception as e:
-        LOGGER.error(f"Error in is_character_allowed: {e}")
+        LOGGER.error(f"Error in is_character_allowed: {e}\n{traceback.format_exc()}")
         return True
+
+
+async def get_chat_message_frequency(chat_id):
+    try:
+        chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
+        if chat_frequency:
+            return chat_frequency.get('message_frequency', MESSAGE_FREQUENCY)
+        else:
+            await user_totals_collection.insert_one({
+                'chat_id': str(chat_id),
+                'message_frequency': MESSAGE_FREQUENCY
+            })
+            return MESSAGE_FREQUENCY
+    except Exception as e:
+        LOGGER.error(f"Error in get_chat_message_frequency: {e}")
+        return MESSAGE_FREQUENCY
+
 
 async def update_grab_task(user_id: int):
     try:
@@ -133,6 +149,7 @@ async def update_grab_task(user_id: int):
     except Exception as e:
         LOGGER.error(f"Error in update_grab_task: {e}")
 
+
 async def despawn_character(chat_id, message_id, character, context):
     try:
         await asyncio.sleep(DESPAWN_TIME)
@@ -141,30 +158,27 @@ async def despawn_character(chat_id, message_id, character, context):
             last_characters.pop(chat_id, None)
             spawn_messages.pop(chat_id, None)
             spawn_message_links.pop(chat_id, None)
-            currently_spawning.pop(str(chat_id), None)
+            currently_spawning.pop(chat_id, None)
             return
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except BadRequest:
-            pass
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete spawn message: {e}")
 
-        rarity = character.get('rarity', 'Common')
-        rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else rarity
+        rarity = character.get('rarity', '🟢 Common')
+        rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else '🟢'
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
-        emoji1 = random.choice(SPAWN_EMOJIS)
-        emoji2 = random.choice(SPAWN_EMOJIS)
+        missed_caption = f"""⏰ ᴛɪᴍᴇ's ᴜᴘ! ʏᴏᴜ ᴀʟʟ ᴍɪssᴇᴅ ᴛʜɪs ᴡᴀɪғᴜ!
 
-        missed_caption = f"""<b><u>{emoji1} Time's Up {emoji2}</u></b>
+{rarity_emoji} ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
+⚡ ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
+🎯 ʀᴀʀɪᴛʏ: <b>{rarity}</b>
 
-<b>{rarity_emoji} Name:</b> <code>{character.get('name', 'Unknown')}</code>
-<b>🪼 Anime:</b> <code>{character.get('anime', 'Unknown')}</code>
-<b>🪯 Rarity:</b> <code>{rarity}</code>
-
-<i>{random.choice(SPAWN_EMOJIS)} This character has vanished into the void.</i>"""
+💔 ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"""
 
         if is_video:
             missed_msg = await context.bot.send_video(
@@ -185,18 +199,18 @@ async def despawn_character(chat_id, message_id, character, context):
         await asyncio.sleep(10)
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=missed_msg.message_id)
-        except BadRequest:
-            pass
+        except BadRequest as e:
+            LOGGER.warning(f"Could not delete missed message: {e}")
 
         last_characters.pop(chat_id, None)
         spawn_messages.pop(chat_id, None)
         spawn_message_links.pop(chat_id, None)
-        currently_spawning.pop(str(chat_id), None)
+        currently_spawning.pop(chat_id, None)
 
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
-    finally:
-        currently_spawning.pop(str(chat_id), None)
+        LOGGER.error(traceback.format_exc())
+
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
@@ -207,82 +221,72 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             return
 
         chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
         chat_id_str = str(chat_id)
-        
-        # Initialize lock for this chat if not exists
-        if chat_id_str not in spawn_locks:
-            spawn_locks[chat_id_str] = asyncio.Lock()
-        
-        # Initialize message counter if not exists
-        if chat_id_str not in message_counts:
-            message_counts[chat_id_str] = 0
-        
-        # Acquire lock to prevent race conditions
-        async with spawn_locks[chat_id_str]:
-            # Increment message count
+
+        if chat_id_str not in locks:
+            locks[chat_id_str] = asyncio.Lock()
+        lock = locks[chat_id_str]
+
+        async with lock:
+            if chat_id_str not in message_counts:
+                message_counts[chat_id_str] = 0
+
             message_counts[chat_id_str] += 1
             
-            # Log message info
-            msg_info = "unknown"
-            msg = update.message or update.edited_message
-            if msg:
-                if msg.text:
-                    msg_info = f"text: {msg.text[:20]}"
-                elif msg.sticker:
-                    msg_info = "sticker"
-                elif msg.photo:
-                    msg_info = "photo"
-                elif msg.video:
-                    msg_info = "video"
-                elif msg.animation:
-                    msg_info = "animation"
-                elif msg.document:
-                    msg_info = "document"
-                elif msg.audio:
-                    msg_info = "audio"
+            msg_content = "unknown"
+            if update.message:
+                if update.message.text:
+                    if update.message.text.startswith('/'):
+                        msg_content = f"command: {update.message.text.split()[0]}"
+                    else:
+                        msg_content = "text"
+                elif update.message.photo:
+                    msg_content = "photo"
+                elif update.message.video:
+                    msg_content = "video"
+                elif update.message.document:
+                    msg_content = "document"
+                elif update.message.sticker:
+                    msg_content = "sticker"
+                elif update.message.animation:
+                    msg_content = "animation"
+                elif update.message.voice:
+                    msg_content = "voice"
+                elif update.message.audio:
+                    msg_content = "audio"
+                elif update.message.video_note:
+                    msg_content = "video_note"
+                else:
+                    msg_content = "other_media"
             
-            LOGGER.info(f"CHAT {chat_id} | COUNT: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | TYPE: {msg_info}")
+            sender_type = "🤖bot" if update.effective_user.is_bot else "👤user"
             
-            # Check if we should spawn
+            LOGGER.info(f"📊 Chat {chat_id} | Count: {message_counts[chat_id_str]}/{MESSAGE_FREQUENCY} | {sender_type} {user_id} | {msg_content}")
+
             if message_counts[chat_id_str] >= MESSAGE_FREQUENCY:
-                # Check if not already spawning
-                if chat_id_str not in currently_spawning or not currently_spawning.get(chat_id_str, False):
-                    LOGGER.info(f"SPAWNING TRIGGERED IN CHAT {chat_id}")
-                    
-                    # Reset counter BEFORE spawning to avoid missing counts during spawn
-                    message_counts[chat_id_str] = 0
-                    
-                    # Mark as spawning
+                if chat_id_str not in currently_spawning or not currently_spawning[chat_id_str]:
+                    LOGGER.info(f"🎯 Triggering spawn in chat {chat_id} after {message_counts[chat_id_str]} messages")
                     currently_spawning[chat_id_str] = True
-                    
-                    # Trigger spawn in background
+                    message_counts[chat_id_str] = 0
                     asyncio.create_task(send_image(update, context))
                 else:
-                    LOGGER.warning(f"SPAWN ALREADY IN PROGRESS FOR CHAT {chat_id}")
+                    LOGGER.debug(f"⏭️ Spawn already in progress for chat {chat_id}, skipping")
 
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
         LOGGER.error(traceback.format_exc())
-        # Ensure spawning flag is cleared on error
-        if update.effective_chat:
-            currently_spawning[str(update.effective_chat.id)] = False
+
 
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
-    chat_id_str = str(chat_id)
 
     try:
-        # REMOVED: Loading message animation
-        # Now spawning directly without any loading message
-
-        if not cached_characters:
-            await cache_characters()
-
-        all_characters = cached_characters
+        all_characters = list(await collection.find({}).to_list(length=None))
 
         if not all_characters:
-            LOGGER.warning("No characters available")
-            currently_spawning[chat_id_str] = False
+            LOGGER.warning(f"No characters available for spawn in chat {chat_id}")
+            currently_spawning[str(chat_id)] = False
             return
 
         if chat_id not in sent_characters:
@@ -300,14 +304,18 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             available_characters = all_characters
             sent_characters[chat_id] = []
 
-        allowed_characters = [c for c in available_characters if await is_character_allowed(c, chat_id)]
+        allowed_characters = []
+        for char in available_characters:
+            if await is_character_allowed(char, chat_id):
+                allowed_characters.append(char)
 
         if not allowed_characters:
-            LOGGER.warning("No allowed characters")
-            currently_spawning[chat_id_str] = False
+            LOGGER.warning(f"No allowed characters for spawn in chat {chat_id}")
+            currently_spawning[str(chat_id)] = False
             return
 
         character = None
+        selected_rarity = None
 
         try:
             group_setting = None
@@ -321,7 +329,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
             rarity_pools = {}
             for char in allowed_characters:
-                char_rarity = char.get('rarity', 'Common')
+                char_rarity = char.get('rarity', '🟢 Common')
                 emoji = char_rarity.split(' ')[0] if isinstance(char_rarity, str) and ' ' in char_rarity else char_rarity
 
                 if emoji not in rarity_pools:
@@ -366,10 +374,11 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                     cumulative += choice['chance']
                     if rand <= cumulative:
                         character = random.choice(choice['chars'])
+                        selected_rarity = choice['emoji']
                         break
 
         except Exception as e:
-            LOGGER.error(f"Error in weighted selection: {e}")
+            LOGGER.error(f"Error in weighted selection: {e}\n{traceback.format_exc()}")
 
         if not character:
             character = random.choice(allowed_characters)
@@ -381,45 +390,39 @@ async def send_image(update: Update, context: CallbackContext) -> None:
             del first_correct_guesses[chat_id]
 
         rarity = character.get('rarity', 'Common')
-        rarity_emoji = rarity.split(' ')[0] if isinstance(rarity, str) and ' ' in rarity else rarity
+        if isinstance(rarity, str) and ' ' in rarity:
+            rarity_emoji = rarity.split(' ')[0]
+        else:
+            rarity_emoji = '🟢'
 
-        LOGGER.info(f"SPAWNED: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
+        LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        # REMOVED: Delete loading message (no longer exists)
+        caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
+/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
 
-        spawn_emoji1 = random.choice(SPAWN_EMOJIS)
-        spawn_emoji2 = random.choice(SPAWN_EMOJIS)
-        spawn_emoji3 = random.choice(SPAWN_EMOJIS)
-
-        caption = f"""<b><u>{spawn_emoji1} A Wild Character Appeared {spawn_emoji2}</u></b>
-
-<b>{spawn_emoji3} A mysterious character has spawned in the chat!</b>
-
-<b>🪼 Quick! Use:</b> <code>/grab [name]</code> or <code>/g [name]</code>
-<b>🪯 Time Limit:</b> <code>{DESPAWN_TIME // 60} minutes</code>
-
-<i>🫧 Will you be fast enough to claim this character?</i>"""
+⏰ ʏᴏᴜ ʜᴀᴠᴇ {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇs ᴛᴏ ɢʀᴀʙ!***"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
-        # SPAWN INSTANTLY - No loading animation
         if is_video:
             spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
                 video=media_url,
                 caption=caption,
-                parse_mode='HTML',
+                parse_mode='Markdown',
                 supports_streaming=True,
                 read_timeout=300,
-                write_timeout=300
+                write_timeout=300,
+                connect_timeout=60,
+                pool_timeout=60
             )
         else:
             spawn_msg = await context.bot.send_photo(
                 chat_id=chat_id,
                 photo=media_url,
                 caption=caption,
-                parse_mode='HTML',
+                parse_mode='Markdown',
                 read_timeout=180,
                 write_timeout=180
             )
@@ -430,17 +433,18 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         if chat_username:
             spawn_message_links[chat_id] = f"https://t.me/{chat_username}/{spawn_msg.message_id}"
         else:
-            chat_id_str_link = str(chat_id).replace('-100', '')
-            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str_link}/{spawn_msg.message_id}"
+            chat_id_str = str(chat_id).replace('-100', '')
+            spawn_message_links[chat_id] = f"https://t.me/c/{chat_id_str}/{spawn_msg.message_id}"
+
+        currently_spawning[str(chat_id)] = False
 
         asyncio.create_task(despawn_character(chat_id, spawn_msg.message_id, character, context))
 
     except Exception as e:
         LOGGER.error(f"Error in send_image: {e}")
         LOGGER.error(traceback.format_exc())
-    finally:
-        # Always clear the spawning flag
-        currently_spawning[chat_id_str] = False
+        currently_spawning[str(chat_id)] = False
+
 
 async def guess(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -448,37 +452,24 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
     try:
         if chat_id not in last_characters:
-            emoji = random.choice(SPAWN_EMOJIS)
-            await update.message.reply_html(
-                f'<b><u>{emoji} No Active Spawn</u></b>\n\n'
-                f'<i>🪼 No character has spawned yet. Wait for one to appear!</i>'
-            )
+            await update.message.reply_html('<b>ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs sᴘᴀᴡɴᴇᴅ ʏᴇᴛ!</b>')
             return
 
         if chat_id in first_correct_guesses:
-            emoji = random.choice(SPAWN_EMOJIS)
             await update.message.reply_html(
-                f'<b><u>{emoji} Already Claimed</u></b>\n\n'
-                f'<i>🫧 This character has been grabbed by someone else. Better luck next time!</i>'
+                '<b>🚫 ᴡᴀɪғᴜ ᴀʟʀᴇᴀᴅʏ ɢʀᴀʙʙᴇᴅ ʙʏ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ ⚡. ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ..!!</b>'
             )
             return
 
         guess_text = ' '.join(context.args).lower() if context.args else ''
 
         if not guess_text:
-            emoji = random.choice(SPAWN_EMOJIS)
-            await update.message.reply_html(
-                f'<b><u>{emoji} Missing Name</u></b>\n\n'
-                f'<b>🪼 Provide a character name!</b>\n\n'
-                f'<b>Example:</b> <code>/grab Naruto</code> or <code>/g Sasuke</code>'
-            )
+            await update.message.reply_html('<b>ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ɴᴀᴍᴇ!</b>')
             return
 
         if "()" in guess_text or "&" in guess_text:
-            emoji = random.choice(SPAWN_EMOJIS)
             await update.message.reply_html(
-                f'<b><u>{emoji} Invalid Input</u></b>\n\n'
-                f'<i>🪯 Special characters like (), & are not allowed.</i>'
+                "<b>ɴᴀʜʜ ʏᴏᴜ ᴄᴀɴ'ᴛ ᴜsᴇ ᴛʜɪs ᴛʏᴘᴇs ᴏғ ᴡᴏʀᴅs...❌</b>"
             )
             return
 
@@ -494,13 +485,13 @@ async def guess(update: Update, context: CallbackContext) -> None:
         if is_correct:
             first_correct_guesses[chat_id] = user_id
 
-            LOGGER.info(f"USER {user_id} GRABBED {character_name}")
+            LOGGER.info(f"✅ User {user_id} grabbed {character_name} in chat {chat_id}")
 
             if chat_id in spawn_messages:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=spawn_messages[chat_id])
-                except BadRequest:
-                    pass
+                except BadRequest as e:
+                    LOGGER.warning(f"Could not delete spawn message: {e}")
                 spawn_messages.pop(chat_id, None)
 
             user = await user_collection.find_one({'id': user_id})
@@ -585,36 +576,28 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 })
 
             character = last_characters[chat_id]
-            
             keyboard = [[
-                InlineKeyboardButton("🪼 View Harem", switch_inline_query_current_chat=f"collection.{user_id}")
+                InlineKeyboardButton(
+                    "🪼 ʜᴀʀᴇᴍ",
+                    switch_inline_query_current_chat=f"collection.{user_id}"
+                )
             ]]
 
-            rarity = character.get('rarity', 'Common')
+            rarity = character.get('rarity', '🟢 Common')
             if isinstance(rarity, str) and ' ' in rarity:
                 rarity_parts = rarity.split(' ', 1)
                 rarity_emoji = rarity_parts[0]
                 rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
             else:
-                rarity_emoji = rarity
+                rarity_emoji = '🟢'
                 rarity_text = rarity
 
-            emoji1 = random.choice(SPAWN_EMOJIS)
-            emoji2 = random.choice(SPAWN_EMOJIS)
-            emoji3 = random.choice(SPAWN_EMOJIS)
-
-            success_message = f"""<b><u>{emoji1} {emoji2} Congratulations {emoji2} {emoji1}</u></b>
-
-<b><a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a></b> <i>successfully grabbed a new character!</i>
-
-<b>🪼 Name:</b> <code>{character.get('name', 'Unknown')}</code>
-<b>{rarity_emoji} Rarity:</b> <code>{rarity_text}</code>
-<b>🪯 Anime:</b> <code>{character.get('anime', 'Unknown')}</code>
-
-<i>{emoji3} Character added to your collection!</i>"""
-
             await update.message.reply_text(
-                success_message,
+                f'Congratulations 🎊\n<b><a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a></b> You grabbed a new waifu!! ✅️\n\n'
+                f'🎀 𝙉𝙖𝙢𝙚: <code>{character.get("name", "Unknown")}</code>\n'
+                f'{rarity_emoji} 𝙍𝙖𝙧𝙞𝙩𝙮: <code>{rarity_text}</code>\n'
+                f'⚡ 𝘼𝙣𝙞𝙢𝙚: <code>{character.get("anime", "Unknown")}</code>\n\n'
+                f'✧⁠ Character successfully added in your harem',
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -625,14 +608,15 @@ async def guess(update: Update, context: CallbackContext) -> None:
             keyboard = []
             if chat_id in spawn_message_links:
                 keyboard.append([
-                    InlineKeyboardButton("🪭 View Spawn", url=spawn_message_links[chat_id])
+                    InlineKeyboardButton(
+                        "📍 ᴠɪᴇᴡ sᴘᴀᴡɴ ᴍᴇssᴀɢᴇ",
+                        url=spawn_message_links[chat_id]
+                    )
                 ])
 
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            
-            emoji = random.choice(SPAWN_EMOJIS)
             await update.message.reply_html(
-                f'<b><u>{emoji} Wrong Name</u></b>\n\n<i>🫧 That\'s not correct. Try again!</i>',
+                '<b>ᴘʟᴇᴀsᴇ ᴡʀɪᴛᴇ ᴀ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ..❌</b>',
                 reply_markup=reply_markup
             )
 
@@ -640,80 +624,82 @@ async def guess(update: Update, context: CallbackContext) -> None:
         LOGGER.error(f"Error in guess: {e}")
         LOGGER.error(traceback.format_exc())
 
+
 async def fix_my_db():
+    """Database indexes cleanup"""
     try:
         await collection.drop_index("id_1")
         await collection.drop_index("characters.id_1")
-        LOGGER.info("Database indexes cleaned")
+        LOGGER.info("✅ Database indexes cleaned up!")
     except Exception as e:
-        LOGGER.info(f"Index cleanup: {e}")
+        LOGGER.info(f"ℹ️ Index clean-up not required or failed: {e}")
+
 
 async def main():
+    """Main async entry point - single event loop for everything"""
     try:
+        # 1. Database cleanup
         await fix_my_db()
         
-        LOGGER.info("Caching all characters for instant spawning...")
-        await cache_characters()
-        
+        # 2. Load rarity system
         try:
             from shivu.modules.rarity import (
                 spawn_settings_collection as ssc,
                 group_rarity_collection as grc,
-                get_spawn_settings as gss,
-                get_group_exclusive as gge
+                get_spawn_settings,
+                get_group_exclusive
             )
             global spawn_settings_collection, group_rarity_collection, get_spawn_settings, get_group_exclusive
             spawn_settings_collection = ssc
             group_rarity_collection = grc
-            get_spawn_settings = gss
-            get_group_exclusive = gge
-            LOGGER.info("Rarity system loaded")
+            LOGGER.info("✅ Rarity system loaded")
         except Exception as e:
-            LOGGER.warning(f"Rarity system: {e}")
+            LOGGER.warning(f"⚠️ Rarity system not available: {e}")
 
+        # 3. Setup backup system
         try:
             from shivu.modules.backup import setup_backup_handlers
             setup_backup_handlers(application)
-            LOGGER.info("Backup system initialized")
+            LOGGER.info("✅ Backup system initialized")
         except Exception as e:
-            LOGGER.warning(f"Backup system: {e}")
+            LOGGER.warning(f"⚠️ Backup system not available: {e}")
 
+        # 4. Start Pyrogram client
         await shivuu.start()
-        LOGGER.info("Pyrogram started")
+        LOGGER.info("✅ Pyrogram client started")
 
+        # 5. Setup PTB handlers
         application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
-        
-        # IMPORTANT: Filter to count ALL messages including text, stickers, photos, videos, etc.
-        application.add_handler(
-            MessageHandler(
-                filters.ALL & ~filters.COMMAND,  # Count everything except commands
-                message_counter,
-                block=False
-            )
-        )
+        application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
+        # 6. Initialize and start PTB application
         await application.initialize()
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        LOGGER.info(f"BOT STARTED - INSTANT SPAWNS AFTER {MESSAGE_FREQUENCY} MESSAGES (ALL TYPES)")
+        LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
 
+        # 7. Keep bot running
+        # Loop ko chalta rakhne ke liye
         while True:
             await asyncio.sleep(3600)
 
     except Exception as e:
-        LOGGER.error(f"Fatal: {e}")
+        LOGGER.error(f"❌ Fatal Error: {e}")
         traceback.print_exc()
     finally:
-        LOGGER.info("Cleaning up")
+        # Cleanup on exit
+        LOGGER.info("Cleaning up...")
         try:
             await application.stop()
             await application.shutdown()
             await shivuu.stop()
         except Exception as e:
-            LOGGER.error(f"Cleanup error: {e}")
+            LOGGER.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
+    # YE SABSE IMPORTANT FIX HAI:
+    # Purane kisi bhi loop ko khatam karke ek fresh singleton loop banana
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -723,4 +709,4 @@ if __name__ == "__main__":
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        LOGGER.info("Bot stopped")
+        LOGGER.info("Bot stopped.")
