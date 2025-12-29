@@ -272,15 +272,8 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id_str = str(chat_id)
 
     try:
-        emoji1 = random.choice(SPAWN_EMOJIS)
-        emoji2 = random.choice(SPAWN_EMOJIS)
-        emoji3 = random.choice(SPAWN_EMOJIS)
-        
-        loading_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"<b>{emoji1} {emoji2} {emoji3} Spawning Character {emoji3} {emoji2} {emoji1}</b>",
-            parse_mode='HTML'
-        )
+        # REMOVED: Loading message animation
+        # Now spawning directly without any loading message
 
         if not cached_characters:
             await cache_characters()
@@ -289,10 +282,6 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if not all_characters:
             LOGGER.warning("No characters available")
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
-            except:
-                pass
             currently_spawning[chat_id_str] = False
             return
 
@@ -315,10 +304,6 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         if not allowed_characters:
             LOGGER.warning("No allowed characters")
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
-            except:
-                pass
             currently_spawning[chat_id_str] = False
             return
 
@@ -400,10 +385,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"SPAWNED: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=loading_msg.message_id)
-        except:
-            pass
+        # REMOVED: Delete loading message (no longer exists)
 
         spawn_emoji1 = random.choice(SPAWN_EMOJIS)
         spawn_emoji2 = random.choice(SPAWN_EMOJIS)
@@ -421,6 +403,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
+        # SPAWN INSTANTLY - No loading animation
         if is_video:
             spawn_msg = await context.bot.send_video(
                 chat_id=chat_id,
@@ -713,7 +696,7 @@ async def main():
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        LOGGER.info(f"BOT STARTED - SPAWNS AFTER {MESSAGE_FREQUENCY} MESSAGES (ALL TYPES)")
+        LOGGER.info(f"BOT STARTED - INSTANT SPAWNS AFTER {MESSAGE_FREQUENCY} MESSAGES (ALL TYPES)")
 
         while True:
             await asyncio.sleep(3600)
