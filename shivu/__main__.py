@@ -14,24 +14,21 @@ from telegram.error import BadRequest
 from shivu import db, shivuu, application, LOGGER
 from shivu.modules import ALL_MODULES
 
-# MongoDB index conflict fix - prevents crashes from duplicate index creation
 from pymongo import collection as pymongo_collection
 from pymongo.errors import OperationFailure
 
-# Monkey-patch to prevent index conflicts from crashing the bot
 _orig_create_index = pymongo_collection.Collection.create_index
 
 def _safe_create_index(self, keys, **kwargs):
     try:
         return _orig_create_index(self, keys, **kwargs)
     except OperationFailure as e:
-        if e.code == 86:  # IndexKeySpecsConflict
+        if e.code == 86:
             LOGGER.debug(f"Index already exists on {self.name}, skipping")
             return None
         raise
 
 pymongo_collection.Collection.create_index = _safe_create_index
-
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -57,14 +54,63 @@ group_rarity_collection = None
 get_spawn_settings = None
 get_group_exclusive = None
 
-# Import all modules
+FANCY_FONTS = {
+    'bold_serif': {
+        'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠', 'h': '𝐡',
+        'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧', 'o': '𝐨', 'p': '𝐩',
+        'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮', 'v': '𝐯', 'w': '𝐰', 'x': '𝐱',
+        'y': '𝐲', 'z': '𝐳', 'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅',
+        'G': '𝐆', 'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍',
+        'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔', 'V': '𝐕',
+        'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙'
+    },
+    'script': {
+        'a': '𝒶', 'b': '𝒷', 'c': '𝒸', 'd': '𝒹', 'e': '𝑒', 'f': '𝒻', 'g': '𝑔', 'h': '𝒽',
+        'i': '𝒾', 'j': '𝒿', 'k': '𝓀', 'l': '𝓁', 'm': '𝓂', 'n': '𝓃', 'o': '𝑜', 'p': '𝓅',
+        'q': '𝓆', 'r': '𝓇', 's': '𝓈', 't': '𝓉', 'u': '𝓊', 'v': '𝓋', 'w': '𝓌', 'x': '𝓍',
+        'y': '𝓎', 'z': '𝓏', 'A': '𝒜', 'B': '𝐵', 'C': '𝒞', 'D': '𝒟', 'E': '𝐸', 'F': '𝐹',
+        'G': '𝒢', 'H': '𝐻', 'I': '𝐼', 'J': '𝒥', 'K': '𝒦', 'L': '𝐿', 'M': '𝑀', 'N': '𝒩',
+        'O': '𝒪', 'P': '𝒫', 'Q': '𝒬', 'R': '𝑅', 'S': '𝒮', 'T': '𝒯', 'U': '𝒰', 'V': '𝒱',
+        'W': '𝒲', 'X': '𝒳', 'Y': '𝒴', 'Z': '𝒵'
+    }
+}
+
+SPAWN_TEMPLATES = [
+    "✨ 𝐀 𝐖𝐢𝐥𝐝 𝐖𝐚𝐢𝐟𝐮 𝐀𝐩𝐩𝐞𝐚𝐫𝐞𝐝! ✨",
+    "🌸 𝒜 𝑅𝒶𝓇𝑒 𝐵𝑒𝒶𝓊𝓉𝓎 𝐻𝒶𝓈 𝒜𝓇𝓇𝒾𝓋𝑒𝒹! 🌸",
+    "⚡ 𝐋𝐢𝐠𝐡𝐭𝐧𝐢𝐧𝐠 𝐒𝐭𝐫𝐢𝐤𝐞𝐬! 𝐀 𝐖𝐚𝐢𝐟𝐮 𝐀𝐩𝐩𝐞𝐚𝐫𝐬! ⚡",
+    "💫 𝒮𝓉𝒶𝓇𝒹𝓊𝓈𝓉 𝐹𝒶𝓁𝓁𝓈... 𝒜 𝒲𝒶𝒾𝒻𝓊 𝐸𝓂𝑒𝓇𝑔𝑒𝓈! 💫",
+    "🎭 𝐓𝐡𝐞 𝐒𝐭𝐚𝐠𝐞 𝐈𝐬 𝐒𝐞𝐭! 𝐀 𝐍𝐞𝐰 𝐂𝐡𝐚𝐫𝐚𝐜𝐭𝐞𝐫 𝐀𝐩𝐩𝐞𝐚𝐫𝐬! 🎭",
+]
+
+GRAB_SUCCESS_TEMPLATES = [
+    "🎊 𝐂𝐨𝐧𝐠𝐫𝐚𝐭𝐮𝐥𝐚𝐭𝐢𝐨𝐧𝐬! 🎊",
+    "🎉 𝒜𝓂𝒶𝓏𝒾𝓃𝑔! 🎉",
+    "✨ 𝐅𝐚𝐧𝐭𝐚𝐬𝐭𝐢𝐜! ✨",
+    "🌟 𝐈𝐧𝐜𝐫𝐞𝐝𝐢𝐛𝐥𝐞! 🌟",
+    "💎 𝐏𝐞𝐫𝐟𝐞𝐜𝐭! 💎",
+]
+
+ANIMATION_FRAMES = [
+    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+]
+
+SPARKLE_ANIMATIONS = [
+    "✦", "✧", "✨", "✦", "✧"
+]
+
+def convert_to_fancy(text, font_type='bold_serif'):
+    if font_type not in FANCY_FONTS:
+        return text
+    font = FANCY_FONTS[font_type]
+    return ''.join(font.get(c, c) for c in text)
+
 for module_name in ALL_MODULES:
     try:
         importlib.import_module("shivu.modules." + module_name)
         LOGGER.info(f"✅ Module loaded: {module_name}")
     except Exception as e:
         LOGGER.error(f"❌ Module failed: {module_name} - {e}")
-
 
 async def is_character_allowed(character, chat_id=None):
     try:
@@ -121,7 +167,6 @@ async def is_character_allowed(character, chat_id=None):
         LOGGER.error(f"Error in is_character_allowed: {e}\n{traceback.format_exc()}")
         return True
 
-
 async def get_chat_message_frequency(chat_id):
     try:
         chat_frequency = await user_totals_collection.find_one({'chat_id': str(chat_id)})
@@ -137,7 +182,6 @@ async def get_chat_message_frequency(chat_id):
         LOGGER.error(f"Error in get_chat_message_frequency: {e}")
         return MESSAGE_FREQUENCY
 
-
 async def update_grab_task(user_id: int):
     try:
         user = await user_collection.find_one({'id': user_id})
@@ -149,6 +193,14 @@ async def update_grab_task(user_id: int):
     except Exception as e:
         LOGGER.error(f"Error in update_grab_task: {e}")
 
+async def animate_spawn_message(context, chat_id, message_id, character):
+    try:
+        for i in range(3):
+            frame = SPARKLE_ANIMATIONS[i % len(SPARKLE_ANIMATIONS)]
+            await asyncio.sleep(0.5)
+            
+    except Exception as e:
+        LOGGER.debug(f"Animation error: {e}")
 
 async def despawn_character(chat_id, message_id, character, context):
     try:
@@ -172,13 +224,22 @@ async def despawn_character(chat_id, message_id, character, context):
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
-        missed_caption = f"""⏰ ᴛɪᴍᴇ's ᴜᴘ! ʏᴏᴜ ᴀʟʟ ᴍɪssᴇᴅ ᴛʜɪs ᴡᴀɪғᴜ!
+        char_name = convert_to_fancy(character.get('name', 'Unknown'), 'script')
+        anime_name = convert_to_fancy(character.get('anime', 'Unknown'), 'script')
 
-{rarity_emoji} ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
-⚡ ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
-🎯 ʀᴀʀɪᴛʏ: <b>{rarity}</b>
+        missed_caption = f"""╔══════════════════════╗
+  ⏰ 𝐓𝐈𝐌𝐄'𝐒 𝐔𝐏! ⏰
+╚══════════════════════╝
 
-💔 ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"""
+💔 𝒯𝒽𝒾𝓈 𝒷𝑒𝒶𝓊𝓉𝓎 𝒽𝒶𝓈 𝓋𝒶𝓃𝒾𝓈𝒽𝑒𝒹...
+
+{rarity_emoji} 𝐍𝐚𝐦𝐞: <b>{char_name}</b>
+⚡ 𝐀𝐧𝐢𝐦𝐞: <b>{anime_name}</b>
+🎯 𝐑𝐚𝐫𝐢𝐭𝐲: <b>{rarity}</b>
+
+╭─────────────────────╮
+│  💫 𝐁𝐞𝐭𝐭𝐞𝐫 𝐋𝐮𝐜𝐤 𝐍𝐞𝐱𝐭 𝐓𝐢𝐦𝐞! 💫  │
+╰─────────────────────╯"""
 
         if is_video:
             missed_msg = await context.bot.send_video(
@@ -210,7 +271,6 @@ async def despawn_character(chat_id, message_id, character, context):
     except Exception as e:
         LOGGER.error(f"Error in despawn_character: {e}")
         LOGGER.error(traceback.format_exc())
-
 
 async def message_counter(update: Update, context: CallbackContext) -> None:
     try:
@@ -276,7 +336,6 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         LOGGER.error(f"Error in message_counter: {e}")
         LOGGER.error(traceback.format_exc())
-
 
 async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -397,10 +456,25 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
-/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
+        spawn_header = random.choice(SPAWN_TEMPLATES)
+        char_name_fancy = convert_to_fancy(character.get('name', 'Unknown'), 'script')
+        
+        caption = f"""╔═══════════════════════╗
+{spawn_header}
+╚═══════════════════════╝
 
-⏰ ʏᴏᴜ ʜᴀᴠᴇ {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇs ᴛᴏ ɢʀᴀʙ!***"""
+✦━━━━━━━━━━━━━━━━━━━━✦
+
+{rarity_emoji} 𝐀 𝐌𝐲𝐬𝐭𝐞𝐫𝐢𝐨𝐮𝐬 𝐂𝐡𝐚𝐫𝐚𝐜𝐭𝐞𝐫 𝐀𝐩𝐩𝐞𝐚𝐫𝐬!
+
+╭─────────────────────╮
+│ 📝 𝐔𝐬𝐞: /grab [name]   │
+│ ⏰ 𝐓𝐢𝐦𝐞: {DESPAWN_TIME // 60} minutes      │
+╰─────────────────────╯
+
+✦━━━━━━━━━━━━━━━━━━━━✦
+
+💫 𝒲𝒾𝓁𝓁 𝓎𝑜𝓊 𝒷𝑒 𝓉𝒽𝑒 𝑜𝓃𝑒 𝓉𝑜 𝒸𝓁𝒶𝒾𝓂 𝓉𝒽𝒾𝓈 𝒷𝑒𝒶𝓊𝓉𝓎? 💫"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -445,32 +519,27 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         LOGGER.error(traceback.format_exc())
         currently_spawning[str(chat_id)] = False
 
-
 async def guess(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
     try:
         if chat_id not in last_characters:
-            await update.message.reply_html('<b>ɴᴏ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs sᴘᴀᴡɴᴇᴅ ʏᴇᴛ!</b>')
+            await update.message.reply_html('╔════════════════╗\n<b>⚠️ 𝐍𝐨 𝐀𝐜𝐭𝐢𝐯𝐞 𝐒𝐩𝐚𝐰𝐧</b>\n╚════════════════╝\n\n𝒩𝑜 𝒸𝒽𝒶𝓇𝒶𝒸𝓉𝑒𝓇 𝒽𝒶𝓈 𝓈𝓅𝒶𝓌𝓃𝑒𝒹 𝓎𝑒𝓉!')
             return
 
         if chat_id in first_correct_guesses:
-            await update.message.reply_html(
-                '<b>🚫 ᴡᴀɪғᴜ ᴀʟʀᴇᴀᴅʏ ɢʀᴀʙʙᴇᴅ ʙʏ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ ⚡. ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ..!!</b>'
-            )
+            await update.message.reply_html('╔═════════════════════╗\n<b>🚫 𝐀𝐥𝐫𝐞𝐚𝐝𝐲 𝐆𝐫𝐚𝐛𝐛𝐞𝐝</b>\n╚═════════════════════╝\n\n💔 𝒯𝒽𝒾𝓈 𝓌𝒶𝒾𝒻𝓊 𝒽𝒶𝓈 𝒶𝓁𝓇𝑒𝒶𝒹𝓎 𝒷𝑒𝑒𝓃 𝒸𝓁𝒶𝒾𝓂𝑒𝒹!\n\n✨ 𝐁𝐞𝐭𝐭𝐞𝐫 𝐥𝐮𝐜𝐤 𝐧𝐞𝐱𝐭 𝐭𝐢𝐦𝐞!')
             return
 
         guess_text = ' '.join(context.args).lower() if context.args else ''
 
         if not guess_text:
-            await update.message.reply_html('<b>ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ɴᴀᴍᴇ!</b>')
+            await update.message.reply_html('╔════════════════╗\n<b>❌ 𝐍𝐨 𝐍𝐚𝐦𝐞 𝐏𝐫𝐨𝐯𝐢𝐝𝐞𝐝</b>\n╚════════════════╝\n\n𝒫𝓁𝑒𝒶𝓈𝑒 𝓅𝓇𝑜𝓋𝒾𝒹𝑒 𝒶 𝒸𝒽𝒶𝓇𝒶𝒸𝓉𝑒𝓇 𝓃𝒶𝓂𝑒!\n\n📝 𝐄𝐱𝐚𝐦𝐩𝐥𝐞: /grab Naruto')
             return
 
         if "()" in guess_text or "&" in guess_text:
-            await update.message.reply_html(
-                "<b>ɴᴀʜʜ ʏᴏᴜ ᴄᴀɴ'ᴛ ᴜsᴇ ᴛʜɪs ᴛʏᴘᴇs ᴏғ ᴡᴏʀᴅs...❌</b>"
-            )
+            await update.message.reply_html("╔═══════════════════╗\n<b>⛔ 𝐈𝐧𝐯𝐚𝐥𝐢𝐝 𝐂𝐡𝐚𝐫𝐚𝐜𝐭𝐞𝐫𝐬</b>\n╚═══════════════════╝\n\n𝒮𝓅𝑒𝒸𝒾𝒶𝓁 𝒸𝒽𝒶𝓇𝒶𝒸𝓉𝑒𝓇𝓈 𝒶𝓇𝑒 𝓃𝑜𝓉 𝒶𝓁𝓁𝑜𝓌𝑒𝒹!")
             return
 
         character_name = last_characters[chat_id].get('name', '').lower()
@@ -576,11 +645,10 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 })
 
             character = last_characters[chat_id]
+            
             keyboard = [[
-                InlineKeyboardButton(
-                    "🪼 ʜᴀʀᴇᴍ",
-                    switch_inline_query_current_chat=f"collection.{user_id}"
-                )
+                InlineKeyboardButton("🪼 𝐕𝐢𝐞𝐰 𝐇𝐚𝐫𝐞𝐦", switch_inline_query_current_chat=f"collection.{user_id}"),
+                InlineKeyboardButton("📊 𝐒𝐭𝐚𝐭𝐬", callback_data=f"stats_{user_id}")
             ]]
 
             rarity = character.get('rarity', '🟢 Common')
@@ -592,12 +660,33 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 rarity_emoji = '🟢'
                 rarity_text = rarity
 
+            success_header = random.choice(GRAB_SUCCESS_TEMPLATES)
+            user_name = escape(update.effective_user.first_name)
+            char_name_fancy = convert_to_fancy(character.get('name', 'Unknown'), 'script')
+            anime_name_fancy = convert_to_fancy(character.get('anime', 'Unknown'), 'script')
+
+            success_message = f"""╔═══════════════════════════╗
+{success_header}
+╚═══════════════════════════╝
+
+✨ <b><a href="tg://user?id={user_id}">{user_name}</a></b> ✨
+
+𝒴𝑜𝓊'𝓋𝑒 𝓈𝓊𝒸𝒸𝑒𝓈𝓈𝒻𝓊𝓁𝓁𝓎 𝒸𝓁𝒶𝒾𝓂𝑒𝒹 𝒶 𝓃𝑒𝓌 𝓌𝒶𝒾𝒻𝓊!
+
+╭─────────────────────────╮
+│ 🎀 𝐍𝐚𝐦𝐞: <code>{char_name_fancy}</code>
+│ {rarity_emoji} 𝐑𝐚𝐫𝐢𝐭𝐲: <code>{rarity_text}</code>
+│ ⚡ 𝐀𝐧𝐢𝐦𝐞: <code>{anime_name_fancy}</code>
+╰─────────────────────────╯
+
+✦━━━━━━━━━━━━━━━━━━━━━━✦
+
+💎 𝐂𝐡𝐚𝐫𝐚𝐜𝐭𝐞𝐫 𝐚𝐝𝐝𝐞𝐝 𝐭𝐨 𝐲𝐨𝐮𝐫 𝐜𝐨𝐥𝐥𝐞𝐜𝐭𝐢𝐨𝐧!
+
+✦━━━━━━━━━━━━━━━━━━━━━━✦"""
+
             await update.message.reply_text(
-                f'Congratulations 🎊\n<b><a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a></b> You grabbed a new waifu!! ✅️\n\n'
-                f'🎀 𝙉𝙖𝙢𝙚: <code>{character.get("name", "Unknown")}</code>\n'
-                f'{rarity_emoji} 𝙍𝙖𝙧𝙞𝙩𝙮: <code>{rarity_text}</code>\n'
-                f'⚡ 𝘼𝙣𝙞𝙢𝙚: <code>{character.get("anime", "Unknown")}</code>\n\n'
-                f'✧⁠ Character successfully added in your harem',
+                success_message,
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -608,25 +697,26 @@ async def guess(update: Update, context: CallbackContext) -> None:
             keyboard = []
             if chat_id in spawn_message_links:
                 keyboard.append([
-                    InlineKeyboardButton(
-                        "📍 ᴠɪᴇᴡ sᴘᴀᴡɴ ᴍᴇssᴀɢᴇ",
-                        url=spawn_message_links[chat_id]
-                    )
+                    InlineKeyboardButton("📍 𝐕𝐢𝐞𝐰 𝐒𝐩𝐚𝐰𝐧", url=spawn_message_links[chat_id])
                 ])
 
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await update.message.reply_html(
-                '<b>ᴘʟᴇᴀsᴇ ᴡʀɪᴛᴇ ᴀ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ..❌</b>',
-                reply_markup=reply_markup
-            )
+            
+            wrong_message = """╔═══════════════════╗
+<b>❌ 𝐈𝐧𝐜𝐨𝐫𝐫𝐞𝐜𝐭 𝐍𝐚𝐦𝐞</b>
+╚═══════════════════╝
+
+𝒯𝒽𝒶𝓉'𝓈 𝓃𝑜𝓉 𝓉𝒽𝑒 𝒸𝑜𝓇𝓇𝑒𝒸𝓉 𝓃𝒶𝓂𝑒!
+
+💡 𝐓𝐫𝐲 𝐚𝐠𝐚𝐢𝐧!"""
+            
+            await update.message.reply_html(wrong_message, reply_markup=reply_markup)
 
     except Exception as e:
         LOGGER.error(f"Error in guess: {e}")
         LOGGER.error(traceback.format_exc())
 
-
 async def fix_my_db():
-    """Database indexes cleanup"""
     try:
         await collection.drop_index("id_1")
         await collection.drop_index("characters.id_1")
@@ -634,29 +724,26 @@ async def fix_my_db():
     except Exception as e:
         LOGGER.info(f"ℹ️ Index clean-up not required or failed: {e}")
 
-
 async def main():
-    """Main async entry point - single event loop for everything"""
     try:
-        # 1. Database cleanup
         await fix_my_db()
         
-        # 2. Load rarity system
         try:
             from shivu.modules.rarity import (
                 spawn_settings_collection as ssc,
                 group_rarity_collection as grc,
-                get_spawn_settings,
-                get_group_exclusive
+                get_spawn_settings as gss,
+                get_group_exclusive as gge
             )
             global spawn_settings_collection, group_rarity_collection, get_spawn_settings, get_group_exclusive
             spawn_settings_collection = ssc
             group_rarity_collection = grc
+            get_spawn_settings = gss
+            get_group_exclusive = gge
             LOGGER.info("✅ Rarity system loaded")
         except Exception as e:
             LOGGER.warning(f"⚠️ Rarity system not available: {e}")
 
-        # 3. Setup backup system
         try:
             from shivu.modules.backup import setup_backup_handlers
             setup_backup_handlers(application)
@@ -664,23 +751,20 @@ async def main():
         except Exception as e:
             LOGGER.warning(f"⚠️ Backup system not available: {e}")
 
-        # 4. Start Pyrogram client
         await shivuu.start()
         LOGGER.info("✅ Pyrogram client started")
 
-        # 5. Setup PTB handlers
         application.add_handler(CommandHandler(["grab", "g"], guess, block=False))
         application.add_handler(MessageHandler(filters.ALL, message_counter, block=False))
 
-        # 6. Initialize and start PTB application
         await application.initialize()
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
+        LOGGER.info("╔═══════════════════════════╗")
+        LOGGER.info("║  ✨ 𝐁𝐎𝐓 𝐒𝐓𝐀𝐑𝐓𝐄𝐃 ✨        ║")
+        LOGGER.info("╚═══════════════════════════╝")
 
-        # 7. Keep bot running
-        # Loop ko chalta rakhne ke liye
         while True:
             await asyncio.sleep(3600)
 
@@ -688,7 +772,6 @@ async def main():
         LOGGER.error(f"❌ Fatal Error: {e}")
         traceback.print_exc()
     finally:
-        # Cleanup on exit
         LOGGER.info("Cleaning up...")
         try:
             await application.stop()
@@ -698,8 +781,6 @@ async def main():
             LOGGER.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
-    # YE SABSE IMPORTANT FIX HAI:
-    # Purane kisi bhi loop ko khatam karke ek fresh singleton loop banana
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
