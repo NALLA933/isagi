@@ -40,9 +40,9 @@ async def add_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_id = update.effective_user.id
 
-    # Check if user is owner or sudo user
-    if user_id not in OWNERS and str(user_id) not in sudo_users:
-        await update.message.reply_text("❌ You don't have permission to use this command!")
+    # Check if user is owner (removed sudo_users check)
+    if user_id not in OWNERS:
+        await update.message.reply_text("❌ Access Denied! This command is strictly reserved for the Bot Owner.")
         return
 
     # Check if it's a reply to another user
