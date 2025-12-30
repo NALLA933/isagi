@@ -61,21 +61,6 @@ def to_small_caps(text):
         result.append(small_caps_map.get(char, char))
     return ''.join(result)
 
-# Markdown escaping function
-def escape_markdown(text: str) -> str:
-    """Escape special MarkdownV2 characters"""
-    if not text:
-        return text
-    
-    # Characters to escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    
-    # Escape each special character
-    for char in escape_chars:
-        text = text.replace(char, '\\' + char)
-    
-    return text
-
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
 user_totals_collection = db['user_totals_lmaoooo']
@@ -437,18 +422,12 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
-        # UPDATED SPAWN MESSAGE CAPTION WITH MARKDOWN ESCAPING
-        caption = """✨ ʟᴏᴏᴋ\! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
-✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ <ᴡᴀɪꜰᴜ\_ɴᴀᴍᴇ>
+        # UPDATED SPAWN MESSAGE CAPTION IN HTML MODE
+        # Using &lt; and &gt; for angle brackets to prevent HTML parsing errors
+        caption = """✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
+✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ &lt;ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ&gt;
 
-⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ\: 3 ᴍɪɴᴜᴛᴇꜱ\!"""
-
-        # Alternative HTML mode (if you prefer):
-        # caption = """✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
-        # ✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ &lt;ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ&gt;
-        # 
-        # ⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: 3 ᴍɪɴᴜᴛᴇꜱ!"""
-        # Then use parse_mode='HTML'
+⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: 3 ᴍɪɴᴜᴛᴇꜱ!"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -458,7 +437,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 chat_id=chat_id,
                 video=media_url,
                 caption=caption,
-                parse_mode='MarkdownV2',  # Fixed: Using MarkdownV2 with escaped characters
+                parse_mode='HTML',  # CHANGED: Using HTML mode for stability
                 supports_streaming=True,
                 read_timeout=300,
                 write_timeout=300,
@@ -470,7 +449,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 chat_id=chat_id,
                 photo=media_url,
                 caption=caption,
-                parse_mode='MarkdownV2',  # Fixed: Using MarkdownV2 with escaped characters
+                parse_mode='HTML',  # CHANGED: Using HTML mode for stability
                 read_timeout=180,
                 write_timeout=180
             )
