@@ -32,29 +32,49 @@ def _safe_create_index(self, keys, **kwargs):
 
 pymongo_collection.Collection.create_index = _safe_create_index
 
-# Small Caps Conversion Function
-def to_small_caps(text: str) -> str:
-    """Convert text to small caps unicode characters"""
+# Small caps conversion function
+def to_small_caps(text):
+    """Convert normal text to small caps unicode"""
     if not text:
-        return ""
+        return text
     
-    mapping = {
-        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ꜰ', 'g': 'ɢ',
-        'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ',
-        'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 'ꜱ', 't': 'ᴛ', 'u': 'ᴜ',
-        'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
-        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ꜰ', 'G': 'ɢ',
+    # Mapping for common characters to small caps
+    small_caps_map = {
+        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ', 
         'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ',
-        'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 'ꜱ', 'T': 'ᴛ', 'U': 'ᴜ',
+        'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ',
         'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ',
-        '0': '𝟶', '1': '𝟷', '2': '𝟸', '3': '𝟹', '4': '𝟺', '5': '𝟻', '6': '𝟼',
-        '7': '𝟽', '8': '𝟾', '9': '𝟿'
+        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ',
+        'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ',
+        'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ',
+        'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
+        ' ': ' ', '!': '!', '?': '?', ':': ':', '-': '-', '.': '.', ',': ',',
+        '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6',
+        '7': '7', '8': '8', '9': '9', '(': '(', ')': ')', '[': '[', ']': ']',
+        '{': '{', '}': '}', '@': '@', '#': '#', '$': '$', '%': '%', '^': '^',
+        '&': '&', '*': '*', '_': '_', '+': '+', '=': '=', '<': '<', '>': '>',
+        '/': '/', '\\': '\\', '|': '|', '~': '~', '`': '`', '"': '"', "'": "'"
     }
     
     result = []
     for char in str(text):
-        result.append(mapping.get(char, char))
+        result.append(small_caps_map.get(char, char))
     return ''.join(result)
+
+# Markdown escaping function
+def escape_markdown(text: str) -> str:
+    """Escape special MarkdownV2 characters"""
+    if not text:
+        return text
+    
+    # Characters to escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    
+    # Escape each special character
+    for char in escape_chars:
+        text = text.replace(char, '\\' + char)
+    
+    return text
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -195,11 +215,16 @@ async def despawn_character(chat_id, message_id, character, context):
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
 
+        # Escape character details for HTML
+        char_name = escape(character.get('name', 'Unknown'))
+        char_anime = escape(character.get('anime', 'Unknown'))
+        char_rarity = escape(rarity)
+
         missed_caption = f"""⏰ ᴛɪᴍᴇ's ᴜᴘ! ʏᴏᴜ ᴀʟʟ ᴍɪssᴇᴅ ᴛʜɪs ᴡᴀɪғᴜ!
 
-{rarity_emoji} ɴᴀᴍᴇ: <b>{character.get('name', 'Unknown')}</b>
-⚡ ᴀɴɪᴍᴇ: <b>{character.get('anime', 'Unknown')}</b>
-🎯 ʀᴀʀɪᴛʏ: <b>{rarity}</b>
+{rarity_emoji} ɴᴀᴍᴇ: <b>{char_name}</b>
+⚡ ᴀɴɪᴍᴇ: <b>{char_anime}</b>
+🎯 ʀᴀʀɪᴛʏ: <b>{char_rarity}</b>
 
 💔 ʙᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"""
 
@@ -412,12 +437,18 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
-        # UPDATED SPAWN MESSAGE
-        caption = """✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
-✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ <ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ>
+        # UPDATED SPAWN MESSAGE CAPTION WITH MARKDOWN ESCAPING
+        caption = """✨ ʟᴏᴏᴋ\! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
+✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ <ᴡᴀɪꜰᴜ\_ɴᴀᴍᴇ>
 
+⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ\: 3 ᴍɪɴᴜᴛᴇꜱ\!"""
 
-⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: 3 ᴍɪɴᴜᴛᴇꜱ!"""
+        # Alternative HTML mode (if you prefer):
+        # caption = """✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
+        # ✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ &lt;ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ&gt;
+        # 
+        # ⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: 3 ᴍɪɴᴜᴛᴇꜱ!"""
+        # Then use parse_mode='HTML'
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -427,7 +458,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 chat_id=chat_id,
                 video=media_url,
                 caption=caption,
-                parse_mode='Markdown',
+                parse_mode='MarkdownV2',  # Fixed: Using MarkdownV2 with escaped characters
                 supports_streaming=True,
                 read_timeout=300,
                 write_timeout=300,
@@ -439,7 +470,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
                 chat_id=chat_id,
                 photo=media_url,
                 caption=caption,
-                parse_mode='Markdown',
+                parse_mode='MarkdownV2',  # Fixed: Using MarkdownV2 with escaped characters
                 read_timeout=180,
                 write_timeout=180
             )
@@ -600,34 +631,31 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 )
             ]]
 
-            # UPDATED SUCCESS MESSAGE WITH BOXED DESIGN AND SMALL CAPS
+            # Get character details
+            character_name = character.get('name', 'Unknown')
+            anime = character.get('anime', 'Unknown')
             rarity = character.get('rarity', '🟢 Common')
-            if isinstance(rarity, str) and ' ' in rarity:
-                rarity_emoji = rarity.split(' ')[0]
-                rarity_text = rarity.split(' ', 1)[1] if len(rarity.split(' ', 1)) > 1 else 'Common'
-            else:
-                rarity_emoji = '🟢'
-                rarity_text = rarity
+            character_id = character.get('id', 'Unknown')
+            owner_name = update.effective_user.first_name
 
             # Convert to small caps
-            small_caps_name = to_small_caps(character.get('name', 'Unknown'))
-            small_caps_rarity = to_small_caps(rarity_text)
-            small_caps_anime = to_small_caps(character.get('anime', 'Unknown'))
-            small_caps_owner = to_small_caps(update.effective_user.first_name)
-            character_id = character.get('id', 'Unknown')
+            small_caps_character_name = to_small_caps(character_name)
+            small_caps_anime = to_small_caps(anime)
+            small_caps_rarity = to_small_caps(rarity)
+            small_caps_owner_name = to_small_caps(owner_name)
 
-            success_message = (
-                f"🎊 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴜɴʟᴏᴄᴋᴇᴅ 🎊\n"
-                f"╭════════•┈┈┈┈•════════╮\n"
-                f"┃ ✦ ɴᴀᴍᴇ: 𓂃ࣰࣲ {small_caps_name}\n"
-                f"┃ ✦ ʀᴀʀɪᴛʏ: {small_caps_rarity}\n"
-                f"┃ ✦ ᴀɴɪᴍᴇ: {small_caps_anime}\n"
-                f"┃ ✦ ɪᴅ: 🆔 {character_id}\n"
-                f"┃ ✦ ꜱᴛᴀᴛᴜꜱ: ᴀᴅᴅᴇᴅ ᴛᴏ ʜᴀʀᴇᴍ ✅\n"
-                f"┃ ✦ ᴏᴡɴᴇʀ: ✧ {small_caps_owner}\n"
-                f"╰════════•┈┈┈┈•════════╯\n\n"
-                f"✧ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✅"
-            )
+            # UPDATED SUCCESS MESSAGE WITH BOXED DESIGN AND HTML ESCAPING
+            success_message = f"""🎊 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴜɴʟᴏᴄᴋᴇᴅ 🎊
+╭════════•┈┈┈┈•════════╮
+┃ ✦ ɴᴀᴍᴇ: 𓂃ࣰࣲ {escape(small_caps_character_name)}
+┃ ✦ ʀᴀʀɪᴛʏ: {escape(small_caps_rarity)}
+┃ ✦ ᴀɴɪᴍᴇ: {escape(small_caps_anime)}
+┃ ✦ ɪᴅ: 🆔 {escape(str(character_id))}
+┃ ✦ ꜱᴛᴀᴛᴜꜱ: ᴀᴅᴅᴇᴅ ᴛᴏ ʜᴀʀᴇᴍ ✅
+┃ ✦ ᴏᴡɴᴇʀ: ✧ {escape(small_caps_owner_name)}
+╰════════•┈┈┈┈•════════╯
+
+✧ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✅"""
 
             await update.message.reply_text(
                 success_message,
@@ -713,6 +741,7 @@ async def main():
         LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
 
         # 7. Keep bot running
+        # Loop ko chalta rakhne ke liye
         while True:
             await asyncio.sleep(3600)
 
@@ -720,6 +749,7 @@ async def main():
         LOGGER.error(f"❌ Fatal Error: {e}")
         traceback.print_exc()
     finally:
+        # Cleanup on exit
         LOGGER.info("Cleaning up...")
         try:
             await application.stop()
@@ -729,6 +759,8 @@ async def main():
             LOGGER.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
+    # YE SABSE IMPORTANT FIX HAI:
+    # Purane kisi bhi loop ko khatam karke ek fresh singleton loop banana
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
