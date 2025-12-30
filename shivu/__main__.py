@@ -32,6 +32,29 @@ def _safe_create_index(self, keys, **kwargs):
 
 pymongo_collection.Collection.create_index = _safe_create_index
 
+# Small Caps Conversion Function
+def to_small_caps(text: str) -> str:
+    """Convert text to small caps unicode characters"""
+    if not text:
+        return ""
+    
+    mapping = {
+        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ꜰ', 'g': 'ɢ',
+        'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ',
+        'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 'ꜱ', 't': 'ᴛ', 'u': 'ᴜ',
+        'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
+        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ꜰ', 'G': 'ɢ',
+        'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ',
+        'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 'ꜱ', 'T': 'ᴛ', 'U': 'ᴜ',
+        'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ',
+        '0': '𝟶', '1': '𝟷', '2': '𝟸', '3': '𝟹', '4': '𝟺', '5': '𝟻', '6': '𝟼',
+        '7': '𝟽', '8': '𝟾', '9': '𝟿'
+    }
+    
+    result = []
+    for char in str(text):
+        result.append(mapping.get(char, char))
+    return ''.join(result)
 
 collection = db['anime_characters_lol']
 user_collection = db['user_collection_lmaoooo']
@@ -389,22 +412,12 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         if chat_id in first_correct_guesses:
             del first_correct_guesses[chat_id]
 
-        rarity = character.get('rarity', 'Common')
-        if isinstance(rarity, str) and ' ' in rarity:
-            rarity_emoji = rarity.split(' ')[0]
-        else:
-            rarity_emoji = '🟢'
+        # UPDATED SPAWN MESSAGE
+        caption = """✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
+✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — ᴛʏᴘᴇ /ɢʀᴀʙ <ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ>
 
-        LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        # MODIFICATION 1: Updated spawn message template
-        caption = f"""✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
-╭════════•┈┈┈┈•════════╮
-┃ ✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — 
-┃ ✦ ᴛʏᴘᴇ: /grab <ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ>
-┃ 
-┃ ⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇꜱ!
-╰════════•┈┈┈┈•════════╯"""
+⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: 3 ᴍɪɴᴜᴛᴇꜱ!"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -587,27 +600,34 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 )
             ]]
 
+            # UPDATED SUCCESS MESSAGE WITH BOXED DESIGN AND SMALL CAPS
             rarity = character.get('rarity', '🟢 Common')
             if isinstance(rarity, str) and ' ' in rarity:
-                rarity_parts = rarity.split(' ', 1)
-                rarity_emoji = rarity_parts[0]
-                rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
+                rarity_emoji = rarity.split(' ')[0]
+                rarity_text = rarity.split(' ', 1)[1] if len(rarity.split(' ', 1)) > 1 else 'Common'
             else:
                 rarity_emoji = '🟢'
                 rarity_text = rarity
 
-            # MODIFICATION 2: Updated success message template
-            success_message = f"""🎊 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴜɴʟᴏᴄᴋᴇᴅ 🎊
-╭════════•┈┈┈┈•════════╮
-┃ ✦ ɴᴀᴍᴇ: 𓂃ࣰࣲ {escape(character.get('name', 'Unknown'))}
-┃ ✦ ʀᴀʀɪᴛʏ: {rarity_emoji} {escape(rarity_text)}
-┃ ✦ ᴀɴɪᴍᴇ: {escape(character.get('anime', 'Unknown'))}
-┃ ✦ ɪᴅ: 🆔 {escape(str(character.get('id', 'Unknown')))}
-┃ ✦ ꜱᴛᴀᴛᴜꜱ: ᴀᴅᴅᴇᴅ ᴛᴏ ʜᴀʀᴇᴍ ✅
-┃ ✦ ᴏᴡɴᴇʀ: ✧ {escape(update.effective_user.first_name)}
-╰════════•┈┈┈┈•════════╯
+            # Convert to small caps
+            small_caps_name = to_small_caps(character.get('name', 'Unknown'))
+            small_caps_rarity = to_small_caps(rarity_text)
+            small_caps_anime = to_small_caps(character.get('anime', 'Unknown'))
+            small_caps_owner = to_small_caps(update.effective_user.first_name)
+            character_id = character.get('id', 'Unknown')
 
-✧ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✅"""
+            success_message = (
+                f"🎊 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴜɴʟᴏᴄᴋᴇᴅ 🎊\n"
+                f"╭════════•┈┈┈┈•════════╮\n"
+                f"┃ ✦ ɴᴀᴍᴇ: 𓂃ࣰࣲ {small_caps_name}\n"
+                f"┃ ✦ ʀᴀʀɪᴛʏ: {small_caps_rarity}\n"
+                f"┃ ✦ ᴀɴɪᴍᴇ: {small_caps_anime}\n"
+                f"┃ ✦ ɪᴅ: 🆔 {character_id}\n"
+                f"┃ ✦ ꜱᴛᴀᴛᴜꜱ: ᴀᴅᴅᴇᴅ ᴛᴏ ʜᴀʀᴇᴍ ✅\n"
+                f"┃ ✦ ᴏᴡɴᴇʀ: ✧ {small_caps_owner}\n"
+                f"╰════════•┈┈┈┈•════════╯\n\n"
+                f"✧ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✅"
+            )
 
             await update.message.reply_text(
                 success_message,
@@ -693,7 +713,6 @@ async def main():
         LOGGER.info("✅ ʏᴏɪᴄʜɪ ʀᴀɴᴅɪ ʙᴏᴛ sᴛᴀʀᴛᴇᴅ")
 
         # 7. Keep bot running
-        # Loop ko chalta rakhne ke liye
         while True:
             await asyncio.sleep(3600)
 
@@ -701,7 +720,6 @@ async def main():
         LOGGER.error(f"❌ Fatal Error: {e}")
         traceback.print_exc()
     finally:
-        # Cleanup on exit
         LOGGER.info("Cleaning up...")
         try:
             await application.stop()
@@ -711,8 +729,6 @@ async def main():
             LOGGER.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
-    # YE SABSE IMPORTANT FIX HAI:
-    # Purane kisi bhi loop ko khatam karke ek fresh singleton loop banana
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
