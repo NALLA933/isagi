@@ -397,10 +397,14 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 
         LOGGER.info(f"✨ Spawned character: {character.get('name')} ({rarity_emoji}) in chat {chat_id}")
 
-        caption = f"""***{rarity_emoji} ʟᴏᴏᴋ ᴀ ᴡᴀɪғᴜ ʜᴀs sᴘᴀᴡɴᴇᴅ !! ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀ's ʙʏ ɢɪᴠɪɴɢ
-/grab 𝚆𝚊𝚒𝚏𝚞 𝚗𝚊𝚖𝚎
-
-⏰ ʏᴏᴜ ʜᴀᴠᴇ {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇs ᴛᴏ ɢʀᴀʙ!***"""
+        # MODIFICATION 1: Updated spawn message template
+        caption = f"""✨ ʟᴏᴏᴋ! ᴀ ᴡᴀɪꜰᴜ ʜᴀꜱ ᴀᴘᴘᴇᴀʀᴇᴅ ✨
+╭════════•┈┈┈┈•════════╮
+┃ ✦ ᴍᴀᴋᴇ ʜᴇʀ ʏᴏᴜʀꜱ — 
+┃ ✦ ᴛʏᴘᴇ: /grab <ᴡᴀɪꜰᴜ_ɴᴀᴍᴇ>
+┃ 
+┃ ⏳ ᴛɪᴍᴇ ʟɪᴍɪᴛ: {DESPAWN_TIME // 60} ᴍɪɴᴜᴛᴇꜱ!
+╰════════•┈┈┈┈•════════╯"""
 
         is_video = character.get('is_video', False)
         media_url = character.get('img_url')
@@ -592,12 +596,21 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 rarity_emoji = '🟢'
                 rarity_text = rarity
 
+            # MODIFICATION 2: Updated success message template
+            success_message = f"""🎊 ᴄᴏɴɢʀᴀᴛᴜʟᴀᴛɪᴏɴs! ɴᴇᴡ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴜɴʟᴏᴄᴋᴇᴅ 🎊
+╭════════•┈┈┈┈•════════╮
+┃ ✦ ɴᴀᴍᴇ: 𓂃ࣰࣲ {escape(character.get('name', 'Unknown'))}
+┃ ✦ ʀᴀʀɪᴛʏ: {rarity_emoji} {escape(rarity_text)}
+┃ ✦ ᴀɴɪᴍᴇ: {escape(character.get('anime', 'Unknown'))}
+┃ ✦ ɪᴅ: 🆔 {escape(str(character.get('id', 'Unknown')))}
+┃ ✦ ꜱᴛᴀᴛᴜꜱ: ᴀᴅᴅᴇᴅ ᴛᴏ ʜᴀʀᴇᴍ ✅
+┃ ✦ ᴏᴡɴᴇʀ: ✧ {escape(update.effective_user.first_name)}
+╰════════•┈┈┈┈•════════╯
+
+✧ ᴄʜᴀʀᴀᴄᴛᴇʀ ꜱᴜᴄᴄᴇꜱꜰᴜʟʟʏ ᴀᴅᴅᴇᴅ ɪɴ ʏᴏᴜʀ ʜᴀʀᴇᴍ ✅"""
+
             await update.message.reply_text(
-                f'Congratulations 🎊\n<b><a href="tg://user?id={user_id}">{escape(update.effective_user.first_name)}</a></b> You grabbed a new waifu!! ✅️\n\n'
-                f'🎀 𝙉𝙖𝙢𝙚: <code>{character.get("name", "Unknown")}</code>\n'
-                f'{rarity_emoji} 𝙍𝙖𝙧𝙞𝙩𝙮: <code>{rarity_text}</code>\n'
-                f'⚡ 𝘼𝙣𝙞𝙢𝙚: <code>{character.get("anime", "Unknown")}</code>\n\n'
-                f'✧⁠ Character successfully added in your harem',
+                success_message,
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
