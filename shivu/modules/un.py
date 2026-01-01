@@ -75,16 +75,19 @@ async def ungrabbed_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 if is_video:
-                    media_group.append(InputMediaVideo(media=img_url))
+                    if i == 0:
+                        media_group.append(InputMediaVideo(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
+                    else:
+                        media_group.append(InputMediaVideo(media=img_url))
                 else:
-                    media_group.append(InputMediaPhoto(media=img_url))
+                    if i == 0:
+                        media_group.append(InputMediaPhoto(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
+                    else:
+                        media_group.append(InputMediaPhoto(media=img_url))
             except:
                 continue
         
         if media_group:
-            media_group[0].caption = caption
-            media_group[0].parse_mode = ParseMode.HTML
-            
             await update.message.reply_media_group(media_group)
             await update.message.reply_text(
                 f"Page 1 of {total_pages}",
@@ -119,22 +122,25 @@ async def ungrabbed_pagination(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard = build_navigation(page, total_pages)
         
         media_group = []
-        for char in page_chars:
+        for i, char in enumerate(page_chars):
             img_url = char.get('img_url', '')
             is_video = char.get('is_video', False)
             
             try:
                 if is_video:
-                    media_group.append(InputMediaVideo(media=img_url))
+                    if i == 0:
+                        media_group.append(InputMediaVideo(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
+                    else:
+                        media_group.append(InputMediaVideo(media=img_url))
                 else:
-                    media_group.append(InputMediaPhoto(media=img_url))
+                    if i == 0:
+                        media_group.append(InputMediaPhoto(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
+                    else:
+                        media_group.append(InputMediaPhoto(media=img_url))
             except:
                 continue
         
         if media_group:
-            media_group[0].caption = caption
-            media_group[0].parse_mode = ParseMode.HTML
-            
             await query.message.reply_media_group(media_group)
             await query.edit_message_text(
                 f"Page {page + 1} of {total_pages}",
@@ -147,5 +153,5 @@ async def ungrabbed_pagination(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(f"Error: {str(e)[:50]}")
 
 
-application.add_handler(CommandHandler("ungrabbed", ungrabbed_command, block=False))
+application.add_handler(CommandHandler("un", ungrabbed_command, block=False))
 application.add_handler(CallbackQueryHandler(ungrabbed_pagination, pattern=r"^ungrab_", block=False))
