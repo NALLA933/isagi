@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 
 from shivu import application, collection, user_collection
 
-CHARS_PER_PAGE = 10
+CHARS_PER_PAGE = 1
 
 
 async def get_ungrabbed_characters() -> List[dict]:
