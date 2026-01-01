@@ -7,8 +7,6 @@ from telegram.constants import ParseMode
 
 from shivu import application, collection, user_collection
 
-CHARS_PER_PAGE = 1
-
 
 async def get_ungrabbed_characters() -> List[dict]:
     all_chars = await collection.find({}).to_list(length=1000)
@@ -17,25 +15,21 @@ async def get_ungrabbed_characters() -> List[dict]:
     return ungrabbed[:1000]
 
 
-def format_caption(chars: List[dict], page: int, total_pages: int, total_chars: int) -> str:
-    caption = f"UNGRABBED CHARACTERS\n\n"
-    caption += f"Page {page + 1} of {total_pages}\n"
-    caption += f"Total ungrabbed: {total_chars}\n\n"
+def format_caption(char: dict, page: int, total: int) -> str:
+    rarity = char.get('rarity', 'Common')
+    rarity_parts = str(rarity).split(' ', 1)
+    rarity_emoji = rarity_parts[0] if rarity_parts else ''
+    rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
     
-    for i, char in enumerate(chars, 1):
-        rarity = char.get('rarity', 'Common')
-        rarity_parts = str(rarity).split(' ', 1)
-        rarity_emoji = rarity_parts[0] if rarity_parts else ''
-        rarity_text = rarity_parts[1] if len(rarity_parts) > 1 else 'Common'
-        
-        caption += (
-            f"{i}. ID: {char.get('id')}\n"
-            f"   Name: {escape(char.get('name', 'Unknown'))}\n"
-            f"   Anime: {escape(char.get('anime', 'Unknown'))}\n"
-            f"   Rarity: {rarity_emoji} {rarity_text}\n\n"
-        )
-    
-    return caption
+    return (
+        f"UNGRABBED CHARACTER\n\n"
+        f"ID: {char.get('id', 'Unknown')}\n"
+        f"Name: {escape(char.get('name', 'Unknown'))}\n"
+        f"Anime: {escape(char.get('anime', 'Unknown'))}\n"
+        f"Rarity: {rarity_emoji} {rarity_text}\n\n"
+        f"Page {page + 1} of {total}\n\n"
+        f"This character has never been grabbed"
+    )
 
 
 def build_navigation(page: int, total: int) -> InlineKeyboardMarkup:
@@ -61,40 +55,35 @@ async def ungrabbed_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "No ungrabbed characters found\n\nAll characters have been grabbed at least once"
             )
         
-        total_chars = len(ungrabbed)
-        total_pages = (total_chars + CHARS_PER_PAGE - 1) // CHARS_PER_PAGE
+        char = ungrabbed[0]
+        total = len(ungrabbed)
+        caption = format_caption(char, 0, total)
+        keyboard = build_navigation(0, total)
         
-        page_chars = ungrabbed[:CHARS_PER_PAGE]
-        caption = format_caption(page_chars, 0, total_pages, total_chars)
-        keyboard = build_navigation(0, total_pages)
+        img_url = char.get('img_url', '')
+        is_video = char.get('is_video', False)
         
-        media_group = []
-        for i, char in enumerate(page_chars):
-            img_url = char.get('img_url', '')
-            is_video = char.get('is_video', False)
-            
-            try:
-                if is_video:
-                    if i == 0:
-                        media_group.append(InputMediaVideo(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
-                    else:
-                        media_group.append(InputMediaVideo(media=img_url))
-                else:
-                    if i == 0:
-                        media_group.append(InputMediaPhoto(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
-                    else:
-                        media_group.append(InputMediaPhoto(media=img_url))
-            except:
-                continue
-        
-        if media_group:
-            await update.message.reply_media_group(media_group)
+        try:
+            if is_video:
+                await update.message.reply_video(
+                    video=img_url,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_photo(
+                    photo=img_url,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+        except:
             await update.message.reply_text(
-                f"Page 1 of {total_pages}",
-                reply_markup=keyboard
+                caption + f"\n\nMedia URL: {img_url}",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
             )
-        else:
-            await update.message.reply_text(caption, reply_markup=keyboard)
     
     except Exception as e:
         await update.message.reply_text(f"Error: {escape(str(e))}")
@@ -108,46 +97,30 @@ async def ungrabbed_pagination(update: Update, context: ContextTypes.DEFAULT_TYP
         page = int(query.data.split('_')[1])
         ungrabbed = await get_ungrabbed_characters()
         
-        total_chars = len(ungrabbed)
-        total_pages = (total_chars + CHARS_PER_PAGE - 1) // CHARS_PER_PAGE
+        total = len(ungrabbed)
         
-        if page >= total_pages:
+        if page >= total:
             return await query.answer("Page not found")
         
-        start_idx = page * CHARS_PER_PAGE
-        end_idx = start_idx + CHARS_PER_PAGE
-        page_chars = ungrabbed[start_idx:end_idx]
+        char = ungrabbed[page]
+        caption = format_caption(char, page, total)
+        keyboard = build_navigation(page, total)
         
-        caption = format_caption(page_chars, page, total_pages, total_chars)
-        keyboard = build_navigation(page, total_pages)
+        img_url = char.get('img_url', '')
+        is_video = char.get('is_video', False)
         
-        media_group = []
-        for i, char in enumerate(page_chars):
-            img_url = char.get('img_url', '')
-            is_video = char.get('is_video', False)
+        try:
+            if is_video:
+                media = InputMediaVideo(media=img_url, caption=caption, parse_mode=ParseMode.HTML)
+            else:
+                media = InputMediaPhoto(media=img_url, caption=caption, parse_mode=ParseMode.HTML)
             
-            try:
-                if is_video:
-                    if i == 0:
-                        media_group.append(InputMediaVideo(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
-                    else:
-                        media_group.append(InputMediaVideo(media=img_url))
-                else:
-                    if i == 0:
-                        media_group.append(InputMediaPhoto(media=img_url, caption=caption, parse_mode=ParseMode.HTML))
-                    else:
-                        media_group.append(InputMediaPhoto(media=img_url))
-            except:
-                continue
-        
-        if media_group:
-            await query.message.reply_media_group(media_group)
-            await query.edit_message_text(
-                f"Page {page + 1} of {total_pages}",
+            await query.edit_message_media(
+                media=media,
                 reply_markup=keyboard
             )
-        else:
-            await query.edit_message_text(caption, reply_markup=keyboard)
+        except Exception as e:
+            await query.answer(f"Error: {str(e)[:50]}", show_alert=True)
     
     except Exception as e:
         await query.answer(f"Error: {str(e)[:50]}")
