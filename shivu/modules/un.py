@@ -120,10 +120,10 @@ async def ungrabbed_pagination(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=keyboard
             )
         except Exception as e:
-            await query.answer(f"Error: {str(e)[:50]}", show_alert=True)
+            await query.answer(f"Error: {str(e)[:500]}", show_alert=True)
     
     except Exception as e:
-        await query.answer(f"Error: {str(e)[:50]}")
+        await query.answer(f"Error: {str(e)[:500]}")
 
 
 application.add_handler(CommandHandler("un", ungrabbed_command, block=False))
